@@ -145,8 +145,8 @@ class InstalledDatabaseRegistry {
   }
 
   /// Returns true if metadata has any Bible or Sermon entry.
-  /// Falls back to scanning for known filenames if metadata is empty.
-  Future<bool> hasAnyContent() async {
+  /// Optional legacy fallback scans known filenames when metadata is empty.
+  Future<bool> hasAnyContent({bool allowFileFallback = false}) async {
     try {
       final bibleCount = await countByType(DbType.bible);
       final sermonCount = await countByType(DbType.sermon);
@@ -154,7 +154,10 @@ class InstalledDatabaseRegistry {
     } catch (e) {
       debugPrint('InstalledDatabaseRegistry.hasAnyContent error: $e');
     }
-    return _fileScanFallback();
+    if (allowFileFallback) {
+      return _fileScanFallback();
+    }
+    return false;
   }
 
   /// Scans for known standard DB filenames as a fallback.

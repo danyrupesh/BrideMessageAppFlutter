@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'widgets/theme_picker_sheet.dart';
+import '../onboarding/onboarding_screen.dart';
 import '../search/providers/search_history_provider.dart';
 
 class SettingsScreen extends ConsumerWidget {
@@ -53,7 +54,13 @@ class SettingsScreen extends ConsumerWidget {
                   subtitle:
                       const Text('Manage Bible & Sermon databases on device'),
                   onTap: () {
-                    // TODO: Navigate to import management screen.
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const OnboardingScreen(
+                          showImportDirectly: true,
+                        ),
+                      ),
+                    );
                   },
                 ),
                 const Divider(height: 1),

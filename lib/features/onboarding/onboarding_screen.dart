@@ -8,14 +8,19 @@ import 'providers/downloader_provider.dart';
 // ─── Main screen ─────────────────────────────────────────────────────────────
 
 class OnboardingScreen extends ConsumerStatefulWidget {
-  const OnboardingScreen({super.key});
+  final bool showImportDirectly;
+
+  const OnboardingScreen({
+    super.key,
+    this.showImportDirectly = false,
+  });
 
   @override
   ConsumerState<OnboardingScreen> createState() => _OnboardingScreenState();
 }
 
 class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
-  bool _showImportDialog = false;
+  late bool _showImportDialog = widget.showImportDirectly;
 
   @override
   Widget build(BuildContext context) {
@@ -28,7 +33,9 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       });
     });
 
-    if (_showImportDialog || dlState.isActive || dlState.isComplete ||
+    if (_showImportDialog ||
+        dlState.isActive ||
+        dlState.isComplete ||
         dlState.error != null) {
       return Scaffold(
         appBar: AppBar(title: const Text('Setup Database')),
@@ -36,9 +43,15 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
           state: dlState,
           onDismiss: () {
             ref.read(downloaderProvider.notifier).reset();
-            setState(() => _showImportDialog = false);
+            if (widget.showImportDirectly) {
+              Navigator.of(context).pop();
+            } else {
+              setState(() => _showImportDialog = false);
+            }
           },
-          onImportComplete: () => context.go('/'),
+          onImportComplete: () {
+            ref.read(hasInstalledContentProvider.notifier).refresh();
+          },
         ),
       );
     }
@@ -93,17 +106,17 @@ class _MainImportOptions extends StatelessWidget {
                 'Welcome to\nBride Message',
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.headlineLarge?.copyWith(
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: -0.5,
-                    ),
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: -0.5,
+                ),
               ),
               const SizedBox(height: 12),
               Text(
                 'Import your spiritual databases to access Bible readings and sermon collections.',
                 textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                      color: cs.onSurfaceVariant,
-                    ),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyLarge?.copyWith(color: cs.onSurfaceVariant),
               ),
               const SizedBox(height: 40),
 
@@ -112,9 +125,7 @@ class _MainImportOptions extends StatelessWidget {
                 elevation: 0,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(16),
-                  side: BorderSide(
-                    color: cs.outline.withAlpha(50),
-                  ),
+                  side: BorderSide(color: cs.outline.withAlpha(50)),
                 ),
                 child: InkWell(
                   borderRadius: BorderRadius.circular(16),
@@ -143,26 +154,19 @@ class _MainImportOptions extends StatelessWidget {
                             children: [
                               Text(
                                 'Import / Download Database',
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .titleMedium
+                                style: Theme.of(context).textTheme.titleMedium
                                     ?.copyWith(fontWeight: FontWeight.w600),
                               ),
                               const SizedBox(height: 2),
                               Text(
                                 'Bible versions & sermon collections',
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .bodyMedium
+                                style: Theme.of(context).textTheme.bodyMedium
                                     ?.copyWith(color: cs.onSurfaceVariant),
                               ),
                             ],
                           ),
                         ),
-                        Icon(
-                          Icons.chevron_right,
-                          color: cs.onSurfaceVariant,
-                        ),
+                        Icon(Icons.chevron_right, color: cs.onSurfaceVariant),
                       ],
                     ),
                   ),
@@ -188,9 +192,9 @@ class _MainImportOptions extends StatelessWidget {
                 'You can always import your content later from the Settings menu.',
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: cs.outline,
-                      fontSize: 12,
-                    ),
+                  color: cs.outline,
+                  fontSize: 12,
+                ),
               ),
               const SizedBox(height: 24),
             ],
@@ -232,8 +236,7 @@ class _ImportDialog extends ConsumerWidget {
     return _buildOptions(context, ref, cs);
   }
 
-  Widget _buildOptions(
-      BuildContext context, WidgetRef ref, ColorScheme cs) {
+  Widget _buildOptions(BuildContext context, WidgetRef ref, ColorScheme cs) {
     return Padding(
       padding: const EdgeInsets.all(24),
       child: Column(
@@ -252,14 +255,16 @@ class _ImportDialog extends ConsumerWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Import All Databases',
-                            style: Theme.of(context)
-                                .textTheme
-                                .titleMedium
-                                ?.copyWith(fontWeight: FontWeight.bold)),
+                        Text(
+                          'Import All Databases',
+                          style: Theme.of(context).textTheme.titleMedium
+                              ?.copyWith(fontWeight: FontWeight.bold),
+                        ),
                         const SizedBox(height: 4),
-                        Text('Choose download or import option',
-                            style: Theme.of(context).textTheme.bodyMedium),
+                        Text(
+                          'Choose download or import option',
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        ),
                       ],
                     ),
                   ),
@@ -289,10 +294,12 @@ class _ImportDialog extends ConsumerWidget {
               const Expanded(child: Divider()),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 12),
-                child: Text('OR',
-                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                          color: cs.onSurfaceVariant,
-                        )),
+                child: Text(
+                  'OR',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.labelMedium?.copyWith(color: cs.onSurfaceVariant),
+                ),
               ),
               const Expanded(child: Divider()),
             ],
@@ -331,25 +338,25 @@ class _ImportDialog extends ConsumerWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Import file:',
-                    style: Theme.of(context)
-                        .textTheme
-                        .labelMedium
-                        ?.copyWith(fontWeight: FontWeight.bold)),
+                Text(
+                  'Import file:',
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
                 const SizedBox(height: 4),
-                Text('bridemessage_db_en-ta.zip',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          fontWeight: FontWeight.w600,
-                        )),
+                Text(
+                  'bridemessage_db_en-ta.zip',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600),
+                ),
               ],
             ),
           ),
 
           const Spacer(),
-          TextButton(
-            onPressed: onDismiss,
-            child: const Text('Cancel'),
-          ),
+          TextButton(onPressed: onDismiss, child: const Text('Cancel')),
         ],
       ),
     );
@@ -370,7 +377,9 @@ class _ImportDialog extends ConsumerWidget {
             style: Theme.of(context).textTheme.titleMedium,
           ),
           const SizedBox(height: 16),
-          LinearProgressIndicator(value: state.progress > 0 ? state.progress : null),
+          LinearProgressIndicator(
+            value: state.progress > 0 ? state.progress : null,
+          ),
           const SizedBox(height: 8),
           if (state.progress > 0)
             Text(
@@ -378,17 +387,13 @@ class _ImportDialog extends ConsumerWidget {
               style: Theme.of(context).textTheme.bodySmall,
             ),
           const Spacer(),
-          TextButton(
-            onPressed: onDismiss,
-            child: const Text('Background'),
-          ),
+          TextButton(onPressed: onDismiss, child: const Text('Background')),
         ],
       ),
     );
   }
 
-  Widget _buildSuccess(
-      BuildContext context, WidgetRef ref, ColorScheme cs) {
+  Widget _buildSuccess(BuildContext context, WidgetRef ref, ColorScheme cs) {
     return Padding(
       padding: const EdgeInsets.all(24),
       child: Column(
@@ -398,9 +403,9 @@ class _ImportDialog extends ConsumerWidget {
           const SizedBox(height: 24),
           Text(
             'Installation Complete!',
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                ),
+            style: Theme.of(
+              context,
+            ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 16),
           Container(
@@ -411,8 +416,7 @@ class _ImportDialog extends ConsumerWidget {
             ),
             child: Text(
               state.statusMessage,
-              style:
-                  Theme.of(context).textTheme.bodyMedium,
+              style: Theme.of(context).textTheme.bodyMedium,
               textAlign: TextAlign.center,
             ),
           ),
@@ -429,8 +433,7 @@ class _ImportDialog extends ConsumerWidget {
     );
   }
 
-  Widget _buildError(
-      BuildContext context, WidgetRef ref, ColorScheme cs) {
+  Widget _buildError(BuildContext context, WidgetRef ref, ColorScheme cs) {
     return Padding(
       padding: const EdgeInsets.all(24),
       child: Column(
@@ -441,9 +444,9 @@ class _ImportDialog extends ConsumerWidget {
           Text(
             'Import Failed',
             style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  color: cs.error,
-                ),
+              fontWeight: FontWeight.bold,
+              color: cs.error,
+            ),
           ),
           const SizedBox(height: 16),
           Container(
@@ -454,10 +457,9 @@ class _ImportDialog extends ConsumerWidget {
             ),
             child: Text(
               state.error!,
-              style: Theme.of(context)
-                  .textTheme
-                  .bodyMedium
-                  ?.copyWith(color: cs.onErrorContainer),
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: cs.onErrorContainer),
               textAlign: TextAlign.center,
             ),
           ),

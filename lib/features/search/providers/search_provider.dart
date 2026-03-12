@@ -14,6 +14,12 @@ enum SearchTab { bible, sermon, all }
 
 enum SearchType { all, exact, any, prefix }
 
+enum MatchMode { exactMatch, accurate }
+
+enum BibleScope { both, oldTest, newTest }
+
+enum SortOrder { bookOrder, relevance }
+
 // ─── State ────────────────────────────────────────────────────────────────────
 
 class SearchState {
@@ -24,6 +30,9 @@ class SearchState {
   final String? error;
   final SearchTab activeTab;
   final SearchType searchType;
+  final MatchMode matchMode;
+  final BibleScope bibleScope;
+  final SortOrder sortOrder;
   final String languageCode;
 
   SearchState({
@@ -34,6 +43,9 @@ class SearchState {
     this.error,
     this.activeTab = SearchTab.bible,
     this.searchType = SearchType.all,
+    this.matchMode = MatchMode.exactMatch,
+    this.bibleScope = BibleScope.both,
+    this.sortOrder = SortOrder.bookOrder,
     this.languageCode = 'en',
   });
 
@@ -45,6 +57,9 @@ class SearchState {
     String? error,
     SearchTab? activeTab,
     SearchType? searchType,
+    MatchMode? matchMode,
+    BibleScope? bibleScope,
+    SortOrder? sortOrder,
     String? languageCode,
   }) {
     return SearchState(
@@ -55,6 +70,9 @@ class SearchState {
       error: error,
       activeTab: activeTab ?? this.activeTab,
       searchType: searchType ?? this.searchType,
+      matchMode: matchMode ?? this.matchMode,
+      bibleScope: bibleScope ?? this.bibleScope,
+      sortOrder: sortOrder ?? this.sortOrder,
       languageCode: languageCode ?? this.languageCode,
     );
   }
@@ -101,6 +119,24 @@ class SearchNotifier extends Notifier<SearchState> {
     if (state.query.length > 2) _executeSearch(state.query);
   }
 
+  void updateMatchMode(MatchMode mode) {
+    if (state.matchMode == mode) return;
+    state = state.copyWith(matchMode: mode);
+    if (state.query.length > 2) _executeSearch(state.query);
+  }
+
+  void updateBibleScope(BibleScope scope) {
+    if (state.bibleScope == scope) return;
+    state = state.copyWith(bibleScope: scope);
+    if (state.query.length > 2) _executeSearch(state.query);
+  }
+
+  void updateSortOrder(SortOrder order) {
+    if (state.sortOrder == order) return;
+    state = state.copyWith(sortOrder: order);
+    if (state.query.length > 2) _executeSearch(state.query);
+  }
+
   void toggleLanguage() {
     final next = state.languageCode == 'en' ? 'ta' : 'en';
     state = state.copyWith(languageCode: next);
@@ -137,6 +173,9 @@ class SearchNotifier extends Notifier<SearchState> {
             exactMatch: isExact,
             anyWord: isAny,
             prefixOnly: isPrefix,
+            accurateMatch: state.matchMode == MatchMode.accurate,
+            scope: state.bibleScope.name,
+            sortOrder: state.sortOrder.name,
           );
           if (state.query == query) {
             state = state.copyWith(isLoading: false, bibleResults: matches);
@@ -158,6 +197,8 @@ class SearchNotifier extends Notifier<SearchState> {
             exactMatch: isExact,
             anyWord: isAny,
             prefixOnly: isPrefix,
+            accurateMatch: state.matchMode == MatchMode.accurate,
+            sortOrder: state.sortOrder.name,
           );
           if (state.query == query) {
             state = state.copyWith(isLoading: false, sermonResults: matches);

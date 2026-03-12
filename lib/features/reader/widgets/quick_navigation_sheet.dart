@@ -4,9 +4,18 @@ import '../providers/reader_provider.dart';
 
 // 12-color pastel palette cycled by book_index for visual variety.
 const _kBookColors = [
-  0xFFFCE6C9, 0xFFFDECD9, 0xFFFBE4E7, 0xFFEAF4FB,
-  0xFFE9EDF6, 0xFFEAC4EB, 0xFFEDB0F5, 0xFFD8ABB1,
-  0xFFD6EAF8, 0xFFD5F5E3, 0xFFFFF9C4, 0xFFFFE0B2,
+  0xFFFCE6C9,
+  0xFFFDECD9,
+  0xFFFBE4E7,
+  0xFFEAF4FB,
+  0xFFE9EDF6,
+  0xFFEAC4EB,
+  0xFFEDB0F5,
+  0xFFD8ABB1,
+  0xFFD6EAF8,
+  0xFFD5F5E3,
+  0xFFFFF9C4,
+  0xFFFFE0B2,
 ];
 
 class QuickNavigationSheet extends ConsumerStatefulWidget {
@@ -36,7 +45,6 @@ class _QuickNavigationSheetState extends ConsumerState<QuickNavigationSheet>
   bool _openInNewTab = false;
   Map<String, dynamic>? _selectedBook;
   int? _selectedChapter;
-  int? _selectedVerse; // optional, used only for display in breadcrumb
 
   @override
   void initState() {
@@ -58,7 +66,6 @@ class _QuickNavigationSheetState extends ConsumerState<QuickNavigationSheet>
     setState(() {
       _selectedBook = book;
       _selectedChapter = null;
-      _selectedVerse = null;
     });
     _pageController.animateToPage(
       1,
@@ -70,7 +77,6 @@ class _QuickNavigationSheetState extends ConsumerState<QuickNavigationSheet>
   void _onChapterSelected(int chapter) {
     setState(() {
       _selectedChapter = chapter;
-      _selectedVerse = null;
     });
     _pageController.animateToPage(
       2,
@@ -93,31 +99,99 @@ class _QuickNavigationSheetState extends ConsumerState<QuickNavigationSheet>
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final screenWidth = MediaQuery.of(context).size.width;
+    final maxSheetWidth = screenWidth >= 1200
+        ? 980.0
+        : screenWidth >= 900
+        ? 860.0
+        : double.infinity;
 
-    return Container(
-      height: MediaQuery.of(context).size.height * 0.9,
-      decoration: BoxDecoration(
-        color: theme.scaffoldBackgroundColor,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      child: Column(
-        children: [
-          _buildDragHandle(theme),
-          _buildHeader(),
-          Expanded(
-            child: PageView(
-              controller: _pageController,
-              physics: const NeverScrollableScrollPhysics(),
-              children: [
-                _buildBookSelectionPage(theme),
-                _buildChapterSelectionPage(theme),
-                _buildVerseSelectionPage(theme),
-              ],
-            ),
+    return Align(
+      alignment: Alignment.bottomCenter,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: maxSheetWidth),
+        child: Container(
+          height: MediaQuery.of(context).size.height * 0.9,
+          decoration: BoxDecoration(
+            color: theme.scaffoldBackgroundColor,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
           ),
-          _buildBottomAction(theme),
-        ],
+          child: Column(
+            children: [
+              _buildDragHandle(theme),
+              _buildHeader(),
+              Expanded(
+                child: PageView(
+                  controller: _pageController,
+                  physics: const NeverScrollableScrollPhysics(),
+                  children: [
+                    _buildBookSelectionPage(theme),
+                    _buildChapterSelectionPage(theme),
+                    _buildVerseSelectionPage(theme),
+                  ],
+                ),
+              ),
+              _buildBottomAction(theme),
+            ],
+          ),
+        ),
       ),
+    );
+  }
+
+  int _gridColumnsForWidth({
+    required double width,
+    required int mobile,
+    required int tablet,
+    required int desktop,
+    required int wideDesktop,
+  }) {
+    if (width >= 1200) return wideDesktop;
+    if (width >= 900) return desktop;
+    if (width >= 600) return tablet;
+    return mobile;
+  }
+
+  Widget _buildBooksGrid(List<Map<String, dynamic>> books, ThemeData theme) {
+    if (books.isEmpty) {
+      return const Center(child: Text('No books found.'));
+    }
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final crossAxisCount = _gridColumnsForWidth(
+          width: constraints.maxWidth,
+          mobile: 4,
+          tablet: 5,
+          desktop: 6,
+          wideDesktop: 7,
+        );
+        return GridView.builder(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: crossAxisCount,
+            childAspectRatio: 1.4,
+            crossAxisSpacing: 6,
+            mainAxisSpacing: 6,
+          ),
+          itemCount: books.length,
+          itemBuilder: (context, index) {
+            final book = books[index];
+            final bookIndex = book['book_index'] as int;
+            final colorCode = _kBookColors[bookIndex % _kBookColors.length];
+            return _BookTile(
+              name: book['book'] as String,
+              chapters: book['chapters'] as int,
+              colorCode: colorCode,
+              onTap: () => _onBookSelected({
+                'name': book['book'],
+                'chapters': book['chapters'],
+                'book_index': bookIndex,
+                'color': colorCode,
+              }),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -146,14 +220,17 @@ class _QuickNavigationSheetState extends ConsumerState<QuickNavigationSheet>
         final filtered = query.isEmpty
             ? allBooks
             : allBooks
-                .where(
-                    (b) => (b['book'] as String).toLowerCase().contains(query))
-                .toList();
+                  .where(
+                    (b) => (b['book'] as String).toLowerCase().contains(query),
+                  )
+                  .toList();
 
-        final otBooks =
-            filtered.where((b) => (b['book_index'] as int) <= 39).toList();
-        final ntBooks =
-            filtered.where((b) => (b['book_index'] as int) > 39).toList();
+        final otBooks = filtered
+            .where((b) => (b['book_index'] as int) <= 39)
+            .toList();
+        final ntBooks = filtered
+            .where((b) => (b['book_index'] as int) > 39)
+            .toList();
 
         return Column(
           children: [
@@ -196,17 +273,21 @@ class _QuickNavigationSheetState extends ConsumerState<QuickNavigationSheet>
           hintText: 'Search books',
           prefixIcon: const Icon(Icons.search, size: 20),
           isDense: true,
-          contentPadding:
-              const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+          contentPadding: const EdgeInsets.symmetric(
+            vertical: 8,
+            horizontal: 12,
+          ),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(10),
-            borderSide:
-                BorderSide(color: theme.colorScheme.outline.withAlpha(128)),
+            borderSide: BorderSide(
+              color: theme.colorScheme.outline.withAlpha(128),
+            ),
           ),
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(10),
-            borderSide:
-                BorderSide(color: theme.colorScheme.outline.withAlpha(128)),
+            borderSide: BorderSide(
+              color: theme.colorScheme.outline.withAlpha(128),
+            ),
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(10),
@@ -218,38 +299,6 @@ class _QuickNavigationSheetState extends ConsumerState<QuickNavigationSheet>
     );
   }
 
-  Widget _buildBooksGrid(List<Map<String, dynamic>> books, ThemeData theme) {
-    if (books.isEmpty) {
-      return const Center(child: Text('No books found.'));
-    }
-    return GridView.builder(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-        crossAxisCount: 4, // compact — was 3
-        childAspectRatio: 1.4,
-        crossAxisSpacing: 6,
-        mainAxisSpacing: 6,
-      ),
-      itemCount: books.length,
-      itemBuilder: (context, index) {
-        final book = books[index];
-        final bookIndex = book['book_index'] as int;
-        final colorCode = _kBookColors[bookIndex % _kBookColors.length];
-        return _BookTile(
-          name: book['book'] as String,
-          chapters: book['chapters'] as int,
-          colorCode: colorCode,
-          onTap: () => _onBookSelected({
-            'name': book['book'],
-            'chapters': book['chapters'],
-            'book_index': bookIndex,
-            'color': colorCode,
-          }),
-        );
-      },
-    );
-  }
-
   // ── Page 1: Chapter selection ─────────────────────────────────────────────
 
   Widget _buildChapterSelectionPage(ThemeData theme) {
@@ -258,8 +307,9 @@ class _QuickNavigationSheetState extends ConsumerState<QuickNavigationSheet>
     final bookName = _selectedBook!['name'] as String;
     final totalChapters = _selectedBook!['chapters'] as int;
     final isDark = theme.brightness == Brightness.dark;
-    final bookColor =
-        Color(_selectedBook!['color'] as int).withAlpha(isDark ? 77 : 200);
+    final bookColor = Color(
+      _selectedBook!['color'] as int,
+    ).withAlpha(isDark ? 77 : 200);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -270,49 +320,65 @@ class _QuickNavigationSheetState extends ConsumerState<QuickNavigationSheet>
           bookColor: bookColor,
           bookName: bookName,
           chapter: null,
-          onChangeBook: () => _pageController.animateToPage(0,
-              duration: const Duration(milliseconds: 280),
-              curve: Curves.easeInOut),
+          onChangeBook: () => _pageController.animateToPage(
+            0,
+            duration: const Duration(milliseconds: 280),
+            curve: Curves.easeInOut,
+          ),
         ),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
-          child: Text('Select Chapter',
-              style: TextStyle(
-                  color: theme.colorScheme.primary,
-                  fontWeight: FontWeight.w600,
-                  fontSize: 13)),
+          child: Text(
+            'Select Chapter',
+            style: TextStyle(
+              color: theme.colorScheme.primary,
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
+            ),
+          ),
         ),
         Expanded(
-          child: GridView.builder(
-            padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 6, // compact — was 5
-              childAspectRatio: 1.0,
-              crossAxisSpacing: 6,
-              mainAxisSpacing: 6,
-            ),
-            itemCount: totalChapters,
-            itemBuilder: (context, index) {
-              final chapterNumber = index + 1;
-              return InkWell(
-                onTap: () => _onChapterSelected(chapterNumber),
-                borderRadius: BorderRadius.circular(8),
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.surfaceContainerHighest
-                        .withAlpha(160),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  alignment: Alignment.center,
-                  child: Text(
-                    '$chapterNumber',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w600,
-                      fontSize: 14,
-                      color: theme.colorScheme.onSurface,
-                    ),
-                  ),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final crossAxisCount = _gridColumnsForWidth(
+                width: constraints.maxWidth,
+                mobile: 6,
+                tablet: 7,
+                desktop: 9,
+                wideDesktop: 10,
+              );
+              return GridView.builder(
+                padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: crossAxisCount,
+                  childAspectRatio: 1.0,
+                  crossAxisSpacing: 6,
+                  mainAxisSpacing: 6,
                 ),
+                itemCount: totalChapters,
+                itemBuilder: (context, index) {
+                  final chapterNumber = index + 1;
+                  return InkWell(
+                    onTap: () => _onChapterSelected(chapterNumber),
+                    borderRadius: BorderRadius.circular(8),
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.surfaceContainerHighest
+                            .withAlpha(160),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      alignment: Alignment.center,
+                      child: Text(
+                        '$chapterNumber',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w600,
+                          fontSize: 14,
+                          color: theme.colorScheme.onSurface,
+                        ),
+                      ),
+                    ),
+                  );
+                },
               );
             },
           ),
@@ -330,8 +396,9 @@ class _QuickNavigationSheetState extends ConsumerState<QuickNavigationSheet>
 
     final bookName = _selectedBook!['name'] as String;
     final isDark = theme.brightness == Brightness.dark;
-    final bookColor =
-        Color(_selectedBook!['color'] as int).withAlpha(isDark ? 77 : 200);
+    final bookColor = Color(
+      _selectedBook!['color'] as int,
+    ).withAlpha(isDark ? 77 : 200);
 
     final verseAsync = ref.watch(
       verseCountProvider((bookName, _selectedChapter!)),
@@ -346,61 +413,77 @@ class _QuickNavigationSheetState extends ConsumerState<QuickNavigationSheet>
           bookColor: bookColor,
           bookName: bookName,
           chapter: _selectedChapter,
-          onChangeBook: () => _pageController.animateToPage(0,
-              duration: const Duration(milliseconds: 280),
-              curve: Curves.easeInOut),
-          onChangeChapter: () => _pageController.animateToPage(1,
-              duration: const Duration(milliseconds: 280),
-              curve: Curves.easeInOut),
+          onChangeBook: () => _pageController.animateToPage(
+            0,
+            duration: const Duration(milliseconds: 280),
+            curve: Curves.easeInOut,
+          ),
+          onChangeChapter: () => _pageController.animateToPage(
+            1,
+            duration: const Duration(milliseconds: 280),
+            curve: Curves.easeInOut,
+          ),
         ),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
-          child: Text('Select Verse  (optional — tap to jump directly)',
-              style: TextStyle(
-                  color: theme.colorScheme.primary,
-                  fontWeight: FontWeight.w600,
-                  fontSize: 13)),
+          child: Text(
+            'Select Verse  (optional — tap to jump directly)',
+            style: TextStyle(
+              color: theme.colorScheme.primary,
+              fontWeight: FontWeight.w600,
+              fontSize: 13,
+            ),
+          ),
         ),
         Expanded(
           child: verseAsync.when(
             loading: () => const Center(child: CircularProgressIndicator()),
-            error: (e, _) =>
-                Center(child: Text('Error loading verses: $e')),
+            error: (e, _) => Center(child: Text('Error loading verses: $e')),
             data: (verseCount) {
               if (verseCount == 0) {
                 return const Center(child: Text('No verses found.'));
               }
-              return GridView.builder(
-                padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
-                gridDelegate:
-                    const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 7,
-                  childAspectRatio: 1.0,
-                  crossAxisSpacing: 5,
-                  mainAxisSpacing: 5,
-                ),
-                itemCount: verseCount,
-                itemBuilder: (context, index) {
-                  final verseNumber = index + 1;
-                  return InkWell(
-                    onTap: () => _onVerseSelected(verseNumber),
-                    borderRadius: BorderRadius.circular(6),
-                    child: Container(
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.surfaceContainerHighest
-                            .withAlpha(160),
-                        borderRadius: BorderRadius.circular(6),
-                      ),
-                      alignment: Alignment.center,
-                      child: Text(
-                        '$verseNumber',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w500,
-                          fontSize: 13,
-                          color: theme.colorScheme.onSurface,
-                        ),
-                      ),
+              return LayoutBuilder(
+                builder: (context, constraints) {
+                  final crossAxisCount = _gridColumnsForWidth(
+                    width: constraints.maxWidth,
+                    mobile: 7,
+                    tablet: 9,
+                    desktop: 11,
+                    wideDesktop: 12,
+                  );
+                  return GridView.builder(
+                    padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: crossAxisCount,
+                      childAspectRatio: 1.0,
+                      crossAxisSpacing: 5,
+                      mainAxisSpacing: 5,
                     ),
+                    itemCount: verseCount,
+                    itemBuilder: (context, index) {
+                      final verseNumber = index + 1;
+                      return InkWell(
+                        onTap: () => _onVerseSelected(verseNumber),
+                        borderRadius: BorderRadius.circular(6),
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.surfaceContainerHighest
+                                .withAlpha(160),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          alignment: Alignment.center,
+                          child: Text(
+                            '$verseNumber',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w500,
+                              fontSize: 13,
+                              color: theme.colorScheme.onSurface,
+                            ),
+                          ),
+                        ),
+                      );
+                    },
                   );
                 },
               );
@@ -427,8 +510,7 @@ class _QuickNavigationSheetState extends ConsumerState<QuickNavigationSheet>
       decoration: BoxDecoration(
         color: bookColor,
         borderRadius: BorderRadius.circular(10),
-        border:
-            Border.all(color: theme.colorScheme.outline.withAlpha(40)),
+        border: Border.all(color: theme.colorScheme.outline.withAlpha(40)),
       ),
       child: Row(
         children: [
@@ -443,13 +525,17 @@ class _QuickNavigationSheetState extends ConsumerState<QuickNavigationSheet>
                   child: Text(
                     bookName,
                     style: const TextStyle(
-                        fontWeight: FontWeight.bold, fontSize: 15),
+                      fontWeight: FontWeight.bold,
+                      fontSize: 15,
+                    ),
                   ),
                 ),
                 if (chapter != null) ...[
-                  Icon(Icons.chevron_right,
-                      size: 16,
-                      color: theme.colorScheme.onSurfaceVariant),
+                  Icon(
+                    Icons.chevron_right,
+                    size: 16,
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
                   // Chapter chip
                   GestureDetector(
                     onTap: onChangeChapter,
@@ -471,16 +557,14 @@ class _QuickNavigationSheetState extends ConsumerState<QuickNavigationSheet>
           // Back link
           TextButton(
             style: TextButton.styleFrom(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               minimumSize: Size.zero,
               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
             ),
             onPressed: chapter != null ? onChangeChapter : onChangeBook,
             child: Text(
               chapter != null ? 'Ch' : 'Book',
-              style: TextStyle(
-                  fontSize: 12, color: theme.colorScheme.primary),
+              style: TextStyle(fontSize: 12, color: theme.colorScheme.primary),
             ),
           ),
         ],
@@ -510,9 +594,10 @@ class _QuickNavigationSheetState extends ConsumerState<QuickNavigationSheet>
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          const Text('Quick Navigation',
-              style:
-                  TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+          const Text(
+            'Quick Navigation',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          ),
           IconButton(
             icon: const Icon(Icons.close),
             onPressed: () => Navigator.pop(context),
@@ -552,8 +637,7 @@ class _QuickNavigationSheetState extends ConsumerState<QuickNavigationSheet>
                   onChanged: (val) =>
                       setState(() => _openInNewTab = val ?? false),
                 ),
-                const Text('Open in new tab',
-                    style: TextStyle(fontSize: 15)),
+                const Text('Open in new tab', style: TextStyle(fontSize: 15)),
               ],
             ),
             SizedBox(
@@ -562,16 +646,16 @@ class _QuickNavigationSheetState extends ConsumerState<QuickNavigationSheet>
               child: ElevatedButton(
                 onPressed: canProceed
                     ? () => Navigator.pop(context, {
-                          'book': _selectedBook!['name'],
-                          'chapter': _selectedChapter,
-                          'verse': null,
-                          'newTab': _openInNewTab,
-                        })
+                        'book': _selectedBook!['name'],
+                        'chapter': _selectedChapter,
+                        'verse': null,
+                        'newTab': _openInNewTab,
+                      })
                     : null,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: theme.colorScheme.primary,
-                  disabledBackgroundColor:
-                      theme.colorScheme.onSurface.withAlpha(31),
+                  disabledBackgroundColor: theme.colorScheme.onSurface
+                      .withAlpha(31),
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(24),
                   ),

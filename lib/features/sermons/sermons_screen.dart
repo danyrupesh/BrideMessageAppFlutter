@@ -9,7 +9,9 @@ import '../common/widgets/cards.dart';
 import 'widgets/sermon_filters_sheet.dart';
 
 class SermonListScreen extends ConsumerStatefulWidget {
-  const SermonListScreen({super.key});
+  const SermonListScreen({super.key, this.autoResume = false});
+
+  final bool autoResume;
 
   @override
   ConsumerState<SermonListScreen> createState() => _SermonListScreenState();
@@ -19,6 +21,7 @@ class _SermonListScreenState extends ConsumerState<SermonListScreen> {
   final ScrollController _scrollController = ScrollController();
   final TextEditingController _searchController = TextEditingController();
   Timer? _debounce;
+  bool _autoResumeChecked = false;
 
   @override
   void initState() {
@@ -44,7 +47,18 @@ class _SermonListScreenState extends ConsumerState<SermonListScreen> {
   Widget build(BuildContext context) {
     final state = ref.watch(sermonListProvider);
     final yearsAsync = ref.watch(availableYearsProvider);
+    final flowState = ref.watch(sermonFlowProvider);
     final theme = Theme.of(context);
+
+    if (widget.autoResume && !_autoResumeChecked && flowState.isInitialized) {
+      _autoResumeChecked = true;
+      if (flowState.hasSermon) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          context.push('/sermon-reader');
+        });
+      }
+    }
 
     return Scaffold(
       appBar: AppBar(
@@ -160,25 +174,23 @@ class _SermonListScreenState extends ConsumerState<SermonListScreen> {
                     },
                   ),
                   const SizedBox(width: 8),
-                  ...years
-                      .map(
-                        (y) => Padding(
-                          padding: const EdgeInsets.only(right: 8.0),
-                          child: FilterChip(
-                            label: Text(y.toString()),
-                            selected: state.selectedYear == y,
-                            onSelected: (val) {
-                              ref
-                                  .read(sermonListProvider.notifier)
-                                  .filterSermons(
-                                    year: y,
-                                    query: _searchController.text,
-                                  );
-                            },
-                          ),
-                        ),
-                      )
-                      .toList(),
+                  ...years.map(
+                    (y) => Padding(
+                      padding: const EdgeInsets.only(right: 8.0),
+                      child: FilterChip(
+                        label: Text(y.toString()),
+                        selected: state.selectedYear == y,
+                        onSelected: (val) {
+                          ref
+                              .read(sermonListProvider.notifier)
+                              .filterSermons(
+                                year: y,
+                                query: _searchController.text,
+                              );
+                        },
+                      ),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -230,13 +242,14 @@ class _SermonListScreenState extends ConsumerState<SermonListScreen> {
                         date: sermon.date,
                         duration: sermon.duration,
                         location: sermon.location,
-                        metaRightBadge:
-                            sermon.year != null ? sermon.year.toString() : null,
+                        metaRightBadge: sermon.year?.toString(),
                         subtitle: sermon.totalParagraphs != null
                             ? '${sermon.totalParagraphs} ¶'
                             : null,
                         onTap: () {
-                          ref.read(sermonFlowProvider.notifier).openSermon(
+                          ref
+                              .read(sermonFlowProvider.notifier)
+                              .openSermon(
                                 ReaderTab(
                                   type: ReaderContentType.sermon,
                                   title: sermon.title,

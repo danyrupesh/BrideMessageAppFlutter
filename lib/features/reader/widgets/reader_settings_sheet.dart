@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../providers/reader_provider.dart';
 import '../providers/typography_provider.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/theme_provider.dart';
@@ -24,12 +25,11 @@ class ReaderSettingsSheet extends ConsumerStatefulWidget {
 }
 
 class _ReaderSettingsSheetState extends ConsumerState<ReaderSettingsSheet> {
-  bool _restoreTabs = true;
-
   @override
   Widget build(BuildContext context) {
     final typography = ref.watch(typographyProvider);
     final themeSettings = ref.watch(themeProvider);
+    final readerState = ref.watch(readerProvider);
 
     return Padding(
       padding: EdgeInsets.only(
@@ -171,12 +171,9 @@ class _ReaderSettingsSheetState extends ConsumerState<ReaderSettingsSheet> {
             contentPadding: EdgeInsets.zero,
             title: const Text('Restore Tabs'),
             subtitle: const Text('Restore tabs when navigating back'),
-            value: _restoreTabs,
-            onChanged: (val) {
-              setState(() {
-                _restoreTabs = val;
-              });
-            },
+            value: readerState.restoreTabs,
+            onChanged: (val) =>
+                ref.read(readerProvider.notifier).setRestoreTabs(val),
           ),
           SwitchListTile(
             contentPadding: EdgeInsets.zero,

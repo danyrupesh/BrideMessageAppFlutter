@@ -21,8 +21,7 @@ class SermonReaderScreen extends ConsumerStatefulWidget {
   const SermonReaderScreen({super.key});
 
   @override
-  ConsumerState<SermonReaderScreen> createState() =>
-      _SermonReaderScreenState();
+  ConsumerState<SermonReaderScreen> createState() => _SermonReaderScreenState();
 }
 
 class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
@@ -87,14 +86,17 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-                direction > 0 ? 'No next sermon.' : 'No previous sermon.'),
+              direction > 0 ? 'No next sermon.' : 'No previous sermon.',
+            ),
             duration: const Duration(seconds: 1),
           ),
         );
       }
       return;
     }
-    ref.read(sermonFlowProvider.notifier).addSermonTab(
+    ref
+        .read(sermonFlowProvider.notifier)
+        .addSermonTab(
           ReaderTab(
             type: ReaderContentType.sermon,
             title: adjacent.title,
@@ -169,7 +171,9 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
       backgroundColor: Colors.transparent,
       builder: (ctx) => SermonQuickNavSheet(
         onSelected: (sermon) {
-          ref.read(sermonFlowProvider.notifier).addSermonTab(
+          ref
+              .read(sermonFlowProvider.notifier)
+              .addSermonTab(
                 ReaderTab(
                   type: ReaderContentType.sermon,
                   title: sermon.title,
@@ -224,7 +228,9 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
   }
 
   void _openSermonFromResult(SermonSearchResult result) {
-    ref.read(sermonFlowProvider.notifier).addSermonTab(
+    ref
+        .read(sermonFlowProvider.notifier)
+        .addSermonTab(
           ReaderTab(
             type: ReaderContentType.sermon,
             title: result.title,
@@ -302,6 +308,21 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
       }
     });
     _scrollToCurrentMatch();
+  }
+
+  int? _currentOccurrenceForItem(int itemIndex) {
+    if (_matchVerseIndices.isEmpty) return null;
+    if (_currentMatchIndex < 0 ||
+        _currentMatchIndex >= _matchVerseIndices.length) {
+      return null;
+    }
+    if (_matchVerseIndices[_currentMatchIndex] != itemIndex) return null;
+
+    var count = 0;
+    for (var i = 0; i < _currentMatchIndex; i++) {
+      if (_matchVerseIndices[i] == itemIndex) count++;
+    }
+    return count;
   }
 
   void _scrollToCurrentMatch() {
@@ -412,6 +433,13 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     setState(() => _selectedParagraphIndices.clear());
   }
 
+  void _enterSearchMode() {
+    setState(() {
+      _isSearching = true;
+      _fabExpanded = false;
+    });
+  }
+
   // ── Highlighted text spans ────────────────────────────────────────────────
 
   List<TextSpan> _buildHighlightedSpans(
@@ -426,8 +454,10 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
       return [TextSpan(text: text, style: baseStyle)];
     }
     final query = _searchController.text;
-    final matches =
-        RegExp(query, caseSensitive: false).allMatches(text).toList();
+    final matches = RegExp(
+      query,
+      caseSensitive: false,
+    ).allMatches(text).toList();
     if (matches.isEmpty) return [TextSpan(text: text, style: baseStyle)];
 
     final spans = <TextSpan>[];
@@ -435,14 +465,17 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     int occurrenceCounter = 0;
     for (final match in matches) {
       if (match.start > start) {
-        spans.add(TextSpan(
-            text: text.substring(start, match.start), style: baseStyle));
+        spans.add(
+          TextSpan(text: text.substring(start, match.start), style: baseStyle),
+        );
       }
       final isCurrent = occurrenceCounter == currentOccurrenceIndex;
-      spans.add(TextSpan(
-        text: text.substring(match.start, match.end),
-        style: isCurrent ? currentMatchStyle : highlightStyle,
-      ));
+      spans.add(
+        TextSpan(
+          text: text.substring(match.start, match.end),
+          style: isCurrent ? currentMatchStyle : highlightStyle,
+        ),
+      );
       occurrenceCounter++;
       start = match.end;
     }
@@ -471,17 +504,23 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
         appBar: isFullscreen
             ? null
             : (_isSearching
-                ? _buildSearchAppBar(context)
-                : _buildDefaultAppBar(context, activeTab, flowState)),
+                  ? _buildSearchAppBar(context)
+                  : _buildDefaultAppBar(context, activeTab, flowState)),
         body: activeTab == null
             ? const Center(
-                child: Text('No sermon loaded. Return to sermon list.'))
+                child: Text('No sermon loaded. Return to sermon list.'),
+              )
             : _buildBody(activeTab, typographyState, flowState, isFullscreen),
         floatingActionButton:
-            (activeTab == null || isFullscreen) ? null : _buildSpeedDial(),
-        bottomNavigationBar: (!isFullscreen &&
+            (activeTab == null || isFullscreen || _isSearching)
+            ? null
+            : _buildSpeedDial(),
+        floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
+        bottomNavigationBar:
+            (!isFullscreen &&
                 !_hideBottomTabs &&
-                flowState.tabs.isNotEmpty)
+                flowState.tabs.isNotEmpty &&
+                !_isSearching)
             ? _buildBottomTabBar(context, flowState)
             : null,
       ),
@@ -531,8 +570,11 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
                       ref.read(typographyProvider.notifier).toggleFullscreen(),
                   child: const Padding(
                     padding: EdgeInsets.all(8),
-                    child: Icon(Icons.fullscreen_exit,
-                        color: Colors.white, size: 22),
+                    child: Icon(
+                      Icons.fullscreen_exit,
+                      color: Colors.white,
+                      size: 22,
+                    ),
                   ),
                 ),
               ),
@@ -560,17 +602,23 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
                     borderRadius: BorderRadius.circular(20),
                     onTap: () => setState(() => _hideBottomTabs = false),
                     child: const Padding(
-                      padding:
-                          EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 8,
+                      ),
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.expand_more,
-                              color: Colors.white, size: 18),
+                          Icon(
+                            Icons.expand_more,
+                            color: Colors.white,
+                            size: 18,
+                          ),
                           SizedBox(width: 4),
-                          Text('Show Tabs',
-                              style: TextStyle(
-                                  color: Colors.white, fontSize: 13)),
+                          Text(
+                            'Show Tabs',
+                            style: TextStyle(color: Colors.white, fontSize: 13),
+                          ),
                         ],
                       ),
                     ),
@@ -671,13 +719,11 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
             ),
           IconButton(
             icon: const Icon(Icons.keyboard_arrow_up),
-            onPressed:
-                _totalMatches == 0 ? null : () => _navigateToMatch(-1),
+            onPressed: _totalMatches == 0 ? null : () => _navigateToMatch(-1),
           ),
           IconButton(
             icon: const Icon(Icons.keyboard_arrow_down),
-            onPressed:
-                _totalMatches == 0 ? null : () => _navigateToMatch(1),
+            onPressed: _totalMatches == 0 ? null : () => _navigateToMatch(1),
           ),
         ],
         // "All Sermons" mode: show loading indicator while searching.
@@ -800,10 +846,11 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     // Subtitle metadata for the sermon tab.
     Widget titleWidget;
     if (!isOnBibleTab && activeTab?.sermonId != null) {
-      final sermonAsync =
-          ref.watch(sermonByIdProvider(activeTab!.sermonId!));
-      final SermonEntity? sermon =
-          sermonAsync.maybeWhen(data: (v) => v, orElse: () => null);
+      final sermonAsync = ref.watch(sermonByIdProvider(activeTab!.sermonId!));
+      final SermonEntity? sermon = sermonAsync.maybeWhen(
+        data: (v) => v,
+        orElse: () => null,
+      );
       final subtitle = sermon == null
           ? null
           : [
@@ -821,8 +868,9 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
             activeTab.title,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.titleMedium
-                ?.copyWith(fontWeight: FontWeight.bold),
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.bold,
+            ),
           ),
           if (subtitle != null)
             Text(
@@ -846,8 +894,10 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
         ),
       );
     } else {
-      titleWidget = Text(activeTab?.title ?? 'Sermon',
-          overflow: TextOverflow.ellipsis);
+      titleWidget = Text(
+        activeTab?.title ?? 'Sermon',
+        overflow: TextOverflow.ellipsis,
+      );
     }
 
     return AppBar(
@@ -865,8 +915,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
           ),
           IconButton(
             icon: const Icon(Icons.clear),
-            onPressed: () =>
-                setState(() => _selectedVerseNumbers.clear()),
+            onPressed: () => setState(() => _selectedVerseNumbers.clear()),
           ),
         ] else if (!isOnBibleTab && hasParagraphSelection) ...[
           IconButton(
@@ -879,13 +928,12 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
           ),
           IconButton(
             icon: const Icon(Icons.clear),
-            onPressed: () =>
-                setState(() => _selectedParagraphIndices.clear()),
+            onPressed: () => setState(() => _selectedParagraphIndices.clear()),
           ),
         ] else ...[
           IconButton(
             icon: const Icon(Icons.search),
-            onPressed: () => setState(() => _isSearching = true),
+            onPressed: _enterSearchMode,
           ),
           IconButton(
             icon: const Icon(Icons.home),
@@ -919,8 +967,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
               if (!mounted) return;
               setState(() {
                 _currentVerses = verses;
-                _verseKeys =
-                    List.generate(verses.length, (_) => GlobalKey());
+                _verseKeys = List.generate(verses.length, (_) => GlobalKey());
                 if (_isSearching && _searchController.text.isNotEmpty) {
                   _computeMatches(_searchController.text);
                 } else {
@@ -933,10 +980,12 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
                   if (!mounted || idx < 0 || idx >= _verseKeys.length) return;
                   final ctx = _verseKeys[idx].currentContext;
                   if (ctx != null) {
-                    Scrollable.ensureVisible(ctx,
-                        duration: const Duration(milliseconds: 400),
-                        curve: Curves.easeInOut,
-                        alignment: 0.2);
+                    Scrollable.ensureVisible(
+                      ctx,
+                      duration: const Duration(milliseconds: 400),
+                      curve: Curves.easeInOut,
+                      alignment: 0.2,
+                    );
                   }
                 });
               }
@@ -945,17 +994,18 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
 
           if (verses.isEmpty) {
             return const Center(
-                child: Text('No verses found in this chapter.'));
+              child: Text('No verses found in this chapter.'),
+            );
           }
 
           final cs = Theme.of(context).colorScheme;
           final baseStyle =
               Theme.of(context).textTheme.bodyLarge?.copyWith(
-                    fontSize: typography.fontSize,
-                    height: typography.lineHeight,
-                    fontFamily: typography.fontFamily,
-                  ) ??
-                  const TextStyle();
+                fontSize: typography.fontSize,
+                height: typography.lineHeight,
+                fontFamily: typography.fontFamily,
+              ) ??
+              const TextStyle();
           final highlightStyle = TextStyle(
             backgroundColor: cs.primaryContainer.withAlpha(180),
             color: cs.onPrimaryContainer,
@@ -969,25 +1019,18 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
           return ListView.builder(
             controller: _scrollController,
             padding: const EdgeInsets.symmetric(
-                horizontal: 16.0, vertical: 8.0),
+              horizontal: 16.0,
+              vertical: 8.0,
+            ),
             itemCount: verses.length,
             itemBuilder: (context, index) {
               final verse = verses[index];
-              final isSelected =
-                  _selectedVerseNumbers.contains(verse.verse);
+              final isSelected = _selectedVerseNumbers.contains(verse.verse);
               final key = index < _verseKeys.length
                   ? _verseKeys[index]
                   : GlobalKey();
 
-              int? currentOccurrence;
-              if (_matchVerseIndices.isNotEmpty &&
-                  _matchVerseIndices[_currentMatchIndex] == index) {
-                currentOccurrence = _currentMatchIndex -
-                    _matchVerseIndices
-                        .sublist(0, _currentMatchIndex)
-                        .where((vi) => vi == index)
-                        .length;
-              }
+              final currentOccurrence = _currentOccurrenceForItem(index);
 
               return GestureDetector(
                 key: key,
@@ -1001,7 +1044,9 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
                     borderRadius: BorderRadius.circular(8),
                   ),
                   padding: const EdgeInsets.symmetric(
-                      horizontal: 6, vertical: 4),
+                    horizontal: 6,
+                    vertical: 4,
+                  ),
                   margin: const EdgeInsets.only(bottom: 4),
                   child: RichText(
                     text: TextSpan(
@@ -1039,13 +1084,15 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
 
     // Sermon tab (index 0)
     if (tab.type == ReaderContentType.sermon && tab.sermonId != null) {
-      final asyncParagraphs =
-          ref.watch(sermonParagraphsProvider(tab.sermonId!));
+      final asyncParagraphs = ref.watch(
+        sermonParagraphsProvider(tab.sermonId!),
+      );
       return asyncParagraphs.when(
         data: (paragraphs) {
           if (paragraphs.isEmpty) {
             return const Center(
-                child: Text('No paragraphs found for this sermon.'));
+              child: Text('No paragraphs found for this sermon.'),
+            );
           }
 
           // Cache paragraphs and rebuild keys / match indices when content changes.
@@ -1054,8 +1101,10 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
               if (!mounted) return;
               setState(() {
                 _currentParagraphs = paragraphs;
-                _verseKeys =
-                    List.generate(paragraphs.length, (_) => GlobalKey());
+                _verseKeys = List.generate(
+                  paragraphs.length,
+                  (_) => GlobalKey(),
+                );
                 _selectedParagraphIndices.clear();
                 if (_isSearching &&
                     !_searchAllSermons &&
@@ -1071,11 +1120,11 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
           final cs = Theme.of(context).colorScheme;
           final baseStyle =
               Theme.of(context).textTheme.bodyLarge?.copyWith(
-                    fontSize: typography.fontSize,
-                    height: typography.lineHeight,
-                    fontFamily: typography.fontFamily,
-                  ) ??
-                  const TextStyle();
+                fontSize: typography.fontSize,
+                height: typography.lineHeight,
+                fontFamily: typography.fontFamily,
+              ) ??
+              const TextStyle();
           final highlightStyle = TextStyle(
             backgroundColor: cs.primaryContainer.withAlpha(180),
             color: cs.onPrimaryContainer,
@@ -1093,7 +1142,9 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
                 child: ListView.builder(
                   controller: _scrollController,
                   padding: const EdgeInsets.symmetric(
-                      horizontal: 16.0, vertical: 8.0),
+                    horizontal: 16.0,
+                    vertical: 8.0,
+                  ),
                   itemCount: paragraphs.length,
                   itemBuilder: (context, index) {
                     final paragraph = paragraphs[index];
@@ -1102,18 +1153,10 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
                         : GlobalKey();
 
                     // Compute which occurrence in this paragraph is the current match.
-                    int? currentOccurrence;
-                    if (_matchVerseIndices.isNotEmpty &&
-                        _matchVerseIndices[_currentMatchIndex] == index) {
-                      currentOccurrence = _currentMatchIndex -
-                          _matchVerseIndices
-                              .sublist(0, _currentMatchIndex)
-                              .where((pi) => pi == index)
-                              .length;
-                    }
+                    final currentOccurrence = _currentOccurrenceForItem(index);
 
-                    final isParagraphSelected =
-                        _selectedParagraphIndices.contains(index);
+                    final isParagraphSelected = _selectedParagraphIndices
+                        .contains(index);
                     return GestureDetector(
                       key: key,
                       onTap: () => _toggleParagraphSelection(index),
@@ -1126,7 +1169,9 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
                           borderRadius: BorderRadius.circular(8),
                         ),
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 6, vertical: 4),
+                          horizontal: 6,
+                          vertical: 4,
+                        ),
                         margin: const EdgeInsets.only(bottom: 8),
                         child: RichText(
                           text: TextSpan(
@@ -1166,8 +1211,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
       );
     }
 
-    return Center(
-        child: Text('Unsupported content type for ${tab.title}...'));
+    return Center(child: Text('Unsupported content type for ${tab.title}...'));
   }
 
   // ── All-sermons FTS results list ──────────────────────────────────────────
@@ -1208,7 +1252,8 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
         return Card(
           margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
           shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12)),
+            borderRadius: BorderRadius.circular(12),
+          ),
           child: InkWell(
             borderRadius: BorderRadius.circular(12),
             onTap: () => _openSermonFromResult(r),
@@ -1224,15 +1269,18 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
                         child: Text(
                           r.title,
                           style: theme.textTheme.titleSmall?.copyWith(
-                              fontWeight: FontWeight.bold),
+                            fontWeight: FontWeight.bold,
+                          ),
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
                       IconButton(
-                        icon: Icon(Icons.home_outlined,
-                            size: 20,
-                            color: theme.colorScheme.primary),
+                        icon: Icon(
+                          Icons.home_outlined,
+                          size: 20,
+                          color: theme.colorScheme.primary,
+                        ),
                         visualDensity: VisualDensity.compact,
                         padding: EdgeInsets.zero,
                         onPressed: () => _openSermonFromResult(r),
@@ -1244,7 +1292,8 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
                     Text(
                       meta,
                       style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant),
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
                     ),
                   ],
                   const SizedBox(height: 6),
@@ -1278,8 +1327,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
             icon: const Icon(Icons.chevron_left, size: 18),
             label: const Text('Previous'),
             style: TextButton.styleFrom(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
             ),
             onPressed: () => _openAdjacentSermon(-1),
@@ -1305,8 +1353,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
             label: const Text('Next'),
             iconAlignment: IconAlignment.end,
             style: TextButton.styleFrom(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
             ),
             onPressed: () => _openAdjacentSermon(1),
@@ -1318,133 +1365,146 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
 
   // ── Bottom tab bar ────────────────────────────────────────────────────────
 
-  Widget _buildBottomTabBar(
-      BuildContext context, SermonFlowState state) {
+  Widget _buildBottomTabBar(BuildContext context, SermonFlowState state) {
     final theme = Theme.of(context);
-    return BottomAppBar(
+    return Material(
       elevation: 8,
-      child: SizedBox(
-        height: 50,
-        child: Row(
-          children: [
-            // Scrollable tabs
-            Expanded(
-              child: ListView.builder(
-                scrollDirection: Axis.horizontal,
-                itemCount: state.tabs.length,
-                itemBuilder: (context, index) {
-                  final tab = state.tabs[index];
-                  final isActive = index == state.activeTabIndex;
-                  final isSermonTab = index == 0;
+      color: theme.colorScheme.surface,
+      child: SafeArea(
+        top: false,
+        child: Container(
+          decoration: BoxDecoration(
+            border: Border(
+              top: BorderSide(
+                color: theme.colorScheme.outlineVariant.withAlpha(80),
+              ),
+            ),
+          ),
+          child: SizedBox(
+            height: 50,
+            child: Row(
+              children: [
+                // Scrollable tabs
+                Expanded(
+                  child: ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: state.tabs.length,
+                    itemBuilder: (context, index) {
+                      final tab = state.tabs[index];
+                      final isActive = index == state.activeTabIndex;
+                      final isSermonTab = index == 0;
 
-                  return GestureDetector(
-                    onTap: () {
-                      ref
-                          .read(sermonFlowProvider.notifier)
-                          .switchTab(index);
-                      if (_scrollController.hasClients) {
-                        _scrollController.jumpTo(0);
-                      }
-                      setState(() {
-                        _selectedVerseNumbers.clear();
-                        _selectedParagraphIndices.clear();
-                        _isSearching = false;
-                        _searchController.clear();
-                        _clearMatches();
-                        _currentVerses = [];
-                      });
-                    },
-                    child: Container(
-                      margin: const EdgeInsets.symmetric(
-                          horizontal: 4, vertical: 4),
-                      padding:
-                          const EdgeInsets.symmetric(horizontal: 10),
-                      decoration: BoxDecoration(
-                        color: isActive
-                            ? theme.colorScheme.primaryContainer
-                            : Colors.transparent,
-                        borderRadius: BorderRadius.circular(16),
-                        border: Border.all(
-                          color: isActive
-                              ? theme.colorScheme.primary
-                              : theme.colorScheme.outline.withAlpha(128),
-                        ),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            isSermonTab
-                                ? Icons.headphones
-                                : Icons.menu_book_outlined,
-                            size: 14,
-                            color: isActive
-                                ? theme.colorScheme.onPrimaryContainer
-                                : theme.colorScheme.onSurfaceVariant,
+                      return GestureDetector(
+                        onTap: () {
+                          ref
+                              .read(sermonFlowProvider.notifier)
+                              .switchTab(index);
+                          if (_scrollController.hasClients) {
+                            _scrollController.jumpTo(0);
+                          }
+                          setState(() {
+                            _selectedVerseNumbers.clear();
+                            _selectedParagraphIndices.clear();
+                            _isSearching = false;
+                            _searchController.clear();
+                            _clearMatches();
+                            _currentVerses = [];
+                          });
+                        },
+                        child: Container(
+                          margin: const EdgeInsets.symmetric(
+                            horizontal: 4,
+                            vertical: 4,
                           ),
-                          const SizedBox(width: 4),
-                          Text(
-                            _shortenTitle(tab.title),
-                            style: TextStyle(
-                              fontWeight: isActive
-                                  ? FontWeight.bold
-                                  : FontWeight.normal,
+                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                          decoration: BoxDecoration(
+                            color: isActive
+                                ? theme.colorScheme.primaryContainer
+                                : Colors.transparent,
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
                               color: isActive
-                                  ? theme.colorScheme.onPrimaryContainer
-                                  : theme.colorScheme.onSurface,
+                                  ? theme.colorScheme.primary
+                                  : theme.colorScheme.outline.withAlpha(128),
                             ),
                           ),
-                          if (state.tabs.length > 1) ...[
-                            const SizedBox(width: 4),
-                            InkWell(
-                              onTap: () => ref
-                                  .read(sermonFlowProvider.notifier)
-                                  .closeTab(index),
-                              child: Icon(
-                                Icons.close,
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                isSermonTab
+                                    ? Icons.headphones
+                                    : Icons.menu_book_outlined,
                                 size: 14,
                                 color: isActive
                                     ? theme.colorScheme.onPrimaryContainer
-                                    : theme.colorScheme.onSurface,
+                                    : theme.colorScheme.onSurfaceVariant,
                               ),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-
-            // "+" opens sermon quick nav
-            IconButton(
-              icon: const Icon(Icons.add),
-              onPressed: _openSermonQuickNav,
-              visualDensity: VisualDensity.compact,
-            ),
-
-            // "⋮" three-dots popup
-            PopupMenuButton<String>(
-              icon: const Icon(Icons.more_vert),
-              itemBuilder: (_) => const [
-                PopupMenuItem(
-                  value: 'close_others',
-                  child: Text('Close Other Tabs'),
+                              const SizedBox(width: 4),
+                              Text(
+                                _shortenTitle(tab.title),
+                                style: TextStyle(
+                                  fontWeight: isActive
+                                      ? FontWeight.bold
+                                      : FontWeight.normal,
+                                  color: isActive
+                                      ? theme.colorScheme.onPrimaryContainer
+                                      : theme.colorScheme.onSurface,
+                                ),
+                              ),
+                              if (state.tabs.length > 1) ...[
+                                const SizedBox(width: 4),
+                                InkWell(
+                                  onTap: () => ref
+                                      .read(sermonFlowProvider.notifier)
+                                      .closeTab(index),
+                                  child: Icon(
+                                    Icons.close,
+                                    size: 14,
+                                    color: isActive
+                                        ? theme.colorScheme.onPrimaryContainer
+                                        : theme.colorScheme.onSurface,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
                 ),
-                PopupMenuItem(
-                  value: 'hide_tabs',
-                  child: Text('Hide Bottom Tabs'),
+
+                // "+" opens sermon quick nav
+                IconButton(
+                  icon: const Icon(Icons.add),
+                  onPressed: _openSermonQuickNav,
+                  visualDensity: VisualDensity.compact,
+                ),
+
+                // "⋮" three-dots popup
+                PopupMenuButton<String>(
+                  icon: const Icon(Icons.more_vert),
+                  itemBuilder: (_) => const [
+                    PopupMenuItem(
+                      value: 'close_others',
+                      child: Text('Close Other Tabs'),
+                    ),
+                    PopupMenuItem(
+                      value: 'hide_tabs',
+                      child: Text('Hide Bottom Tabs'),
+                    ),
+                  ],
+                  onSelected: (val) {
+                    if (val == 'close_others') _closeOtherTabs();
+                    if (val == 'hide_tabs') {
+                      setState(() => _hideBottomTabs = true);
+                    }
+                  },
                 ),
               ],
-              onSelected: (val) {
-                if (val == 'close_others') _closeOtherTabs();
-                if (val == 'hide_tabs') {
-                  setState(() => _hideBottomTabs = true);
-                }
-              },
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -1480,10 +1540,8 @@ class _FabOption extends StatelessWidget {
           borderRadius: BorderRadius.circular(8),
           elevation: 2,
           child: Padding(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            child: Text(label,
-                style: Theme.of(context).textTheme.labelMedium),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+            child: Text(label, style: Theme.of(context).textTheme.labelMedium),
           ),
         ),
         const SizedBox(width: 8),
@@ -1514,8 +1572,10 @@ class _NavIconButton extends StatelessWidget {
     final theme = Theme.of(context);
     return OutlinedButton.icon(
       icon: Icon(icon, size: 16),
-      label: Text(label,
-          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+      label: Text(
+        label,
+        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+      ),
       style: OutlinedButton.styleFrom(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         minimumSize: Size.zero,

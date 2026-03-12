@@ -6,10 +6,12 @@ import '../../features/history/history_screen.dart';
 import '../../features/onboarding/onboarding_screen.dart';
 import '../../features/reader/reader_screen.dart';
 import '../../features/search/search_screen.dart';
+import '../../features/search/search_help_screen.dart';
 import '../../features/sermons/sermons_screen.dart';
 import '../../features/sermons/sermon_reader_screen.dart';
 import '../../features/settings/settings_screen.dart';
-import '../../features/songs/songs_screen.dart';
+import '../../features/songs/songs_gate_screen.dart';
+import '../../features/songs/song_detail_screen.dart';
 import '../database/metadata/installed_content_provider.dart';
 
 /// Routes based on real installed-database content rather than a persisted flag.
@@ -51,10 +53,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: '/onboarding',
         builder: (context, state) => const OnboardingScreen(),
       ),
-      GoRoute(
-        path: '/',
-        builder: (context, state) => const DashboardScreen(),
-      ),
+      GoRoute(path: '/', builder: (context, state) => const DashboardScreen()),
       GoRoute(
         path: '/reader',
         builder: (context, state) => const ReaderScreen(),
@@ -65,7 +64,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: '/sermons',
-        builder: (context, state) => const SermonListScreen(),
+        builder: (context, state) {
+          final resume = state.uri.queryParameters['resume'] == '1';
+          return SermonListScreen(autoResume: resume);
+        },
       ),
       GoRoute(
         path: '/sermon-reader',
@@ -73,7 +75,19 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: '/songs',
-        builder: (context, state) => const SongsScreen(),
+        builder: (context, state) => const SongsGateScreen(),
+      ),
+      GoRoute(
+        path: '/song-detail',
+        builder: (context, state) {
+          final extra = state.extra;
+          final hymnNoFromExtra =
+              extra is int ? extra : null;
+          final hymnNoFromQuery =
+              int.tryParse(state.uri.queryParameters['hymnNo'] ?? '');
+          final hymnNo = hymnNoFromExtra ?? hymnNoFromQuery ?? 0;
+          return SongDetailScreen(hymnNo: hymnNo);
+        },
       ),
       GoRoute(
         path: '/history',
@@ -82,6 +96,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/settings',
         builder: (context, state) => const SettingsScreen(),
+      ),
+      GoRoute(
+        path: '/search-help',
+        builder: (context, state) => const SearchHelpScreen(),
       ),
     ],
   );

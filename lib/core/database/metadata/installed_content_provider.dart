@@ -16,7 +16,9 @@ class HasInstalledContentNotifier extends AsyncNotifier<bool> {
   @override
   Future<bool> build() async {
     if (_skippedThisSession) return true;
-    return ref.read(installedDbRegistryProvider).hasAnyContent();
+    return ref
+        .read(installedDbRegistryProvider)
+        .hasAnyContent(allowFileFallback: false);
   }
 
   /// Called after a successful import to force re-evaluation.
@@ -24,7 +26,9 @@ class HasInstalledContentNotifier extends AsyncNotifier<bool> {
     _skippedThisSession = false;
     state = const AsyncLoading();
     state = AsyncData(
-      await ref.read(installedDbRegistryProvider).hasAnyContent(),
+      await ref
+          .read(installedDbRegistryProvider)
+          .hasAnyContent(allowFileFallback: false),
     );
   }
 
@@ -38,17 +42,17 @@ class HasInstalledContentNotifier extends AsyncNotifier<bool> {
 
 final hasInstalledContentProvider =
     AsyncNotifierProvider<HasInstalledContentNotifier, bool>(
-  HasInstalledContentNotifier.new,
-);
+      HasInstalledContentNotifier.new,
+    );
 
 /// Resolves the default installed database for a given (type, language) pair.
 final defaultInstalledDbProvider =
     FutureProvider.family<InstalledDatabase?, (DbType, String)>((
-  ref,
-  args,
-) async {
-  final registry = ref.read(installedDbRegistryProvider);
-  // Try metadata default first, then any match for that language.
-  return await registry.getDefault(args.$1, args.$2) ??
-      await registry.getFirstByTypeAndLanguage(args.$1, args.$2);
-});
+      ref,
+      args,
+    ) async {
+      final registry = ref.read(installedDbRegistryProvider);
+      // Try metadata default first, then any match for that language.
+      return await registry.getDefault(args.$1, args.$2) ??
+          await registry.getFirstByTypeAndLanguage(args.$1, args.$2);
+    });

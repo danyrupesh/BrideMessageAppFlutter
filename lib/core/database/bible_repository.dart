@@ -49,6 +49,9 @@ class BibleRepository {
     bool exactMatch = false,
     bool anyWord = false,
     bool prefixOnly = false,
+    bool accurateMatch = false,
+    String scope = 'both',
+    String sortOrder = 'bookOrder',
   }) async {
     final matchPattern = FtsQueryBuilder.buildMatchQuery(
       query,
@@ -64,6 +67,8 @@ class BibleRepository {
       limit: limit,
       offset: offset,
       bookFilters: bookFilters,
+      scope: scope,
+      sortOrder: sortOrder,
     );
   }
 
@@ -94,6 +99,7 @@ class BibleRepository {
   Future<int> countSearchResults(
     String query, {
     List<String>? bookFilters,
+    String scope = 'both',
   }) async {
     final matchPattern = FtsQueryBuilder.buildMatchQuery(query);
     final path = await _dbManager.getDatabasePath(dbFileName);
@@ -101,6 +107,7 @@ class BibleRepository {
       dbPath: path,
       matchPattern: matchPattern,
       bookFilters: bookFilters,
+      scope: scope,
     );
   }
 }

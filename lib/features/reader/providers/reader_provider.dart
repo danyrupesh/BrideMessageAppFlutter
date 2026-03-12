@@ -1,5 +1,11 @@
+import 'dart:convert';
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../models/reader_tab.dart';
+import '../../reading_state/models/reading_flow_models.dart';
+import '../../reading_state/providers/reading_state_provider.dart';
 
 import '../../../core/database/bible_repository.dart';
 import '../../../core/database/database_manager.dart';
@@ -12,15 +18,33 @@ import '../../../core/database/metadata/installed_database_model.dart';
 class ReaderState {
   final List<ReaderTab> tabs;
   final int activeTabIndex;
+  final bool restoreTabs;
+  final bool isInitialized;
 
-  ReaderState({required this.tabs, required this.activeTabIndex});
+  ReaderState({
+    required this.tabs,
+    required this.activeTabIndex,
+    required this.restoreTabs,
+    required this.isInitialized,
+  });
 
-  ReaderTab? get activeTab => tabs.isEmpty ? null : tabs[activeTabIndex];
+  ReaderTab? get activeTab {
+    if (tabs.isEmpty) return null;
+    if (activeTabIndex < 0 || activeTabIndex >= tabs.length) return null;
+    return tabs[activeTabIndex];
+  }
 
-  ReaderState copyWith({List<ReaderTab>? tabs, int? activeTabIndex}) {
+  ReaderState copyWith({
+    List<ReaderTab>? tabs,
+    int? activeTabIndex,
+    bool? restoreTabs,
+    bool? isInitialized,
+  }) {
     return ReaderState(
       tabs: tabs ?? this.tabs,
       activeTabIndex: activeTabIndex ?? this.activeTabIndex,
+      restoreTabs: restoreTabs ?? this.restoreTabs,
+      isInitialized: isInitialized ?? this.isInitialized,
     );
   }
 }
@@ -28,12 +52,130 @@ class ReaderState {
 // ─── Reader notifier ─────────────────────────────────────────────────────────
 
 class ReaderNotifier extends Notifier<ReaderState> {
+  static const _restoreTabsKey = 'reader_restore_tabs';
+  static const _tabsKey = 'reader_saved_tabs';
+  static const _activeTabIndexKey = 'reader_active_tab_index';
+
   @override
-  ReaderState build() => ReaderState(tabs: [], activeTabIndex: 0);
+  ReaderState build() {
+    _hydrate();
+    return ReaderState(
+      tabs: [],
+      activeTabIndex: 0,
+      restoreTabs: true,
+      isInitialized: false,
+    );
+  }
+
+  Future<void> _hydrate() async {
+    final prefs = await SharedPreferences.getInstance();
+    final repo = ref.read(readingStateRepositoryProvider);
+    final restoreTabs = prefs.getBool(_restoreTabsKey) ?? true;
+    final legacySavedTabsRaw = prefs.getString(_tabsKey);
+    final legacySavedIndex = prefs.getInt(_activeTabIndexKey) ?? 0;
+
+    var restoredTabs = <ReaderTab>[];
+    var restoredIndex = 0;
+
+    final activeSession = restoreTabs
+        ? await repo.loadActiveSession(FlowType.bible)
+        : null;
+    if (activeSession != null) {
+      restoredTabs = activeSession.toReaderTabs();
+      restoredIndex = activeSession.activeTabIndex;
+    } else if (restoreTabs &&
+        legacySavedTabsRaw != null &&
+        legacySavedTabsRaw.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(legacySavedTabsRaw);
+        if (decoded is List) {
+          restoredTabs = decoded
+              .whereType<Map>()
+              .map((item) => Map<String, dynamic>.from(item))
+              .map(readerTabFromJson)
+              .whereType<ReaderTab>()
+              .toList();
+          restoredIndex = legacySavedIndex;
+        }
+      } catch (_) {
+        restoredTabs = [];
+      }
+
+      // One-time migration from legacy SharedPreferences reader tabs.
+      if (restoredTabs.isNotEmpty) {
+        final migratedPayload = ReadingFlowPayloadV1.fromReaderTabs(
+          flowType: FlowType.bible,
+          tabs: restoredTabs,
+          activeTabIndex: restoredIndex,
+        );
+        await repo.saveActiveSession(FlowType.bible, migratedPayload);
+      }
+      await prefs.remove(_tabsKey);
+      await prefs.remove(_activeTabIndexKey);
+    }
+
+    final safeIndex = restoredTabs.isEmpty
+        ? 0
+        : restoredIndex.clamp(0, restoredTabs.length - 1);
+
+    state = state.copyWith(
+      tabs: restoredTabs,
+      activeTabIndex: safeIndex,
+      restoreTabs: restoreTabs,
+      isInitialized: true,
+    );
+  }
+
+  ReadingFlowPayloadV1 _currentPayload() {
+    return ReadingFlowPayloadV1.fromReaderTabs(
+      flowType: FlowType.bible,
+      tabs: state.tabs,
+      activeTabIndex: state.activeTabIndex,
+    );
+  }
+
+  String _recentBibleEntryKey(ReaderTab tab) {
+    if (tab.book != null && tab.chapter != null) {
+      return 'bible:${tab.book}:${tab.chapter}:${tab.verse ?? 0}';
+    }
+    return 'bible:tab:${tab.id}';
+  }
+
+  Future<void> _persistTabs() async {
+    final repo = ref.read(readingStateRepositoryProvider);
+    final prefs = await SharedPreferences.getInstance();
+    if (!state.restoreTabs) {
+      await repo.deleteActiveSession(FlowType.bible);
+    } else if (state.tabs.isNotEmpty) {
+      await repo.saveActiveSession(FlowType.bible, _currentPayload());
+    } else {
+      await repo.deleteActiveSession(FlowType.bible);
+    }
+
+    // Keep restore preference in SharedPreferences.
+    await prefs.setBool(_restoreTabsKey, state.restoreTabs);
+
+    // Recent reads should remain durable regardless of "Restore Tabs" toggle.
+    final activeTab = state.activeTab;
+    if (activeTab != null) {
+      final title = (activeTab.book != null && activeTab.chapter != null)
+          ? '${activeTab.book} ${activeTab.chapter}'
+          : activeTab.title;
+      await repo.upsertRecentRead(
+        entryKey: _recentBibleEntryKey(activeTab),
+        flowType: FlowType.bible,
+        title: title,
+        subtitle: 'Bible',
+        snapshot: _currentPayload(),
+      );
+    }
+    ref.invalidate(recentReadsProvider);
+  }
 
   void openTab(ReaderTab tab) {
     final newTabs = [...state.tabs, tab];
     state = state.copyWith(tabs: newTabs, activeTabIndex: newTabs.length - 1);
+    unawaited(_persistTabs());
   }
 
   void closeTab(int index) {
@@ -48,11 +190,13 @@ class ReaderNotifier extends Notifier<ReaderState> {
       newIndex = newTabs.length - 1;
     }
     state = state.copyWith(tabs: newTabs, activeTabIndex: newIndex);
+    unawaited(_persistTabs());
   }
 
   void switchTab(int index) {
     if (index >= 0 && index < state.tabs.length) {
       state = state.copyWith(activeTabIndex: index);
+      unawaited(_persistTabs());
     }
   }
 
@@ -64,6 +208,28 @@ class ReaderNotifier extends Notifier<ReaderState> {
     final newTabs = List<ReaderTab>.from(state.tabs);
     newTabs[state.activeTabIndex] = tab;
     state = state.copyWith(tabs: newTabs);
+    unawaited(_persistTabs());
+  }
+
+  void restoreSession(ReadingFlowPayloadV1 payload) {
+    if (payload.flowType != FlowType.bible) return;
+    final restoredTabs = payload.toReaderTabs();
+    final safeIndex = restoredTabs.isEmpty
+        ? 0
+        : payload.activeTabIndex.clamp(0, restoredTabs.length - 1);
+    state = state.copyWith(
+      tabs: restoredTabs,
+      activeTabIndex: safeIndex,
+      isInitialized: true,
+    );
+    unawaited(_persistTabs());
+  }
+
+  Future<void> setRestoreTabs(bool enabled) async {
+    state = state.copyWith(restoreTabs: enabled);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_restoreTabsKey, enabled);
+    await _persistTabs();
   }
 }
 
@@ -73,43 +239,64 @@ final readerProvider = NotifierProvider<ReaderNotifier, ReaderState>(() {
 
 // ─── Resolved Bible repository ────────────────────────────────────────────────
 
-/// Resolves the default English Bible from metadata, with 'kjv' as hard fallback.
+/// Global state: which Bible language the user is currently reading.
+/// 'en' = English (default), 'ta' = Tamil.
+final selectedBibleLangProvider = StateProvider<String>((ref) => 'en');
+
+/// Resolves the default Bible from metadata based on the selected language.
 final bibleRepositoryProvider = FutureProvider<BibleRepository>((ref) async {
+  final lang = ref.watch(selectedBibleLangProvider);
   final installed = await ref.watch(
-    defaultInstalledDbProvider((DbType.bible, 'en')).future,
+    defaultInstalledDbProvider((DbType.bible, lang)).future,
   );
-  final code = installed?.code ?? 'kjv';
-  final language = installed?.language ?? 'en';
+  // Fallback codes per language
+  final code = installed?.code ?? (lang == 'ta' ? 'bsi' : 'kjv');
+  final language = installed?.language ?? lang;
+  return BibleRepository(DatabaseManager(), language, code);
+});
+
+/// Resolves a Bible repository by language ('en' or 'ta').
+/// Used by the dashboard to open English or Tamil Bible directly.
+final bibleRepositoryByLangProvider =
+    FutureProvider.family<BibleRepository, String>((ref, lang) async {
+  final installed = await ref.watch(
+    defaultInstalledDbProvider((DbType.bible, lang)).future,
+  );
+  // Fallback codes per language
+  final code = installed?.code ?? (lang == 'ta' ? 'bsi' : 'kjv');
+  final language = installed?.language ?? lang;
   return BibleRepository(DatabaseManager(), language, code);
 });
 
 /// All distinct Bible books with chapter counts, ordered canonically.
-final bibleBookListProvider =
-    FutureProvider<List<Map<String, dynamic>>>((ref) async {
+final bibleBookListProvider = FutureProvider<List<Map<String, dynamic>>>((
+  ref,
+) async {
   final repo = await ref.watch(bibleRepositoryProvider.future);
   return repo.getDistinctBooks();
 });
 
 /// Verse count for a given book + chapter (used by the verse-selection page).
-final verseCountProvider =
-    FutureProvider.family<int, (String, int)>((ref, args) async {
+final verseCountProvider = FutureProvider.family<int, (String, int)>((
+  ref,
+  args,
+) async {
   final repo = await ref.watch(bibleRepositoryProvider.future);
   return repo.getVerseCount(args.$1, args.$2);
 });
 
 /// Load verses for the active reader tab using the resolved Bible repo.
 final chapterVersesProvider =
-    FutureProvider.family<List<BibleSearchResult>, ReaderTab>(
-        (ref, tab) async {
-  if (tab.type != ReaderContentType.bible ||
-      tab.book == null ||
-      tab.chapter == null) {
-    return [];
-  }
-  final repoAsync = ref.watch(bibleRepositoryProvider);
-  return repoAsync.when(
-    data: (repo) => repo.getVersesByChapter(tab.book!, tab.chapter!),
-    loading: () => Future.value([]),
-    error: (e, st) => Future.value([]),
-  );
-});
+    FutureProvider.family<List<BibleSearchResult>, ReaderTab>((ref, tab) async {
+      if (tab.type != ReaderContentType.bible ||
+          tab.book == null ||
+          tab.chapter == null) {
+        return [];
+      }
+      final repoAsync = ref.watch(bibleRepositoryProvider);
+      return repoAsync.when(
+        data: (repo) => repo.getVersesByChapter(tab.book!, tab.chapter!),
+        loading: () => Future.value([]),
+        error: (e, st) => Future.value([]),
+      );
+    });

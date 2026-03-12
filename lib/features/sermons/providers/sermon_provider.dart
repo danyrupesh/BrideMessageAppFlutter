@@ -8,15 +8,32 @@ import '../../../core/database/metadata/installed_database_model.dart';
 
 // ─── Resolved sermon repository ───────────────────────────────────────────────
 
-/// Resolves the default English Sermon repository from metadata.
-/// Falls back to 'en' code (→ sermons_en.db) if no metadata found.
+/// Global state: which Sermon language the user is currently browsing.
+/// 'en' = English (default), 'ta' = Tamil.
+final selectedSermonLangProvider = StateProvider<String>((ref) => 'en');
+
+/// Resolves the Sermon repository based on the selected language.
+/// Falls back to language code as db code if no metadata found.
 final sermonRepositoryProvider =
     FutureProvider<SermonRepository>((ref) async {
+  final lang = ref.watch(selectedSermonLangProvider);
   final installed = await ref.watch(
-    defaultInstalledDbProvider((DbType.sermon, 'en')).future,
+    defaultInstalledDbProvider((DbType.sermon, lang)).future,
   );
-  final code = installed?.code ?? 'en';
-  final language = installed?.language ?? 'en';
+  final code = installed?.code ?? lang;
+  final language = installed?.language ?? lang;
+  return SermonRepository(DatabaseManager(), language, code);
+});
+
+/// Resolves a Sermon repository by language ('en' or 'ta').
+/// Used by the dashboard to open English or Tamil Sermons directly.
+final sermonRepositoryByLangProvider =
+    FutureProvider.family<SermonRepository, String>((ref, lang) async {
+  final installed = await ref.watch(
+    defaultInstalledDbProvider((DbType.sermon, lang)).future,
+  );
+  final code = installed?.code ?? lang;
+  final language = installed?.language ?? lang;
   return SermonRepository(DatabaseManager(), language, code);
 });
 

@@ -24,6 +24,8 @@ Future<List<BibleSearchResult>> searchBibleFts({
   required int limit,
   required int offset,
   List<String>? bookFilters,
+  String scope = 'both',
+  String sortOrder = 'bookOrder',
 }) async {
   if (!await File(dbPath).exists()) return [];
   final db = sqlite3.open(dbPath, mode: OpenMode.readOnly);
@@ -49,7 +51,19 @@ Future<List<BibleSearchResult>> searchBibleFts({
       sql += ' AND v.book IN ($placeholders)';
       args.addAll(bookFilters);
     }
-    sql += ' ORDER BY rank LIMIT ? OFFSET ?';
+
+    if (scope == 'oldTest') {
+      sql += ' AND v.book_index <= 39';
+    } else if (scope == 'newTest') {
+      sql += ' AND v.book_index > 39';
+    }
+
+    if (sortOrder == 'relevance') {
+      sql += ' ORDER BY rank LIMIT ? OFFSET ?';
+    } else {
+      sql += ' ORDER BY v.book_index, v.chapter, v.verse LIMIT ? OFFSET ?';
+    }
+    
     args.addAll([limit, offset]);
 
     final result = db.select(sql, args);
@@ -67,6 +81,7 @@ Future<int> countBibleFts({
   required String dbPath,
   required String matchPattern,
   List<String>? bookFilters,
+  String scope = 'both',
 }) async {
   if (!await File(dbPath).exists()) return 0;
   final db = sqlite3.open(dbPath, mode: OpenMode.readOnly);
@@ -79,10 +94,34 @@ Future<int> countBibleFts({
         FROM bible_fts 
         INNER JOIN bible_verses v ON bible_fts.rowid = v.id 
         WHERE bible_fts MATCH ?
-        AND v.book IN (${List.filled(bookFilters.length, '?').join(',')})
       ''';
-      args.addAll(bookFilters);
+
+      if (bookFilters.isNotEmpty) {
+        sql +=
+            ' AND v.book IN (${List.filled(bookFilters.length, '?').join(',')})';
+        args.addAll(bookFilters);
+      }
+      
+      if (scope == 'oldTest') {
+        sql += ' AND v.book_index <= 39';
+      } else if (scope == 'newTest') {
+        sql += ' AND v.book_index > 39';
+      }
+    } else if (scope != 'both') {
+      // Need a JOIN just to filter by scope if there are no filters but there is a scope
+      sql = '''
+        SELECT COUNT(*) 
+        FROM bible_fts 
+        INNER JOIN bible_verses v ON bible_fts.rowid = v.id 
+        WHERE bible_fts MATCH ?
+      ''';
+      if (scope == 'oldTest') {
+        sql += ' AND v.book_index <= 39';
+      } else if (scope == 'newTest') {
+        sql += ' AND v.book_index > 39';
+      }
     }
+    
     final result = db.select(sql, args);
     if (result.isEmpty) return 0;
     final v = result.first.columnAt(0);
@@ -101,11 +140,21 @@ Future<List<SermonSearchResult>> searchSermonFts({
   required String matchPattern,
   required int limit,
   required int offset,
+  String sortOrder = 'relevance',
 }) async {
   if (!await File(dbPath).exists()) return [];
   final db = sqlite3.open(dbPath, mode: OpenMode.readOnly);
   try {
-    const sql = '''
+    // Detect whether sermon_paragraphs has a paragraph_number column so we can
+    // gracefully support schemas that omit it.
+    final pragmaRows = db.select('PRAGMA table_info(sermon_paragraphs)');
+    final hasParagraphNumber = pragmaRows.any((row) {
+      final nameIndex = pragmaRows.columnNames.indexOf('name');
+      final value = nameIndex >= 0 ? row.columnAt(nameIndex) : null;
+      return value is String && value == 'paragraph_number';
+    });
+
+    var sql = '''
       SELECT 
         s.id AS sermon_id,
         s.title,
@@ -113,7 +162,7 @@ Future<List<SermonSearchResult>> searchSermonFts({
         s.date,
         s.year,
         s.location,
-        p.paragraph_number,
+        ${hasParagraphNumber ? 'p.paragraph_number' : 'NULL AS paragraph_number'},
         p.paragraph_label,
         p.text,
         snippet(sermon_fts, 0, '<b>', '</b>', '...', 64) AS highlighted,
@@ -123,9 +172,19 @@ Future<List<SermonSearchResult>> searchSermonFts({
       JOIN sermons s ON p.sermon_id = s.id
       WHERE sermon_fts MATCH ?
         AND s.language = ?
-      ORDER BY rank
-      LIMIT ? OFFSET ?
     ''';
+
+    if (sortOrder == 'relevance') {
+      sql +=
+          ' ORDER BY rank, ${hasParagraphNumber ? 'COALESCE(p.paragraph_number, 0), ' : ''}p.id LIMIT ? OFFSET ?';
+    } else {
+      // chronological or other order if we add later
+      sql += ' ORDER BY '
+          'CASE WHEN s.date IS NOT NULL AND s.date != \'\' THEN 0 WHEN s.year IS NOT NULL THEN 1 ELSE 2 END, '
+          'COALESCE(s.date, s.year || \'-12-31\') ASC, s.title ASC, '
+          '${hasParagraphNumber ? 'COALESCE(p.paragraph_number, 0), ' : ''}p.id LIMIT ? OFFSET ?';
+    }
+    
     final result = db.select(sql, [matchPattern, languageCode, limit, offset]);
     final columnNames = result.columnNames;
     return result.map((row) => SermonSearchResult.fromMap(_rowToMap(columnNames, row))).toList();

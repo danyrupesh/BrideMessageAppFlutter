@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/database/database_manager.dart';
 import 'core/database/metadata/installed_database_registry.dart';
+import 'core/database/sqlite_platform_bootstrap.dart';
 import 'core/navigation/app_router.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/theme_provider.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await SqlitePlatformBootstrap.ensureInitialized();
 
   // Initialise metadata registry so the first DB check is fast.
   await InstalledDatabaseRegistry().hasAnyContent();
