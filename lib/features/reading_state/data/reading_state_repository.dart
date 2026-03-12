@@ -59,12 +59,15 @@ class ReadingStateRepository {
     return _db!;
   }
 
-  Future<ReadingFlowPayloadV1?> loadActiveSession(FlowType flowType) async {
+  Future<ReadingFlowPayloadV1?> loadActiveSession({
+    required String sessionKey,
+    required FlowType fallbackFlowType,
+  }) async {
     final db = await _database;
     final rows = await db.query(
       'active_sessions',
       where: 'flow_type = ?',
-      whereArgs: [flowType.dbValue],
+      whereArgs: [sessionKey],
       limit: 1,
     );
     if (rows.isEmpty) return null;
@@ -82,7 +85,7 @@ class ReadingStateRepository {
         schemaVersion:
             (row['schema_version'] as num?)?.toInt() ??
             ReadingFlowPayloadV1.currentSchemaVersion,
-        flowType: flowType,
+        flowType: fallbackFlowType,
         tabs: tabs,
         activeTabIndex: (row['active_tab_index'] as num?)?.toInt() ?? 0,
       );
@@ -91,14 +94,14 @@ class ReadingStateRepository {
     }
   }
 
-  Future<void> saveActiveSession(
-    FlowType flowType,
-    ReadingFlowPayloadV1 payload,
-  ) async {
+  Future<void> saveActiveSession({
+    required String sessionKey,
+    required ReadingFlowPayloadV1 payload,
+  }) async {
     final db = await _database;
     final now = DateTime.now().millisecondsSinceEpoch;
     await db.insert('active_sessions', {
-      'flow_type': flowType.dbValue,
+      'flow_type': sessionKey,
       'tabs_json': jsonEncode(payload.tabs),
       'active_tab_index': payload.activeTabIndex,
       'schema_version': payload.schemaVersion,
@@ -106,12 +109,12 @@ class ReadingStateRepository {
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
-  Future<void> deleteActiveSession(FlowType flowType) async {
+  Future<void> deleteActiveSession(String sessionKey) async {
     final db = await _database;
     await db.delete(
       'active_sessions',
       where: 'flow_type = ?',
-      whereArgs: [flowType.dbValue],
+      whereArgs: [sessionKey],
     );
   }
 

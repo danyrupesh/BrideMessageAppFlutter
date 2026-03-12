@@ -42,7 +42,7 @@ class _QuickNavigationSheetState extends ConsumerState<QuickNavigationSheet>
   final TextEditingController _searchController = TextEditingController();
   final PageController _pageController = PageController();
 
-  bool _openInNewTab = false;
+  bool _openInNewTab = true;
   Map<String, dynamic>? _selectedBook;
   int? _selectedChapter;
 

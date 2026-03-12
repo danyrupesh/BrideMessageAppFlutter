@@ -19,12 +19,18 @@ dependencies:
   path_provider: ^2.1.5
   pdf: ^3.11.3
   printing: ^5.14.2
+  file_selector: ^1.1.0
   share_plus: ^12.0.1
   shared_preferences: ^2.5.4
   sqflite: ^2.4.2
   sqflite_common_ffi: ^2.3.6
   sqlite3: ^3.1.0
   uuid: ^4.5.3
+  app_links: ^6.3.2
+  protocol_handler: ^0.2.0
+  window_manager: ^0.5.1
+  windows_single_instance: ^1.1.0
+
 
 dev_dependencies:
   flutter_test:

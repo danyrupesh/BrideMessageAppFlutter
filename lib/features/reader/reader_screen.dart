@@ -1,7 +1,13 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:share_plus/share_plus.dart' show SharePlus, ShareParams;
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
+import '../../core/utils/desktop_file_saver.dart';
 import 'providers/reader_provider.dart';
 import 'providers/typography_provider.dart';
 import 'models/reader_tab.dart';
@@ -43,21 +49,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final state = ref.read(readerProvider);
-      if (state.tabs.isEmpty) {
-        ref
-            .read(readerProvider.notifier)
-            .openTab(
-              ReaderTab(
-                type: ReaderContentType.bible,
-                title: 'Genesis 1',
-                book: 'Genesis',
-                chapter: 1,
-              ),
-            );
-      }
-    });
   }
 
   @override
@@ -85,9 +76,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     final verse = result['verse'] as int?;
     final newTab = ReaderTab(
       type: ReaderContentType.bible,
-      title: verse != null
-          ? "${result['book']} ${result['chapter']}:$verse"
-          : "${result['book']} ${result['chapter']}",
+      title: "${result['book']} ${result['chapter']}",
       book: result['book'] as String,
       chapter: result['chapter'] as int,
       verse: verse,
@@ -212,6 +201,181 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       return '${activeTab?.book ?? verse.book} ${verse.chapter}:${verse.verse}  ${verse.text}';
     });
     SharePlus.instance.share(ShareParams(text: lines.join('\n\n')));
+  }
+
+  void _copySelectedVerses() {
+    if (_selectedVerseNumbers.isEmpty || _currentVerses.isEmpty) return;
+    final activeTab = ref.read(readerProvider).activeTab;
+    final sorted = _selectedVerseNumbers.toList()..sort();
+    final lines = sorted.map((vNum) {
+      final verse = _currentVerses.firstWhere(
+        (v) => v.verse == vNum,
+        orElse: () => _currentVerses.first,
+      );
+      return '${activeTab?.book ?? verse.book} ${verse.chapter}:${verse.verse}  ${verse.text}';
+    });
+    final text = lines.join('\n\n');
+    Clipboard.setData(ClipboardData(text: text));
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Copied to clipboard')),
+    );
+  }
+
+  // ── Close other tabs ─────────────────────────────────────────────────────
+
+  void _closeOtherTabs() {
+    final state = ref.read(readerProvider);
+    // Close from highest index downward so indices stay stable.
+    for (var i = state.tabs.length - 1; i >= 1; i--) {
+      ref.read(readerProvider.notifier).closeTab(i);
+    }
+  }
+
+  // ── PDF generation (Bible) ────────────────────────────────────────────────
+
+  Future<pw.Document> _buildBiblePdf() async {
+    final activeTab = ref.read(readerProvider).activeTab;
+    final typography = ref.read(typographyProvider);
+    final verses = _currentVerses;
+
+    final doc = pw.Document();
+    const accentColor = PdfColor.fromInt(0xFF1C6BC9);
+    final lang = ref.read(selectedBibleLangProvider);
+
+    // Use Tamil-specific fonts if needed, otherwise fallback to standard Noto Sans.
+    final bodyFont = lang == 'ta'
+        ? await PdfGoogleFonts.notoSansTamilRegular()
+        : await PdfGoogleFonts.notoSansRegular();
+    final boldFont = lang == 'ta'
+        ? await PdfGoogleFonts.notoSansTamilBold()
+        : await PdfGoogleFonts.notoSansBold();
+
+    doc.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(32),
+        build: (context) {
+          final List<pw.Widget> widgets = [];
+
+          // Header
+          widgets.add(
+            pw.Center(
+              child: pw.Text(
+                activeTab?.title ?? 'Bible',
+                style: pw.TextStyle(
+                  font: boldFont,
+                  fontSize: 18,
+                  color: accentColor,
+                ),
+              ),
+            ),
+          );
+          widgets.add(pw.SizedBox(height: 12));
+          widgets.add(pw.Divider(color: PdfColors.grey300));
+          widgets.add(pw.SizedBox(height: 8));
+
+          // Content
+          for (final v in verses) {
+            final rawText = v.text.replaceAll(
+              RegExp(
+                r'[^\x20-\x7E\u0B80-\u0BFF\u2013-\u2014\u2018-\u201D\u2026\n ]',
+              ),
+              '',
+            );
+
+            // Emit verse number
+            widgets.add(pw.SizedBox(height: 8));
+            widgets.add(
+              pw.Text(
+                'Verse ${v.verse}',
+                style: pw.TextStyle(
+                  font: boldFont,
+                  fontSize: 8,
+                  color: accentColor,
+                ),
+              ),
+            );
+
+            // Split text by actual newlines and render as simple breakable Text widgets.
+            // Do NOT use pw.Padding or pw.Container, as they are unbreakable across pages.
+            final rawLines = const LineSplitter().convert(rawText);
+            for (final rawLine in rawLines) {
+              if (rawLine.trim().isEmpty) continue;
+              
+              widgets.add(
+                pw.Text(
+                  rawLine,
+                  style: pw.TextStyle(
+                    font: bodyFont,
+                    fontSize: typography.fontSize * 0.9,
+                    lineSpacing: (typography.lineHeight - 1) *
+                        typography.fontSize *
+                        0.5,
+                  ),
+                ),
+              );
+              // Add vertical spacing using a peer widget instead of Padding
+              widgets.add(pw.SizedBox(height: 4));
+            }
+          }
+
+          return widgets;
+        },
+      ),
+    );
+    return doc;
+  }
+
+  String _sanitizePdfName(String raw) {
+    final cleaned =
+        raw.replaceAll(RegExp(r'[<>:"/\\\\|?*]'), '-').trim();
+    return cleaned.isEmpty ? 'Document' : cleaned;
+  }
+
+  Future<void> _printBiblePdf() async {
+    final doc = await _buildBiblePdf();
+    final rawTitle = ref.read(readerProvider).activeTab?.title ?? 'Bible';
+    final safeTitle = _sanitizePdfName(rawTitle);
+    await Printing.layoutPdf(
+      onLayout: (_) async => doc.save(),
+      name: safeTitle,
+    );
+  }
+
+  Future<void> _downloadBiblePdf() async {
+    final doc = await _buildBiblePdf();
+    final bytes = await doc.save();
+
+    final rawTitle = ref.read(readerProvider).activeTab?.title ?? 'Bible';
+    final safeTitle = _sanitizePdfName(rawTitle);
+
+    final savedPath = await DesktopFileSaver.savePdf(
+      suggestedName: '$safeTitle.pdf',
+      bytes: bytes,
+    );
+
+    if (!mounted || savedPath == null) return;
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('PDF saved'),
+        content: Text('Saved to:\n$savedPath'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Close'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.of(ctx).pop();
+              DesktopFileSaver.revealInExplorer(savedPath);
+            },
+            child: const Text('Open folder'),
+          ),
+        ],
+      ),
+    );
   }
 
   // ── Highlighted text spans ────────────────────────────────────────────────
@@ -396,8 +560,11 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
         ),
       ),
       actions: [
-        // Fix #4 — show share + clear when verses are selected.
         if (hasSelection) ...[
+          IconButton(
+            icon: const Icon(Icons.copy),
+            onPressed: _copySelectedVerses,
+          ),
           IconButton(
             icon: const Icon(Icons.share),
             onPressed: _shareSelectedVerses,
@@ -500,72 +667,74 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
             fontWeight: FontWeight.bold,
           );
 
-          return ListView.builder(
-            controller: _scrollController,
-            padding: const EdgeInsets.symmetric(
-              horizontal: 16.0,
-              vertical: 8.0,
-            ),
-            itemCount: verses.length,
-            itemBuilder: (context, index) {
-              final verse = verses[index];
-              final isSelected = _selectedVerseNumbers.contains(verse.verse);
+          return SelectionArea(
+            child: ListView.builder(
+              controller: _scrollController,
+              padding: const EdgeInsets.symmetric(
+                horizontal: 16.0,
+                vertical: 8.0,
+              ),
+              itemCount: verses.length,
+              itemBuilder: (context, index) {
+                final verse = verses[index];
+                final isSelected = _selectedVerseNumbers.contains(verse.verse);
 
-              // Compute which occurrence within this verse is the current match.
-              int? currentOccurrence;
-              if (_matchVerseIndices.isNotEmpty &&
-                  _matchVerseIndices[_currentMatchIndex] == index) {
-                currentOccurrence =
-                    _currentMatchIndex -
-                    _matchVerseIndices
-                        .sublist(0, _currentMatchIndex)
-                        .where((vi) => vi == index)
-                        .length;
-              }
+                // Compute which occurrence within this verse is the current match.
+                int? currentOccurrence;
+                if (_matchVerseIndices.isNotEmpty &&
+                    _matchVerseIndices[_currentMatchIndex] == index) {
+                  currentOccurrence =
+                      _currentMatchIndex -
+                      _matchVerseIndices
+                          .sublist(0, _currentMatchIndex)
+                          .where((vi) => vi == index)
+                          .length;
+                }
 
-              return GestureDetector(
-                key: ValueKey<int>(verse.verse),
-                onTap: () => _toggleVerseSelection(verse.verse),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 150),
-                  decoration: BoxDecoration(
-                    color: isSelected
-                        ? cs.primaryContainer.withAlpha(120)
-                        : Colors.transparent,
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 6,
-                    vertical: 4,
-                  ),
-                  margin: const EdgeInsets.only(bottom: 4),
-                  child: RichText(
-                    text: TextSpan(
-                      style: baseStyle,
-                      children: [
-                        TextSpan(
-                          text: '${verse.verse} ',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            fontSize: typography.fontSize * 0.8,
-                            color: isSelected
-                                ? cs.primary
-                                : cs.onSurfaceVariant,
+                return GestureDetector(
+                  key: ValueKey<int>(verse.verse),
+                  onTap: () => _toggleVerseSelection(verse.verse),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 150),
+                    decoration: BoxDecoration(
+                      color: isSelected
+                          ? cs.primaryContainer.withAlpha(120)
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 4,
+                    ),
+                    margin: const EdgeInsets.only(bottom: 4),
+                    child: RichText(
+                      text: TextSpan(
+                        style: baseStyle,
+                        children: [
+                          TextSpan(
+                            text: '${verse.verse} ',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: typography.fontSize * 0.8,
+                              color: isSelected
+                                  ? cs.primary
+                                  : cs.onSurfaceVariant,
+                            ),
                           ),
-                        ),
-                        ..._buildHighlightedSpans(
-                          verse.text,
-                          baseStyle,
-                          highlightStyle,
-                          currentMatchStyle,
-                          currentOccurrenceIndex: currentOccurrence,
-                        ),
-                      ],
+                          ..._buildHighlightedSpans(
+                            verse.text,
+                            baseStyle,
+                            highlightStyle,
+                            currentMatchStyle,
+                            currentOccurrenceIndex: currentOccurrence,
+                          ),
+                        ],
+                      ),
                     ),
                   ),
-                ),
-              );
-            },
+                );
+              },
+            ),
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),
@@ -584,6 +753,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     WidgetRef ref,
   ) {
     final theme = Theme.of(context);
+    final activeTab = state.activeTab;
     return Material(
       elevation: 8,
       color: theme.colorScheme.surface,
@@ -599,72 +769,153 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
           ),
           child: SizedBox(
             height: 50,
-            child: ListView.builder(
-              scrollDirection: Axis.horizontal,
-              itemCount: state.tabs.length + 1,
-              itemBuilder: (context, index) {
-                if (index == state.tabs.length) {
-                  // Fix #3 — + button opens Quick Navigation sheet instead of going home.
-                  return IconButton(
-                    icon: const Icon(Icons.add),
-                    onPressed: _openQuickNav,
-                  );
-                }
+            child: Row(
+              children: [
+                // Scrollable tab chips
+                Expanded(
+                  child: ListView.builder(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: state.tabs.length,
+                    itemBuilder: (context, index) {
+                      final tab = state.tabs[index];
+                      final isActive = index == state.activeTabIndex;
 
-                final tab = state.tabs[index];
-                final isActive = index == state.activeTabIndex;
+                      return GestureDetector(
+                        onTap: () =>
+                            ref.read(readerProvider.notifier).switchTab(index),
+                        child: Container(
+                          margin: const EdgeInsets.symmetric(
+                            horizontal: 4,
+                            vertical: 4,
+                          ),
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          decoration: BoxDecoration(
+                            color: isActive
+                                ? theme.colorScheme.primaryContainer
+                                : Colors.transparent,
+                            borderRadius: BorderRadius.circular(16),
+                            border: Border.all(
+                              color: isActive
+                                  ? theme.colorScheme.primary
+                                  : theme.colorScheme.outline.withAlpha(128),
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(
+                                _shortenTabTitle(tab.title),
+                                style: TextStyle(
+                                  fontWeight: isActive
+                                      ? FontWeight.bold
+                                      : FontWeight.normal,
+                                  color: isActive
+                                      ? theme.colorScheme.onPrimaryContainer
+                                      : theme.colorScheme.onSurface,
+                                ),
+                              ),
+                              const SizedBox(width: 4),
+                              InkWell(
+                                onTap: () => ref
+                                    .read(readerProvider.notifier)
+                                    .closeTab(index),
+                                child: Icon(
+                                  Icons.close,
+                                  size: 16,
+                                  color: isActive
+                                      ? theme.colorScheme.onPrimaryContainer
+                                      : theme.colorScheme.onSurface,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
 
-                return GestureDetector(
-                  onTap: () =>
-                      ref.read(readerProvider.notifier).switchTab(index),
-                  child: Container(
-                    margin: const EdgeInsets.symmetric(
-                      horizontal: 4,
-                      vertical: 4,
-                    ),
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    decoration: BoxDecoration(
-                      color: isActive
-                          ? theme.colorScheme.primaryContainer
-                          : Colors.transparent,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: isActive
-                            ? theme.colorScheme.primary
-                            : theme.colorScheme.outline.withAlpha(128),
+                // "+" opens Quick Navigation
+                IconButton(
+                  icon: const Icon(Icons.add),
+                  onPressed: _openQuickNav,
+                  visualDensity: VisualDensity.compact,
+                ),
+
+                // "⋮" three-dots popup
+                PopupMenuButton<String>(
+                  icon: const Icon(Icons.more_vert),
+                  itemBuilder: (_) => [
+                    const PopupMenuItem(
+                      value: 'share_link',
+                      child: ListTile(
+                        leading: Icon(Icons.share_outlined),
+                        title: Text('Share Link'),
+                        contentPadding: EdgeInsets.zero,
+                        dense: true,
                       ),
                     ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          _shortenTabTitle(tab.title),
-                          style: TextStyle(
-                            fontWeight: isActive
-                                ? FontWeight.bold
-                                : FontWeight.normal,
-                            color: isActive
-                                ? theme.colorScheme.onPrimaryContainer
-                                : theme.colorScheme.onSurface,
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                        InkWell(
-                          onTap: () =>
-                              ref.read(readerProvider.notifier).closeTab(index),
-                          child: Icon(
-                            Icons.close,
-                            size: 16,
-                            color: isActive
-                                ? theme.colorScheme.onPrimaryContainer
-                                : theme.colorScheme.onSurface,
-                          ),
-                        ),
-                      ],
+                    const PopupMenuItem(
+                      value: 'copy_link',
+                      child: ListTile(
+                        leading: Icon(Icons.copy_outlined),
+                        title: Text('Copy Link'),
+                        contentPadding: EdgeInsets.zero,
+                        dense: true,
+                      ),
                     ),
-                  ),
-                );
-              },
+                    const PopupMenuItem(
+                      value: 'download_pdf',
+                      child: ListTile(
+                        leading: Icon(Icons.download_outlined),
+                        title: Text('Download PDF'),
+                        contentPadding: EdgeInsets.zero,
+                        dense: true,
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: 'print_pdf',
+                      child: ListTile(
+                        leading: Icon(Icons.print_outlined),
+                        title: Text('Print PDF'),
+                        contentPadding: EdgeInsets.zero,
+                        dense: true,
+                      ),
+                    ),
+                    const PopupMenuDivider(),
+                    const PopupMenuItem(
+                      value: 'close_others',
+                      child: Text('Close Other Tabs'),
+                    ),
+                  ],
+                  onSelected: (val) {
+                    if (val == 'share_link' || val == 'copy_link') {
+                      final lang = ref.read(selectedBibleLangProvider);
+                      final book = Uri.encodeComponent(activeTab?.book ?? '');
+                      final chapter = activeTab?.chapter ?? 1;
+                      final deepLink =
+                          'https://endtimebride.in/appshare/bible?book=$book&chapter=$chapter&lang=$lang';
+                      
+                      if (val == 'share_link') {
+                        SharePlus.instance.share(
+                          ShareParams(
+                            text:
+                                '${activeTab?.title ?? ''}\n\n🔗 Read in Bride Message App:\n$deepLink',
+                          ),
+                        );
+                      } else {
+                        Clipboard.setData(ClipboardData(text: deepLink));
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Link copied to clipboard')),
+                        );
+                      }
+                    }
+                    if (val == 'download_pdf') _downloadBiblePdf();
+                    if (val == 'print_pdf') _printBiblePdf();
+                    if (val == 'close_others') _closeOtherTabs();
+                  },
+                ),
+              ],
             ),
           ),
         ),

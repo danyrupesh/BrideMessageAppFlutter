@@ -201,7 +201,7 @@ class DashboardScreen extends ConsumerWidget {
         subtitle: 'KJV',
         color: const Color(0xFF4B6CB7),
         onTap: () {
-          ref.read(selectedBibleLangProvider.notifier).state = 'en';
+          ref.read(selectedBibleLangProvider.notifier).setLang('en');
           context.push('/reader');
         },
       ),
@@ -211,7 +211,7 @@ class DashboardScreen extends ConsumerWidget {
         subtitle: 'BSI',
         color: const Color(0xFF4B6CB7),
         onTap: () {
-          ref.read(selectedBibleLangProvider.notifier).state = 'ta';
+          ref.read(selectedBibleLangProvider.notifier).setLang('ta');
           context.push('/reader');
         },
       ),
@@ -221,7 +221,7 @@ class DashboardScreen extends ConsumerWidget {
         subtitle: 'Messages',
         color: const Color(0xFF6B7FB7),
         onTap: () {
-          ref.read(selectedSermonLangProvider.notifier).state = 'en';
+          ref.read(selectedSermonLangProvider.notifier).setLang('en');
           context.push('/sermons?resume=1');
         },
       ),
@@ -231,8 +231,10 @@ class DashboardScreen extends ConsumerWidget {
         subtitle: 'Messages',
         color: const Color(0xFF6B7FB7),
         onTap: () {
-          ref.read(selectedSermonLangProvider.notifier).state = 'ta';
-          context.push('/sermons?resume=1');
+          ref.read(selectedSermonLangProvider.notifier).setLang('ta');
+          // Always open the sermon list for Tamil — don't try to resume
+          // an English session.
+          context.push('/sermons');
         },
       ),
       _ModuleCardData(

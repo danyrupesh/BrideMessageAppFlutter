@@ -1,0 +1,10 @@
+Analyzing sermon_flow_provider.dart...
+
+  error - sermon_flow_provider.dart:49:16 - Undefined name 'selectedSermonLangProvider'. Try correcting the name to one that is defined, or defining the name. - undefined_identifier
+  error - sermon_flow_provider.dart:64:27 - Undefined name 'selectedSermonLangProvider'. Try correcting the name to one that is defined, or defining the name. - undefined_identifier
+  error - sermon_flow_provider.dart:70:38 - The method 'loadActiveSession' isn't defined for the type 'ReadingStateRepository'. Try correcting the name to the name of an existing method, or defining a method named 'loadActiveSession'. - undefined_method
+  error - sermon_flow_provider.dart:113:18 - The method 'deleteActiveSession' isn't defined for the type 'ReadingStateRepository'. Try correcting the name to the name of an existing method, or defining a method named 'deleteActiveSession'. - undefined_method
+  error - sermon_flow_provider.dart:119:16 - The method 'saveActiveSession' isn't defined for the type 'ReadingStateRepository'. Try correcting the name to the name of an existing method, or defining a method named 'saveActiveSession'. - undefined_method
+  error - sermon_flow_provider.dart:128:16 - The method 'upsertRecentRead' isn't defined for the type 'ReadingStateRepository'. Try correcting the name to the name of an existing method, or defining a method named 'upsertRecentRead'. - undefined_method
+
+6 issues found.

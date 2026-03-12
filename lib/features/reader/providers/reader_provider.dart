@@ -58,6 +58,13 @@ class ReaderNotifier extends Notifier<ReaderState> {
 
   @override
   ReaderState build() {
+    ref.listen(selectedBibleLangProvider, (previous, next) {
+      if (previous != next) {
+        state = state.copyWith(tabs: [], isInitialized: false);
+        _hydrate();
+      }
+    });
+    
     _hydrate();
     return ReaderState(
       tabs: [],
@@ -65,6 +72,11 @@ class ReaderNotifier extends Notifier<ReaderState> {
       restoreTabs: true,
       isInitialized: false,
     );
+  }
+
+  String get _sessionKey {
+    final lang = ref.read(selectedBibleLangProvider);
+    return 'bible_$lang';
   }
 
   Future<void> _hydrate() async {
@@ -78,7 +90,10 @@ class ReaderNotifier extends Notifier<ReaderState> {
     var restoredIndex = 0;
 
     final activeSession = restoreTabs
-        ? await repo.loadActiveSession(FlowType.bible)
+        ? await repo.loadActiveSession(
+            sessionKey: _sessionKey,
+            fallbackFlowType: FlowType.bible,
+          )
         : null;
     if (activeSession != null) {
       restoredTabs = activeSession.toReaderTabs();
@@ -108,10 +123,27 @@ class ReaderNotifier extends Notifier<ReaderState> {
           tabs: restoredTabs,
           activeTabIndex: restoredIndex,
         );
-        await repo.saveActiveSession(FlowType.bible, migratedPayload);
+        await repo.saveActiveSession(
+          sessionKey: _sessionKey,
+          payload: migratedPayload,
+        );
       }
       await prefs.remove(_tabsKey);
       await prefs.remove(_activeTabIndexKey);
+    }
+
+    if (restoredTabs.isEmpty) {
+      final lang = ref.read(selectedBibleLangProvider);
+      final isTamil = lang == 'ta';
+      restoredTabs = [
+        ReaderTab(
+          type: ReaderContentType.bible,
+          title: isTamil ? 'ஆதியாகமம் 1' : 'Genesis 1',
+          book: isTamil ? 'ஆதியாகமம்' : 'Genesis',
+          chapter: 1,
+        )
+      ];
+      restoredIndex = 0;
     }
 
     final safeIndex = restoredTabs.isEmpty
@@ -145,11 +177,14 @@ class ReaderNotifier extends Notifier<ReaderState> {
     final repo = ref.read(readingStateRepositoryProvider);
     final prefs = await SharedPreferences.getInstance();
     if (!state.restoreTabs) {
-      await repo.deleteActiveSession(FlowType.bible);
+      await repo.deleteActiveSession(_sessionKey);
     } else if (state.tabs.isNotEmpty) {
-      await repo.saveActiveSession(FlowType.bible, _currentPayload());
+      await repo.saveActiveSession(
+        sessionKey: _sessionKey,
+        payload: _currentPayload(),
+      );
     } else {
-      await repo.deleteActiveSession(FlowType.bible);
+      await repo.deleteActiveSession(_sessionKey);
     }
 
     // Keep restore preference in SharedPreferences.
@@ -241,7 +276,14 @@ final readerProvider = NotifierProvider<ReaderNotifier, ReaderState>(() {
 
 /// Global state: which Bible language the user is currently reading.
 /// 'en' = English (default), 'ta' = Tamil.
-final selectedBibleLangProvider = StateProvider<String>((ref) => 'en');
+class _BibleLangNotifier extends Notifier<String> {
+  @override
+  String build() => 'en';
+  void setLang(String lang) => state = lang;
+}
+
+final selectedBibleLangProvider =
+    NotifierProvider<_BibleLangNotifier, String>(_BibleLangNotifier.new);
 
 /// Resolves the default Bible from metadata based on the selected language.
 final bibleRepositoryProvider = FutureProvider<BibleRepository>((ref) async {

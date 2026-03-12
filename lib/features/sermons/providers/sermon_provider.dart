@@ -10,7 +10,14 @@ import '../../../core/database/metadata/installed_database_model.dart';
 
 /// Global state: which Sermon language the user is currently browsing.
 /// 'en' = English (default), 'ta' = Tamil.
-final selectedSermonLangProvider = StateProvider<String>((ref) => 'en');
+class _SermonLangNotifier extends Notifier<String> {
+  @override
+  String build() => 'en';
+  void setLang(String lang) => state = lang;
+}
+
+final selectedSermonLangProvider =
+    NotifierProvider<_SermonLangNotifier, String>(_SermonLangNotifier.new);
 
 /// Resolves the Sermon repository based on the selected language.
 /// Falls back to language code as db code if no metadata found.
@@ -104,6 +111,7 @@ class SermonListState {
 class SermonListNotifier extends Notifier<SermonListState> {
   @override
   SermonListState build() {
+    ref.watch(selectedSermonLangProvider);
     _loadInitial();
     return SermonListState(isLoading: true);
   }

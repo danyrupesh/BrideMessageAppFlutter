@@ -225,15 +225,17 @@ class _ContentView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final hymn = state.hymn;
-    String? _prevName;
-    String? _nextName;
+    String? prevName;
+    String? nextName;
 
     if (state.prevTitle != null) {
-      _prevName = _truncateTitle(state.prevTitle!);
+      prevName = _truncateTitle(state.prevTitle!);
     }
     if (state.nextTitle != null) {
-      _nextName = _truncateTitle(state.nextTitle!);
+      nextName = _truncateTitle(state.nextTitle!);
     }
+
+    final isMobile = MediaQuery.of(context).size.width < 600;
 
     return Column(
       children: [
@@ -241,8 +243,8 @@ class _ContentView extends StatelessWidget {
         _SongNavigationBar(
           current: hymn.hymnNo,
           currentTitle: '${hymn.hymnNo}. ${hymn.title}',
-          prevTitle: _prevName,
-          nextTitle: _nextName,
+          prevTitle: prevName,
+          nextTitle: nextName,
           prev: state.prevHymnNo,
           next: state.nextHymnNo,
           onPrev: state.prevHymnNo == null ? null : onPrev,
@@ -274,19 +276,21 @@ class _ContentView extends StatelessWidget {
             ),
           ),
         ),
-        Divider(color: palette.divider),
-        _SongNavigationBar(
-          current: hymn.hymnNo,
-          currentTitle: '${hymn.hymnNo}. ${hymn.title}',
-          prevTitle: _prevName,
-          nextTitle: _nextName,
-          prev: state.prevHymnNo,
-          next: state.nextHymnNo,
-          onPrev: state.prevHymnNo == null ? null : onPrev,
-          onNext: state.nextHymnNo == null ? null : onNext,
-          palette: palette,
-        ),
-        const SizedBox(height: 10),
+        if (!isMobile) ...[
+          Divider(color: palette.divider),
+          _SongNavigationBar(
+            current: hymn.hymnNo,
+            currentTitle: '${hymn.hymnNo}. ${hymn.title}',
+            prevTitle: prevName,
+            nextTitle: nextName,
+            prev: state.prevHymnNo,
+            next: state.nextHymnNo,
+            onPrev: state.prevHymnNo == null ? null : onPrev,
+            onNext: state.nextHymnNo == null ? null : onNext,
+            palette: palette,
+          ),
+          const SizedBox(height: 10),
+        ],
       ],
     );
   }
@@ -318,6 +322,8 @@ class _SongNavigationBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isMobile = screenWidth < 600;
 
     Widget sideButton({
       required IconData icon,
@@ -327,48 +333,61 @@ class _SongNavigationBar extends StatelessWidget {
       required Alignment alignment,
     }) {
       final enabled = hymnNo != null && onTap != null;
-       final label = !enabled || title == null ? '' : title;
-      return Expanded(
-        child: InkWell(
-          onTap: enabled ? onTap : null,
-          borderRadius: BorderRadius.circular(12),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-            child: Align(
-              alignment: alignment,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (alignment == Alignment.centerLeft)
-                    Icon(
-                      icon,
-                      color:
-                          enabled ? palette.onBackground : palette.onBackgroundMuted,
-                    ),
-                  if (alignment == Alignment.centerLeft)
-                    const SizedBox(width: 6),
-                  Text(
-                    label,
-                    style: theme.textTheme.labelLarge?.copyWith(
-                      color: enabled
-                          ? palette.onBackground
-                          : palette.onBackgroundMuted,
-                    ),
-                  ),
-                  if (alignment == Alignment.centerRight)
-                    const SizedBox(width: 6),
-                  if (alignment == Alignment.centerRight)
-                    Icon(
-                      icon,
-                      color:
-                          enabled ? palette.onBackground : palette.onBackgroundMuted,
-                    ),
-                ],
+      // Only show title on non-mobile screens to prevent collision/overflow
+      final effectiveTitle = (enabled && !isMobile) ? title : null;
+
+      final content = Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (alignment == Alignment.centerLeft)
+              Icon(
+                icon,
+                color: enabled
+                    ? palette.onBackground
+                    : palette.onBackgroundMuted,
               ),
-            ),
-          ),
+            if (effectiveTitle != null) ...[
+              const SizedBox(width: 6),
+              Flexible(
+                child: Text(
+                  effectiveTitle,
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    color: enabled
+                        ? palette.onBackground
+                        : palette.onBackgroundMuted,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 1,
+                ),
+              ),
+            ],
+            if (alignment == Alignment.centerRight) ...[
+              if (effectiveTitle != null) const SizedBox(width: 6),
+              Icon(
+                icon,
+                color: enabled
+                    ? palette.onBackground
+                    : palette.onBackgroundMuted,
+              ),
+            ],
+          ],
         ),
       );
+
+      final widget = InkWell(
+        onTap: enabled ? onTap : null,
+        borderRadius: BorderRadius.circular(12),
+        child: Align(
+          alignment: alignment,
+          child: content,
+        ),
+      );
+
+      // On mobile, icons take minimal space to give central title room.
+      // On desktop, expansion helps balance the row.
+      return isMobile ? widget : Expanded(child: widget);
     }
 
     return Material(
@@ -383,13 +402,18 @@ class _SongNavigationBar extends StatelessWidget {
             onTap: onPrev,
             alignment: Alignment.centerLeft,
           ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            child: Text(
-              currentTitle,
-              style: theme.textTheme.titleMedium?.copyWith(
-                color: palette.onBackground,
-                fontWeight: FontWeight.w700,
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              child: Text(
+                currentTitle,
+                textAlign: TextAlign.center,
+                style: theme.textTheme.titleMedium?.copyWith(
+                  color: palette.onBackground,
+                  fontWeight: FontWeight.w700,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
               ),
             ),
           ),
@@ -553,54 +577,146 @@ String _truncateTitle(String title, {int max = 15}) {
 
 Future<pw.Document> _buildHymnPdf(Hymn hymn, List<LyricsLine> lines) async {
   final doc = pw.Document();
-  final boldStyle = pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 12);
-  final normalStyle = const pw.TextStyle(fontSize: 12);
-  final italicStyle = pw.TextStyle(fontStyle: pw.FontStyle.italic, fontSize: 12);
+
+  // "Light" palette emulation for PDF
+  const accentColor = PdfColor.fromInt(0xFF1C6BC9);
+  const chorusBg = PdfColor.fromInt(0xFFE3EFFB);
+  const chorusBorder = PdfColor.fromInt(0xFFBFD7F1);
+  const greyColor = PdfColors.grey600;
+
+  final titleStyle = pw.TextStyle(
+    fontSize: 22,
+    fontWeight: pw.FontWeight.bold,
+    color: PdfColors.black,
+  );
+  final headerSmallStyle = pw.TextStyle(
+    fontSize: 10,
+    color: greyColor,
+  );
+  final keyStyle = pw.TextStyle(
+    fontSize: 11,
+    fontWeight: pw.FontWeight.bold,
+    color: PdfColors.black,
+  );
+  final sectionHeaderStyle = pw.TextStyle(
+    fontSize: 10,
+    fontWeight: pw.FontWeight.bold,
+    color: accentColor,
+  );
+  final normalStyle = const pw.TextStyle(
+    fontSize: 12,
+    color: PdfColors.black,
+  );
+  final footerStyle = pw.TextStyle(
+    fontSize: 10,
+    fontStyle: pw.FontStyle.italic,
+    color: greyColor,
+  );
 
   doc.addPage(
     pw.MultiPage(
       pageFormat: PdfPageFormat.a4,
       margin: const pw.EdgeInsets.symmetric(horizontal: 48, vertical: 56),
       build: (pw.Context ctx) {
+        String clean(String s) {
+          return s
+              .replaceAll('’', "'")
+              .replaceAll('‘', "'")
+              .replaceAll('“', '"')
+              .replaceAll('”', '"')
+              .replaceAll('…', '...')
+              .replaceAll('—', '-')
+              .replaceAll('–', '-');
+        }
+
         return [
-          pw.Text(
-            'Hymn ${hymn.hymnNo}',
-            style: pw.TextStyle(fontSize: 11, color: PdfColors.grey600),
-          ),
-          pw.SizedBox(height: 4),
-          pw.Text(
-            hymn.title,
-            style: pw.TextStyle(fontSize: 22, fontWeight: pw.FontWeight.bold),
-          ),
-          if (hymn.chord.trim().isNotEmpty) ...[
-            pw.SizedBox(height: 6),
-            pw.Text(
-              'Key of ${hymn.chord.trim()}',
-              style: pw.TextStyle(fontSize: 11, color: PdfColors.grey700),
+          // Centered Header Area
+          pw.Center(
+            child: pw.Column(
+              children: [
+                pw.Text(
+                  clean('Hymn ${hymn.hymnNo}').toUpperCase(),
+                  style: headerSmallStyle,
+                ),
+                pw.SizedBox(height: 6),
+                pw.Text(
+                  clean(hymn.title),
+                  style: titleStyle,
+                  textAlign: pw.TextAlign.center,
+                ),
+                if (hymn.chord.trim().isNotEmpty) ...[
+                  pw.SizedBox(height: 10),
+                  pw.Container(
+                    padding: const pw.EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 4),
+                    decoration: pw.BoxDecoration(
+                      color: PdfColors.grey100,
+                      borderRadius:
+                          const pw.BorderRadius.all(pw.Radius.circular(20)),
+                      border: pw.Border.all(color: PdfColors.grey300),
+                    ),
+                    child: pw.Text(
+                      clean('Key of ${hymn.chord.trim()}'),
+                      style: keyStyle,
+                    ),
+                  ),
+                ],
+              ],
             ),
-          ],
-          pw.SizedBox(height: 18),
+          ),
+          pw.SizedBox(height: 24),
+
+          // Lyrics Area
           ...lines.map((line) {
             return switch (line) {
-              LyricsSpacer() => pw.SizedBox(height: 10),
+              LyricsSpacer() => pw.SizedBox(height: 12),
               LyricsSectionHeader(:final text) => pw.Padding(
-                  padding: const pw.EdgeInsets.only(top: 10, bottom: 2),
-                  child: pw.Text(text.toUpperCase(), style: boldStyle),
+                  padding: const pw.EdgeInsets.only(top: 14, bottom: 6),
+                  child: pw.Row(
+                    children: [
+                      pw.Container(
+                        width: 3,
+                        height: 12,
+                        decoration: const pw.BoxDecoration(
+                          color: accentColor,
+                          borderRadius:
+                              pw.BorderRadius.all(pw.Radius.circular(2)),
+                        ),
+                      ),
+                      pw.SizedBox(width: 8),
+                      pw.Text(clean(text.toUpperCase()),
+                          style: sectionHeaderStyle),
+                    ],
+                  ),
                 ),
               LyricsChorusLine(:final text) => pw.Padding(
-                  padding: const pw.EdgeInsets.only(left: 18, top: 2, bottom: 2),
-                  child: pw.Text(text, style: italicStyle),
+                  padding: const pw.EdgeInsets.symmetric(vertical: 2),
+                  child: pw.Container(
+                    width: double.infinity,
+                    padding: const pw.EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 6),
+                    decoration: pw.BoxDecoration(
+                      color: chorusBg,
+                      border: pw.Border.all(color: chorusBorder),
+                      borderRadius:
+                          const pw.BorderRadius.all(pw.Radius.circular(8)),
+                    ),
+                    child: pw.Text(clean(text), style: normalStyle),
+                  ),
                 ),
               LyricsVerseLine(:final text) => pw.Padding(
-                  padding: const pw.EdgeInsets.only(top: 2, bottom: 2),
-                  child: pw.Text(text, style: normalStyle),
+                  padding: const pw.EdgeInsets.symmetric(vertical: 3),
+                  child: pw.Text(clean(text), style: normalStyle),
                 ),
             };
           }),
-          pw.SizedBox(height: 24),
+
+          pw.SizedBox(height: 32),
+          pw.Divider(color: PdfColors.grey300),
+          pw.SizedBox(height: 8),
           pw.Text(
-            '— Only Believe Songs',
-            style: pw.TextStyle(fontSize: 10, fontStyle: pw.FontStyle.italic, color: PdfColors.grey600),
+            clean('— Only Believe Songs'),
+            style: footerStyle,
           ),
         ];
       },

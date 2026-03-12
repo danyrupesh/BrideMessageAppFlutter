@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../reader/models/reader_tab.dart';
 import '../../reading_state/models/reading_flow_models.dart';
 import '../../reading_state/providers/reading_state_provider.dart';
+import 'sermon_provider.dart';
 
 // ─── State ────────────────────────────────────────────────────────────────────
 
@@ -46,6 +47,13 @@ class SermonFlowState {
 class SermonFlowNotifier extends Notifier<SermonFlowState> {
   @override
   SermonFlowState build() {
+    ref.listen(selectedSermonLangProvider, (previous, next) {
+      if (previous != next) {
+        state = state.copyWith(tabs: [], isInitialized: false);
+        _hydrate();
+      }
+    });
+
     _hydrate();
     return const SermonFlowState(
       tabs: [],
@@ -54,9 +62,17 @@ class SermonFlowNotifier extends Notifier<SermonFlowState> {
     );
   }
 
+  String get _sessionKey {
+    final lang = ref.read(selectedSermonLangProvider);
+    return 'sermon_$lang';
+  }
+
   Future<void> _hydrate() async {
     final repo = ref.read(readingStateRepositoryProvider);
-    final activeSession = await repo.loadActiveSession(FlowType.sermon);
+    final activeSession = await repo.loadActiveSession(
+      sessionKey: _sessionKey,
+      fallbackFlowType: FlowType.sermon,
+    );
 
     if (activeSession == null) {
       state = state.copyWith(isInitialized: true);
@@ -96,13 +112,16 @@ class SermonFlowNotifier extends Notifier<SermonFlowState> {
   Future<void> _persistFlow() async {
     final repo = ref.read(readingStateRepositoryProvider);
     if (state.tabs.isEmpty) {
-      await repo.deleteActiveSession(FlowType.sermon);
+      await repo.deleteActiveSession(_sessionKey);
       ref.invalidate(recentReadsProvider);
       return;
     }
 
     final payload = _currentPayload();
-    await repo.saveActiveSession(FlowType.sermon, payload);
+    await repo.saveActiveSession(
+      sessionKey: _sessionKey,
+      payload: payload,
+    );
 
     final sermonAnchor = state.tabs.first;
     final entryKey = sermonAnchor.sermonId != null
@@ -195,6 +214,23 @@ class SermonFlowNotifier extends Notifier<SermonFlowState> {
       activeTabIndex: safeIndex,
       isInitialized: true,
     );
+    unawaited(_persistFlow());
+  }
+
+  /// Update the title of the active tab (useful for replacing "Loading..." text).
+  void updateActiveTabTitle(String newTitle) {
+    if (state.tabs.isEmpty || state.activeTabIndex < 0 || state.activeTabIndex >= state.tabs.length) {
+      return;
+    }
+    
+    final currentTab = state.tabs[state.activeTabIndex];
+    if (currentTab.title == newTitle) return; // No change
+    
+    final updatedTab = currentTab.copyWith(title: newTitle);
+    final newTabs = List<ReaderTab>.from(state.tabs);
+    newTabs[state.activeTabIndex] = updatedTab;
+    
+    state = state.copyWith(tabs: newTabs);
     unawaited(_persistFlow());
   }
 }

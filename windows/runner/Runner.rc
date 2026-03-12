@@ -90,12 +90,12 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "com.niflarosh" "\0"
-            VALUE "FileDescription", "bride_message_app" "\0"
+            VALUE "FileDescription", "Bride Message App" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
-            VALUE "InternalName", "bride_message_app" "\0"
+            VALUE "InternalName", "Bride Message App" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2026 com.niflarosh. All rights reserved." "\0"
-            VALUE "OriginalFilename", "bride_message_app.exe" "\0"
-            VALUE "ProductName", "bride_message_app" "\0"
+            VALUE "OriginalFilename", "Bride Message App.exe" "\0"
+            VALUE "ProductName", "Bride Message App" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

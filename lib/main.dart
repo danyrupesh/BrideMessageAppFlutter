@@ -6,10 +6,19 @@ import 'core/database/sqlite_platform_bootstrap.dart';
 import 'core/navigation/app_router.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/theme_provider.dart';
+import 'core/navigation/app_links_handler.dart';
+import 'package:protocol_handler/protocol_handler.dart';
+import 'package:windows_single_instance/windows_single_instance.dart';
+import 'dart:io';
 
-void main() async {
+void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
   await SqlitePlatformBootstrap.ensureInitialized();
+  
+  if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+    await protocolHandler.register('bridemessage');
+  }
+
 
   // Initialise metadata registry so the first DB check is fast.
   await InstalledDatabaseRegistry().hasAnyContent();
@@ -17,7 +26,31 @@ void main() async {
   // Log SQLite version & compile options for diagnostics.
   DatabaseManager.logSqliteDiagnostics();
 
-  runApp(const ProviderScope(child: BrideMessageApp()));
+  // Create a global ProviderContainer to access outside widgets
+  final container = ProviderContainer();
+
+  if (Platform.isWindows) {
+    await WindowsSingleInstance.ensureSingleInstance(
+      args,
+      "bride_message_app_single_instance",
+      onSecondWindow: (args) {
+        if (args.isNotEmpty) {
+          final uriString = args.firstWhere((a) => a.startsWith('bridemessage:'), orElse: () => '');
+          if (uriString.isNotEmpty) {
+            final uri = Uri.tryParse(uriString);
+            if (uri != null) {
+              container.read(appLinksHandlerProvider).processUriDirectly(uri);
+            }
+          }
+        }
+      },
+    );
+  }
+
+  runApp(UncontrolledProviderScope(
+    container: container,
+    child: const BrideMessageApp(),
+  ));
 }
 
 class BrideMessageApp extends ConsumerWidget {
@@ -25,6 +58,9 @@ class BrideMessageApp extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Start listening for deep links
+    ref.read(appLinksHandlerProvider);
+
     final router = ref.watch(appRouterProvider);
     final themeSettings = ref.watch(themeProvider);
 

@@ -1,8 +1,12 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:share_plus/share_plus.dart' show SharePlus, ShareParams;
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 import 'providers/sermon_flow_provider.dart';
 import 'providers/sermon_provider.dart';
 import 'widgets/sermon_quick_nav_sheet.dart';
@@ -429,8 +433,198 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
         .map((i) => _currentParagraphs[i].text)
         .join('\n\n');
     if (text.isEmpty) return;
-    SharePlus.instance.share(ShareParams(text: text));
+
+    // Build a deep link so the recipient can open the exact sermon.
+    final flowState = ref.read(sermonFlowProvider);
+    final sermonTab = flowState.tabs.firstWhere(
+      (t) => t.type == ReaderContentType.sermon,
+      orElse: () => flowState.tabs.first,
+    );
+    final lang = ref.read(selectedSermonLangProvider);
+    final sermonId = sermonTab.sermonId ?? '';
+    final deepLink = 'https://endtimebride.in/appshare/sermon?id=$sermonId&lang=$lang';
+
+    SharePlus.instance.share(
+      ShareParams(text: '$text\n\n🔗 Open in Bride Message App:\n$deepLink'),
+    );
     setState(() => _selectedParagraphIndices.clear());
+  }
+
+  // ── PDF generation (Sermon) ──────────────────────────────────────────────
+
+  Future<pw.Document> _buildSermonPdf() async {
+    final flowState = ref.read(sermonFlowProvider);
+    final activeTab = flowState.activeTab;
+    final typography = ref.read(typographyProvider);
+    final paragraphs = _currentParagraphs;
+
+    final doc = pw.Document();
+    const accentColor = PdfColor.fromInt(0xFF5B4FCF);
+    final lang = ref.read(selectedSermonLangProvider);
+
+    // Use Tamil-specific fonts if needed, otherwise fallback to standard Noto Sans.
+    final bodyFont = lang == 'ta'
+        ? await PdfGoogleFonts.notoSansTamilRegular()
+        : await PdfGoogleFonts.notoSansRegular();
+    final boldFont = lang == 'ta'
+        ? await PdfGoogleFonts.notoSansTamilBold()
+        : await PdfGoogleFonts.notoSansBold();
+
+    final baseTextStyle = pw.TextStyle(
+      font: bodyFont,
+      fontSize: typography.fontSize * 0.9,
+      lineSpacing:
+          (typography.lineHeight - 1) * typography.fontSize * 0.5,
+    );
+
+    doc.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(32),
+        build: (context) {
+          final List<pw.Widget> widgets = [];
+
+          // Header
+          widgets.add(
+            pw.Center(
+              child: pw.Text(
+                activeTab?.title ?? 'Sermon',
+                style: pw.TextStyle(
+                  font: boldFont,
+                  fontSize: 18,
+                  color: accentColor,
+                ),
+              ),
+            ),
+          );
+          widgets.add(pw.SizedBox(height: 12));
+          widgets.add(pw.Divider(color: PdfColors.grey300));
+          widgets.add(pw.SizedBox(height: 8));
+
+          // Content
+          for (final p in paragraphs) {
+            // Clean text: keep basic Latin, Tamil, and common punctuation.
+            final rawText = p.text.replaceAll(
+              RegExp(
+                r'[^\x20-\x7E\u0B80-\u0BFF\u2013-\u2014\u2018-\u201D\u2026\n ]',
+              ),
+              '',
+            );
+
+            // Emit paragraph number as its own small widget on a preceding line
+            if (p.paragraphNumber != null) {
+              widgets.add(pw.SizedBox(height: 6));
+              widgets.add(
+                pw.Text(
+                  'Paragraph ${p.paragraphNumber}',
+                  style: pw.TextStyle(
+                    font: boldFont,
+                    fontSize: 8,
+                    color: PdfColors.grey500,
+                  ),
+                ),
+              );
+            }
+
+            // Use Paragraph (SpanningWidget) so long paragraphs can split
+            // across multiple pages safely.
+            final normalized = const LineSplitter()
+                .convert(rawText)
+                .where((line) => line.trim().isNotEmpty)
+                .join('\n');
+
+            if (normalized.trim().isNotEmpty) {
+              widgets.add(
+                pw.Paragraph(
+                  text: normalized,
+                  style: baseTextStyle,
+                ),
+              );
+              widgets.add(pw.SizedBox(height: 10));
+            }
+          }
+
+          return widgets;
+        },
+      ),
+    );
+    return doc;
+  }
+
+  String _sanitizePdfName(String raw) {
+    final cleaned =
+        raw.replaceAll(RegExp(r'[<>:"/\\\\|?*]'), '-').trim();
+    return cleaned.isEmpty ? 'Document' : cleaned;
+  }
+
+  Future<void> _withPdfProgress(Future<void> Function() task) async {
+    if (!mounted) return;
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => const Center(
+        child: CircularProgressIndicator(),
+      ),
+    );
+    try {
+      await task();
+    } finally {
+      if (mounted) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
+    }
+  }
+
+  Future<void> _printSermonPdf() async {
+    await _withPdfProgress(() async {
+      final doc = await _buildSermonPdf();
+      final rawTitle =
+          ref.read(sermonFlowProvider).activeTab?.title ?? 'Sermon';
+      final safeTitle = _sanitizePdfName(rawTitle);
+      await Printing.layoutPdf(
+        onLayout: (_) async => doc.save(),
+        name: safeTitle,
+      );
+    });
+  }
+
+  Future<void> _downloadSermonPdf() async {
+    await _withPdfProgress(() async {
+      final doc = await _buildSermonPdf();
+      final bytes = await doc.save();
+
+      final rawTitle =
+          ref.read(sermonFlowProvider).activeTab?.title ?? 'Sermon';
+      final safeTitle = _sanitizePdfName(rawTitle);
+
+      final savedPath = await DesktopFileSaver.savePdf(
+        suggestedName: '$safeTitle.pdf',
+        bytes: bytes,
+      );
+
+      if (!mounted || savedPath == null) return;
+
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('PDF saved'),
+          content: Text('Saved to:\n$savedPath'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Close'),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.of(ctx).pop();
+                DesktopFileSaver.revealInExplorer(savedPath);
+              },
+              child: const Text('Open folder'),
+            ),
+          ],
+        ),
+      );
+    });
   }
 
   void _enterSearchMode() {
@@ -860,6 +1054,14 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
                 sermon.duration!,
             ].join(' • ');
 
+      // If the sermon has loaded but the tab title is still "Loading...",
+      // quickly update it so the UI and Bottom Tabs reflect the real title.
+      if (sermon != null && activeTab.title == 'Loading...') {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          ref.read(sermonFlowProvider.notifier).updateActiveTabTitle(sermon.title);
+        });
+      }
+
       titleWidget = Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
@@ -1139,68 +1341,70 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
             children: [
               _buildSermonNavRow(),
               Expanded(
-                child: ListView.builder(
-                  controller: _scrollController,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16.0,
-                    vertical: 8.0,
-                  ),
-                  itemCount: paragraphs.length,
-                  itemBuilder: (context, index) {
-                    final paragraph = paragraphs[index];
-                    final key = index < _verseKeys.length
-                        ? _verseKeys[index]
-                        : GlobalKey();
+                child: SelectionArea(
+                  child: ListView.builder(
+                    controller: _scrollController,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16.0,
+                      vertical: 8.0,
+                    ),
+                    itemCount: paragraphs.length,
+                    itemBuilder: (context, index) {
+                      final paragraph = paragraphs[index];
+                      final key = index < _verseKeys.length
+                          ? _verseKeys[index]
+                          : GlobalKey();
 
-                    // Compute which occurrence in this paragraph is the current match.
-                    final currentOccurrence = _currentOccurrenceForItem(index);
+                      // Compute which occurrence in this paragraph is the current match.
+                      final currentOccurrence = _currentOccurrenceForItem(index);
 
-                    final isParagraphSelected = _selectedParagraphIndices
-                        .contains(index);
-                    return GestureDetector(
-                      key: key,
-                      onTap: () => _toggleParagraphSelection(index),
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 150),
-                        decoration: BoxDecoration(
-                          color: isParagraphSelected
-                              ? cs.primaryContainer.withAlpha(120)
-                              : Colors.transparent,
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 6,
-                          vertical: 4,
-                        ),
-                        margin: const EdgeInsets.only(bottom: 8),
-                        child: RichText(
-                          text: TextSpan(
-                            style: baseStyle,
-                            children: [
-                              if (paragraph.paragraphNumber != null)
-                                TextSpan(
-                                  text: '${paragraph.paragraphNumber}\u00B6 ',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: typography.fontSize * 0.8,
-                                    color: isParagraphSelected
-                                        ? cs.primary
-                                        : Colors.grey,
+                      final isParagraphSelected = _selectedParagraphIndices
+                          .contains(index);
+                      return GestureDetector(
+                        key: key,
+                        onTap: () => _toggleParagraphSelection(index),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 150),
+                          decoration: BoxDecoration(
+                            color: isParagraphSelected
+                                ? cs.primaryContainer.withAlpha(120)
+                                : Colors.transparent,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 4,
+                          ),
+                          margin: const EdgeInsets.only(bottom: 8),
+                          child: RichText(
+                            text: TextSpan(
+                              style: baseStyle,
+                              children: [
+                                if (paragraph.paragraphNumber != null)
+                                  TextSpan(
+                                    text: '${paragraph.paragraphNumber}\u00B6 ',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: typography.fontSize * 0.8,
+                                      color: isParagraphSelected
+                                          ? cs.primary
+                                          : Colors.grey,
+                                    ),
                                   ),
+                                ..._buildHighlightedSpans(
+                                  paragraph.text,
+                                  baseStyle,
+                                  highlightStyle,
+                                  currentMatchStyle,
+                                  currentOccurrenceIndex: currentOccurrence,
                                 ),
-                              ..._buildHighlightedSpans(
-                                paragraph.text,
-                                baseStyle,
-                                highlightStyle,
-                                currentMatchStyle,
-                                currentOccurrenceIndex: currentOccurrence,
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
                         ),
-                      ),
-                    );
-                  },
+                      );
+                    },
+                  ),
                 ),
               ),
             ],
@@ -1367,6 +1571,8 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
 
   Widget _buildBottomTabBar(BuildContext context, SermonFlowState state) {
     final theme = Theme.of(context);
+    final activeTab = state.activeTab;
+    final isOnBibleTab = activeTab?.type == ReaderContentType.bible;
     return Material(
       elevation: 8,
       color: theme.colorScheme.surface,
@@ -1485,17 +1691,79 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
                 // "⋮" three-dots popup
                 PopupMenuButton<String>(
                   icon: const Icon(Icons.more_vert),
-                  itemBuilder: (_) => const [
-                    PopupMenuItem(
+                  itemBuilder: (_) => [
+                    const PopupMenuItem(
+                      value: 'share_link',
+                      child: ListTile(
+                        leading: Icon(Icons.share_outlined),
+                        title: Text('Share Link'),
+                        contentPadding: EdgeInsets.zero,
+                        dense: true,
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: 'copy_link',
+                      child: ListTile(
+                        leading: Icon(Icons.copy_outlined),
+                        title: Text('Copy Link'),
+                        contentPadding: EdgeInsets.zero,
+                        dense: true,
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: 'download_pdf',
+                      child: ListTile(
+                        leading: Icon(Icons.download_outlined),
+                        title: Text('Download PDF'),
+                        contentPadding: EdgeInsets.zero,
+                        dense: true,
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: 'print_pdf',
+                      child: ListTile(
+                        leading: Icon(Icons.print_outlined),
+                        title: Text('Print PDF'),
+                        contentPadding: EdgeInsets.zero,
+                        dense: true,
+                      ),
+                    ),
+                    const PopupMenuDivider(),
+                    const PopupMenuItem(
                       value: 'close_others',
                       child: Text('Close Other Tabs'),
                     ),
-                    PopupMenuItem(
+                    const PopupMenuItem(
                       value: 'hide_tabs',
                       child: Text('Hide Bottom Tabs'),
                     ),
                   ],
                   onSelected: (val) {
+                    if (val == 'share_link' || val == 'copy_link') {
+                      final lang = isOnBibleTab
+                          ? ref.read(selectedBibleLangProvider)
+                          : ref.read(selectedSermonLangProvider);
+                      final linkItem = isOnBibleTab
+                          ? 'bible?book=${Uri.encodeComponent(activeTab?.book ?? '')}&chapter=${activeTab?.chapter ?? 1}&lang=$lang'
+                          : 'sermon?id=${activeTab?.sermonId ?? ''}&lang=$lang';
+                      final deepLink = 'https://endtimebride.in/appshare/$linkItem';
+
+                      if (val == 'share_link') {
+                        SharePlus.instance.share(
+                          ShareParams(
+                            text:
+                                '${activeTab?.title ?? ''}\n\n🔗 Read in Bride Message App:\n$deepLink',
+                          ),
+                        );
+                      } else {
+                        Clipboard.setData(ClipboardData(text: deepLink));
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Link copied to clipboard')),
+                        );
+                      }
+                    }
+                    if (val == 'download_pdf') _downloadSermonPdf();
+                    if (val == 'print_pdf') _printSermonPdf();
                     if (val == 'close_others') _closeOtherTabs();
                     if (val == 'hide_tabs') {
                       setState(() => _hideBottomTabs = true);

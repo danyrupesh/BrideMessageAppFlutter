@@ -106,7 +106,7 @@ class SettingsScreen extends ConsumerWidget {
             child: ListTile(
               leading: const Icon(Icons.info_outline),
               title: const Text('App Info'),
-              subtitle: const Text('Version 1.9 • com.example.bridemessage'),
+              subtitle: const Text('Version 1.9 • com.niflarosh.bride_message_app'),
               onTap: () {
                 // Could show a simple dialog with more details.
               },
