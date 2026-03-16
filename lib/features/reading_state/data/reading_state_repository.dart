@@ -15,13 +15,14 @@ class ReadingStateRepository {
     final path = p.join(dbDir.path, 'reading_state.db');
     _db = await openDatabase(
       path,
-      version: 1,
+      version: 2,
       onCreate: (db, _) async {
         await db.execute('''
           CREATE TABLE active_sessions (
             flow_type TEXT PRIMARY KEY,
             tabs_json TEXT NOT NULL,
             active_tab_index INTEGER NOT NULL,
+            payload_json TEXT,
             schema_version INTEGER NOT NULL,
             updated_at INTEGER NOT NULL
           )
@@ -55,6 +56,13 @@ class ReadingStateRepository {
           'CREATE INDEX idx_saved_flows_type_updated_at ON saved_flows(flow_type, updated_at DESC)',
         );
       },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await db.execute(
+            'ALTER TABLE active_sessions ADD COLUMN payload_json TEXT',
+          );
+        }
+      },
     );
     return _db!;
   }
@@ -73,6 +81,15 @@ class ReadingStateRepository {
     if (rows.isEmpty) return null;
     try {
       final row = rows.first;
+      final payloadRaw = row['payload_json'] as String?;
+      if (payloadRaw != null && payloadRaw.trim().isNotEmpty) {
+        final payloadMap = jsonDecode(payloadRaw);
+        if (payloadMap is Map) {
+          return ReadingFlowPayloadV1.fromJson(
+            Map<String, dynamic>.from(payloadMap),
+          );
+        }
+      }
       final tabsRaw = (row['tabs_json'] as String?) ?? '[]';
       final tabsDecoded = jsonDecode(tabsRaw);
       final tabs = tabsDecoded is List
@@ -104,6 +121,7 @@ class ReadingStateRepository {
       'flow_type': sessionKey,
       'tabs_json': jsonEncode(payload.tabs),
       'active_tab_index': payload.activeTabIndex,
+      'payload_json': jsonEncode(payload.toJson()),
       'schema_version': payload.schemaVersion,
       'updated_at': now,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
@@ -177,6 +195,11 @@ class ReadingStateRepository {
       } catch (_) {}
     }
     return items;
+  }
+
+  Future<void> clearRecentReads() async {
+    final db = await _database;
+    await db.delete('recent_reads');
   }
 
   Future<void> upsertSavedFlow({

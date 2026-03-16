@@ -1,7 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:bride_message_app/main.dart';
+import 'package:MessageApp/main.dart';
 
 void main() {
   testWidgets('App boots', (WidgetTester tester) async {

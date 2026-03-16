@@ -1,19 +1,33 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:share_plus/share_plus.dart' show SharePlus, ShareParams;
+import 'package:flutter/gestures.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import 'package:open_filex/open_filex.dart';
+import 'package:path_provider/path_provider.dart';
 import '../../core/utils/desktop_file_saver.dart';
+import '../../core/widgets/responsive_bottom_sheet.dart';
 import 'providers/reader_provider.dart';
 import 'providers/typography_provider.dart';
 import 'models/reader_tab.dart';
 import 'widgets/reader_settings_sheet.dart';
 import 'widgets/quick_navigation_sheet.dart';
 import '../../core/database/models/bible_search_result.dart';
+import '../../core/utils/pdf_fonts.dart';
+
+class _NextMatchIntent extends Intent {
+  const _NextMatchIntent();
+}
+
+class _PrevMatchIntent extends Intent {
+  const _PrevMatchIntent();
+}
 
 class ReaderScreen extends ConsumerStatefulWidget {
   const ReaderScreen({super.key});
@@ -25,10 +39,14 @@ class ReaderScreen extends ConsumerStatefulWidget {
 class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   // ── Scroll controller (preserves position across fullscreen toggle) ────────
   final ScrollController _scrollController = ScrollController();
+  final FocusNode _searchFieldFocusNode = FocusNode();
+  late final bool Function(KeyEvent) _searchKeyHandler;
 
   // ── In-page search ────────────────────────────────────────────────────────
   bool _isSearching = false;
   final TextEditingController _searchController = TextEditingController();
+  String? _lastSearchActivatedTabId; // Track which tab had search auto-activated
+  String? _lastActiveTabId;
 
   /// Flat list of verse indices (one entry per individual match occurrence).
   List<int> _matchVerseIndices = [];
@@ -49,23 +67,41 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   @override
   void initState() {
     super.initState();
+    _searchKeyHandler = (event) {
+      if (!_isSearching) return false;
+      if (event is! KeyDownEvent) return false;
+      final isEnter = event.logicalKey == LogicalKeyboardKey.enter ||
+          event.logicalKey == LogicalKeyboardKey.numpadEnter;
+      if (!isEnter) return false;
+      if (_totalMatches == 0) return true;
+      if (HardwareKeyboard.instance.isShiftPressed) {
+        _navigateToMatch(-1);
+      } else {
+        _navigateToMatch(1);
+      }
+      return true;
+    };
+    HardwareKeyboard.instance.addHandler(_searchKeyHandler);
   }
 
   @override
   void dispose() {
     _scrollController.dispose();
     _searchController.dispose();
+    _searchFieldFocusNode.dispose();
+    HardwareKeyboard.instance.removeHandler(_searchKeyHandler);
     super.dispose();
   }
 
   // ── Navigation handler (shared by AppBar title + FAB) ─────────────────────
 
   Future<void> _openQuickNav() async {
-    final result = await showModalBottomSheet<Map<String, dynamic>>(
+    final result = await showResponsiveBottomSheet<Map<String, dynamic>>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
+      maxWidth: 980,
       builder: (_) => const QuickNavigationSheet(),
     );
     _handleNavResult(result);
@@ -74,12 +110,14 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   void _handleNavResult(Map<String, dynamic>? result) {
     if (result == null) return;
     final verse = result['verse'] as int?;
+    final lang = result['lang'] as String?;
     final newTab = ReaderTab(
       type: ReaderContentType.bible,
       title: "${result['book']} ${result['chapter']}",
       book: result['book'] as String,
       chapter: result['chapter'] as int,
       verse: verse,
+      bibleLang: lang,
     );
     if (result['newTab'] == true) {
       ref.read(readerProvider.notifier).openTab(newTab);
@@ -192,33 +230,60 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   void _shareSelectedVerses() {
     if (_selectedVerseNumbers.isEmpty || _currentVerses.isEmpty) return;
     final activeTab = ref.read(readerProvider).activeTab;
-    final sorted = _selectedVerseNumbers.toList()..sort();
-    final lines = sorted.map((vNum) {
-      final verse = _currentVerses.firstWhere(
-        (v) => v.verse == vNum,
-        orElse: () => _currentVerses.first,
-      );
-      return '${activeTab?.book ?? verse.book} ${verse.chapter}:${verse.verse}  ${verse.text}';
-    });
-    SharePlus.instance.share(ShareParams(text: lines.join('\n\n')));
+    final text = _buildSelectedVersesPayload(activeTab);
+    if (text.isEmpty) return;
+    SharePlus.instance.share(ShareParams(text: text));
   }
 
   void _copySelectedVerses() {
     if (_selectedVerseNumbers.isEmpty || _currentVerses.isEmpty) return;
     final activeTab = ref.read(readerProvider).activeTab;
-    final sorted = _selectedVerseNumbers.toList()..sort();
-    final lines = sorted.map((vNum) {
-      final verse = _currentVerses.firstWhere(
-        (v) => v.verse == vNum,
-        orElse: () => _currentVerses.first,
-      );
-      return '${activeTab?.book ?? verse.book} ${verse.chapter}:${verse.verse}  ${verse.text}';
-    });
-    final text = lines.join('\n\n');
+    final text = _buildSelectedVersesPayload(activeTab);
+    if (text.isEmpty) return;
     Clipboard.setData(ClipboardData(text: text));
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Copied to clipboard')),
     );
+  }
+
+  /// Builds the text payload for share / copy, including a header like
+  /// `Genesis 1:1-3` when one or more verses are selected.
+  String _buildSelectedVersesPayload(ReaderTab? activeTab) {
+    if (_selectedVerseNumbers.isEmpty || _currentVerses.isEmpty) {
+      return '';
+    }
+
+    final sorted = _selectedVerseNumbers.toList()..sort();
+    final firstVerseNumber = sorted.first;
+    final lastVerseNumber = sorted.last;
+
+    final firstVerse = _currentVerses.firstWhere(
+      (v) => v.verse == firstVerseNumber,
+      orElse: () => _currentVerses.first,
+    );
+    final lastVerse = _currentVerses.firstWhere(
+      (v) => v.verse == lastVerseNumber,
+      orElse: () => firstVerse,
+    );
+
+    final book = (activeTab?.book ?? firstVerse.book).trim();
+    final chapter = firstVerse.chapter;
+    final sameChapter =
+        firstVerse.chapter == lastVerse.chapter && chapter != null;
+
+    final header = sameChapter
+        ? '$book $chapter:${firstVerse.verse == lastVerse.verse ? firstVerse.verse : '${firstVerse.verse}-${lastVerse.verse}'}'
+        : '$book ${firstVerse.chapter}:${firstVerse.verse}-${lastVerse.chapter}:${lastVerse.verse}';
+
+    final bodyLines = sorted.map((vNum) {
+      final verse = _currentVerses.firstWhere(
+        (v) => v.verse == vNum,
+        orElse: () => _currentVerses.first,
+      );
+      return '${book.isEmpty ? verse.book : book} ${verse.chapter}:${verse.verse}  ${verse.text}';
+    });
+
+    return '$header\n\n${bodyLines.join('\n\n')}';
   }
 
   // ── Close other tabs ─────────────────────────────────────────────────────
@@ -240,14 +305,15 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
     final doc = pw.Document();
     const accentColor = PdfColor.fromInt(0xFF1C6BC9);
-    final lang = ref.read(selectedBibleLangProvider);
+    final lang = activeTab?.bibleLang ?? ref.read(selectedBibleLangProvider);
 
-    // Use Tamil-specific fonts if needed, otherwise fallback to standard Noto Sans.
+    // Use embedded Tamil fonts when lang == 'ta', otherwise fallback to
+    // standard Noto Sans via PdfGoogleFonts.
     final bodyFont = lang == 'ta'
-        ? await PdfGoogleFonts.notoSansTamilRegular()
+        ? await AppPdfFonts.tamilRegular()
         : await PdfGoogleFonts.notoSansRegular();
     final boldFont = lang == 'ta'
-        ? await PdfGoogleFonts.notoSansTamilBold()
+        ? await AppPdfFonts.tamilBold()
         : await PdfGoogleFonts.notoSansBold();
 
     doc.addPage(
@@ -276,12 +342,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
           // Content
           for (final v in verses) {
-            final rawText = v.text.replaceAll(
-              RegExp(
-                r'[^\x20-\x7E\u0B80-\u0BFF\u2013-\u2014\u2018-\u201D\u2026\n ]',
-              ),
-              '',
-            );
+            final rawText = v.text;
 
             // Emit verse number
             widgets.add(pw.SizedBox(height: 8));
@@ -348,30 +409,75 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
     final rawTitle = ref.read(readerProvider).activeTab?.title ?? 'Bible';
     final safeTitle = _sanitizePdfName(rawTitle);
+    final filename = '$safeTitle.pdf';
 
-    final savedPath = await DesktopFileSaver.savePdf(
-      suggestedName: '$safeTitle.pdf',
-      bytes: bytes,
-    );
+    // Desktop: use native Save dialog and explorer reveal.
+    if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
+      final savedPath = await DesktopFileSaver.savePdf(
+        suggestedName: filename,
+        bytes: bytes,
+      );
 
-    if (!mounted || savedPath == null) return;
+      if (!mounted || savedPath == null) return;
+
+      await showDialog<void>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('PDF saved'),
+          content: Text('Saved to:\n$savedPath'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Close'),
+            ),
+            TextButton(
+              onPressed: () {
+                Navigator.of(ctx).pop();
+                DesktopFileSaver.revealInExplorer(savedPath);
+              },
+              child: const Text('Open folder'),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+
+    // Mobile: save into app documents directory and allow opening the file.
+    final dir = await getApplicationDocumentsDirectory();
+    final filePath = '${dir.path}/$filename';
+    final file = File(filePath);
+    await file.writeAsBytes(bytes, flush: true);
+
+    if (!mounted) return;
 
     await showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('PDF saved'),
-        content: Text('Saved to:\n$savedPath'),
+        content: Text('Saved inside app documents:\n$filePath'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),
             child: const Text('Close'),
           ),
           TextButton(
-            onPressed: () {
+            onPressed: () async {
               Navigator.of(ctx).pop();
-              DesktopFileSaver.revealInExplorer(savedPath);
+              try {
+                await OpenFilex.open(filePath);
+              } catch (_) {
+                if (!mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      'PDF saved to:\n$filePath\n\nPlease open it from your file manager.',
+                    ),
+                  ),
+                );
+              }
             },
-            child: const Text('Open folder'),
+            child: const Text('Open file'),
           ),
         ],
       ),
@@ -412,7 +518,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       spans.add(
         TextSpan(
           text: text.substring(match.start, match.end),
-          style: isCurrent ? currentMatchStyle : highlightStyle,
+          style: isCurrent ? currentMatchStyle : baseStyle,
         ),
       );
       occurrenceCounter++;
@@ -424,6 +530,47 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     return spans;
   }
 
+  Widget _buildMatchMarkers(
+    int itemCount,
+    List<int> matchIndices,
+    int? currentItemIndex,
+  ) {
+    if (!_isSearching || matchIndices.isEmpty || itemCount <= 1) {
+      return const SizedBox.shrink();
+    }
+    final markers = matchIndices.toSet().toList()..sort();
+    return IgnorePointer(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final height = constraints.maxHeight;
+          const markerWidth = 4.0;
+          const markerHeight = 6.0;
+          return Stack(
+            children: [
+              for (final idx in markers)
+                Positioned(
+                  right: 0,
+                  top: ((idx / (itemCount - 1)) *
+                          (height - markerHeight))
+                      .clamp(0.0, height - markerHeight),
+                  child: Container(
+                    width: markerWidth,
+                    height: markerHeight,
+                    decoration: BoxDecoration(
+                      color: idx == currentItemIndex
+                          ? Colors.orange.shade700
+                          : Colors.yellow.shade600,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
   // ── Build ─────────────────────────────────────────────────────────────────
 
   @override
@@ -433,57 +580,107 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     final activeTab = readerState.activeTab;
     final isFullscreen = typographyState.isFullscreen;
 
-    return Scaffold(
-      appBar: isFullscreen
-          ? null
-          : (_isSearching
-                ? _buildSearchAppBar(context)
-                : _buildDefaultAppBar(context, activeTab)),
-      body: activeTab == null
-          ? const Center(child: Text('No open tabs. Please open a book.'))
-          : isFullscreen
-          ? Stack(
-              children: [
-                _buildTabContent(activeTab, typographyState),
-                // Fullscreen exit overlay — always visible in top-right corner.
-                Positioned(
-                  top: 12,
-                  right: 12,
-                  child: SafeArea(
-                    child: Material(
-                      color: Colors.black45,
-                      borderRadius: BorderRadius.circular(20),
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(20),
-                        onTap: () => ref
-                            .read(typographyProvider.notifier)
-                            .toggleFullscreen(),
-                        child: const Padding(
-                          padding: EdgeInsets.all(8),
-                          child: Icon(
-                            Icons.fullscreen_exit,
-                            color: Colors.white,
-                            size: 22,
+    // Clear search state only when the active tab changes and the new tab
+    // doesn't request auto-search.
+    final activeTabId = activeTab?.id;
+    final tabChanged = activeTabId != _lastActiveTabId;
+    if (tabChanged) {
+      _lastActiveTabId = activeTabId;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (_isSearching && activeTab?.initialSearchQuery == null) {
+          setState(() {
+            _isSearching = false;
+            _searchController.clear();
+            _clearMatches();
+            _lastSearchActivatedTabId = null;
+          });
+        }
+      });
+    }
+
+    return Shortcuts(
+      shortcuts: {
+        LogicalKeySet(LogicalKeyboardKey.enter): const _NextMatchIntent(),
+        LogicalKeySet(LogicalKeyboardKey.shift, LogicalKeyboardKey.enter):
+            const _PrevMatchIntent(),
+      },
+      child: Actions(
+        actions: {
+          _NextMatchIntent: CallbackAction<_NextMatchIntent>(
+            onInvoke: (intent) {
+              if (_isSearching && _totalMatches > 0) {
+                _navigateToMatch(1);
+              }
+              return null;
+            },
+          ),
+          _PrevMatchIntent: CallbackAction<_PrevMatchIntent>(
+            onInvoke: (intent) {
+              if (_isSearching && _totalMatches > 0) {
+                _navigateToMatch(-1);
+              }
+              return null;
+            },
+          ),
+        },
+        child: Focus(
+          autofocus: true,
+          child: Scaffold(
+            appBar: isFullscreen
+                ? null
+                : (_isSearching
+                      ? _buildSearchAppBar(context)
+                      : _buildDefaultAppBar(context, activeTab)),
+            body: activeTab == null
+                ? const Center(child: Text('No open tabs. Please open a book.'))
+                : isFullscreen
+                ? Stack(
+                    children: [
+                      _buildTabContent(activeTab, typographyState),
+                      // Fullscreen exit overlay — always visible in top-right corner.
+                      Positioned(
+                        top: 12,
+                        right: 12,
+                        child: SafeArea(
+                          child: Material(
+                            color: Colors.black45,
+                            borderRadius: BorderRadius.circular(20),
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(20),
+                              onTap: () => ref
+                                  .read(typographyProvider.notifier)
+                                  .toggleFullscreen(),
+                              child: const Padding(
+                                padding: EdgeInsets.all(8),
+                                child: Icon(
+                                  Icons.fullscreen_exit,
+                                  color: Colors.white,
+                                  size: 22,
+                                ),
+                              ),
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                  ),
-                ),
-              ],
-            )
-          : _buildTabContent(activeTab, typographyState),
-      // FAB opens Quick Navigation sheet.
-      floatingActionButton: (activeTab == null || isFullscreen)
-          ? null
-          : FloatingActionButton(
-              onPressed: _openQuickNav,
-              child: const Icon(Icons.menu_book_rounded),
-            ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
-      bottomNavigationBar: (!isFullscreen && readerState.tabs.isNotEmpty)
-          ? _buildBottomTabBar(context, readerState, ref)
-          : null,
+                    ],
+                  )
+                : _buildTabContent(activeTab, typographyState),
+            // FAB opens Quick Navigation sheet.
+            floatingActionButton:
+                (activeTab == null || isFullscreen || _isSearching)
+                    ? null
+                    : FloatingActionButton(
+                        onPressed: _openQuickNav,
+                        child: const Icon(Icons.menu_book_rounded),
+                      ),
+            floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
+            bottomNavigationBar:
+                (!isFullscreen && readerState.tabs.isNotEmpty && !_isSearching)
+                    ? _buildBottomTabBar(context, readerState, ref)
+                    : null,
+          ),
+        ),
+      ),
     );
   }
 
@@ -498,20 +695,30 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       leading: IconButton(
         icon: const Icon(Icons.arrow_back),
         onPressed: () {
+          // Exit search mode
           setState(() {
             _isSearching = false;
             _searchController.clear();
             _clearMatches();
+            _lastSearchActivatedTabId = null;
           });
         },
       ),
       title: TextField(
+        focusNode: _searchFieldFocusNode,
         controller: _searchController,
         autofocus: true,
         decoration: const InputDecoration(
           hintText: 'Search in chapter...',
           border: InputBorder.none,
+          filled: false,
+          fillColor: Colors.transparent,
+          isDense: true,
+          contentPadding: EdgeInsets.symmetric(vertical: 8),
         ),
+        onSubmitted: (_) {
+          if (_totalMatches > 0) _navigateToMatch(1);
+        },
         onChanged: (val) => _computeMatches(val),
       ),
       actions: [
@@ -547,8 +754,19 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
   AppBar _buildDefaultAppBar(BuildContext context, ReaderTab? activeTab) {
     final hasSelection = _selectedVerseNumbers.isNotEmpty;
+    final openedFromSearch = activeTab?.openedFromSearch ?? false;
 
     return AppBar(
+      leading: IconButton(
+        icon: const Icon(Icons.arrow_back),
+        onPressed: () {
+          if (openedFromSearch) {
+            context.go('/search?tab=bible');
+          } else {
+            context.pop();
+          }
+        },
+      ),
       title: InkWell(
         onTap: _openQuickNav,
         child: Row(
@@ -639,6 +857,21 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                 );
               });
             }
+
+            // Auto-activate search if initial query was provided
+            if (tab.initialSearchQuery != null &&
+                !_isSearching &&
+                _lastSearchActivatedTabId != tab.id) {
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (!mounted) return;
+                setState(() {
+                  _isSearching = true;
+                  _searchController.text = tab.initialSearchQuery!;
+                  _computeMatches(tab.initialSearchQuery!);
+                  _lastSearchActivatedTabId = tab.id;
+                });
+              });
+            }
           }
 
           _currentVerses = verses;
@@ -654,87 +887,106 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
               Theme.of(context).textTheme.bodyLarge?.copyWith(
                 fontSize: typography.fontSize,
                 height: typography.lineHeight,
-                fontFamily: typography.fontFamily,
+                fontFamily: typography.resolvedFontFamily,
               ) ??
               const TextStyle();
-          final highlightStyle = TextStyle(
-            backgroundColor: cs.primaryContainer.withAlpha(180),
-            color: cs.onPrimaryContainer,
-          );
+          final highlightStyle = baseStyle;
           final currentMatchStyle = TextStyle(
-            backgroundColor: Colors.amber.shade400.withAlpha(220),
+            backgroundColor: Colors.yellow.shade300,
             color: Colors.black,
             fontWeight: FontWeight.bold,
           );
 
-          return SelectionArea(
-            child: ListView.builder(
-              controller: _scrollController,
-              padding: const EdgeInsets.symmetric(
-                horizontal: 16.0,
-                vertical: 8.0,
-              ),
-              itemCount: verses.length,
-              itemBuilder: (context, index) {
-                final verse = verses[index];
-                final isSelected = _selectedVerseNumbers.contains(verse.verse);
+          final currentItemIndex = _matchVerseIndices.isNotEmpty
+              ? _matchVerseIndices[_currentMatchIndex]
+              : null;
 
-                // Compute which occurrence within this verse is the current match.
-                int? currentOccurrence;
-                if (_matchVerseIndices.isNotEmpty &&
-                    _matchVerseIndices[_currentMatchIndex] == index) {
-                  currentOccurrence =
-                      _currentMatchIndex -
-                      _matchVerseIndices
-                          .sublist(0, _currentMatchIndex)
-                          .where((vi) => vi == index)
-                          .length;
-                }
+          return Stack(
+            children: [
+              SelectionArea(
+                child: ListView.builder(
+                  controller: _scrollController,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16.0,
+                    vertical: 8.0,
+                  ),
+                  itemCount: verses.length,
+                  itemBuilder: (context, index) {
+                    final verse = verses[index];
+                    final isSelected =
+                        _selectedVerseNumbers.contains(verse.verse);
 
-                return GestureDetector(
-                  key: ValueKey<int>(verse.verse),
-                  onTap: () => _toggleVerseSelection(verse.verse),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 150),
-                    decoration: BoxDecoration(
-                      color: isSelected
-                          ? cs.primaryContainer.withAlpha(120)
-                          : Colors.transparent,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 6,
-                      vertical: 4,
-                    ),
-                    margin: const EdgeInsets.only(bottom: 4),
-                    child: RichText(
-                      text: TextSpan(
-                        style: baseStyle,
-                        children: [
-                          TextSpan(
-                            text: '${verse.verse} ',
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: typography.fontSize * 0.8,
-                              color: isSelected
-                                  ? cs.primary
-                                  : cs.onSurfaceVariant,
-                            ),
-                          ),
-                          ..._buildHighlightedSpans(
-                            verse.text,
-                            baseStyle,
-                            highlightStyle,
-                            currentMatchStyle,
-                            currentOccurrenceIndex: currentOccurrence,
-                          ),
-                        ],
+                    // Compute which occurrence within this verse is the current match.
+                    int? currentOccurrence;
+                    if (_matchVerseIndices.isNotEmpty &&
+                        _matchVerseIndices[_currentMatchIndex] == index) {
+                      currentOccurrence =
+                          _matchVerseIndices
+                              .sublist(0, _currentMatchIndex)
+                              .where((vi) => vi == index)
+                              .length;
+                    }
+
+                    return AnimatedContainer(
+                      key: ValueKey<int>(verse.verse),
+                      duration: const Duration(milliseconds: 150),
+                      decoration: BoxDecoration(
+                        color: isSelected
+                            ? cs.primaryContainer.withAlpha(120)
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(8),
                       ),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 4,
+                      ),
+                      margin: const EdgeInsets.only(bottom: 4),
+                      child: SelectableText.rich(
+                        TextSpan(
+                          style: baseStyle,
+                          children: [
+                            TextSpan(
+                              text: '${verse.verse} ',
+                              recognizer: TapGestureRecognizer()
+                                ..onTap = () => _toggleVerseSelection(
+                                      verse.verse,
+                                    ),
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: typography.fontSize * 0.8,
+                                color: isSelected
+                                    ? cs.primary
+                                    : cs.onSurfaceVariant,
+                              ),
+                            ),
+                            ..._buildHighlightedSpans(
+                              verse.text,
+                              baseStyle,
+                              highlightStyle,
+                              currentMatchStyle,
+                              currentOccurrenceIndex: currentOccurrence,
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              Positioned.fill(
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: SizedBox(
+                    width: 6,
+                    child: _buildMatchMarkers(
+                      verses.length,
+                      _matchVerseIndices,
+                      currentItemIndex,
                     ),
                   ),
-                );
-              },
-            ),
+                ),
+              ),
+            ],
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),
@@ -890,7 +1142,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                   ],
                   onSelected: (val) {
                     if (val == 'share_link' || val == 'copy_link') {
-                      final lang = ref.read(selectedBibleLangProvider);
+                      final lang = activeTab?.bibleLang ??
+                          ref.read(selectedBibleLangProvider);
                       final book = Uri.encodeComponent(activeTab?.book ?? '');
                       final chapter = activeTab?.chapter ?? 1;
                       final deepLink =

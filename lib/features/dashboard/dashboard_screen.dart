@@ -16,8 +16,6 @@ class DashboardScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final readerState = ref.watch(readerProvider);
-    final ReaderTab? activeTab = readerState.activeTab;
     final recentReadsAsync = ref.watch(recentReadsProvider);
 
     return Scaffold(
@@ -61,7 +59,7 @@ class DashboardScreen extends ConsumerWidget {
             padding: const EdgeInsets.all(16.0),
             sliver: SliverList(
               delegate: SliverChildListDelegate([
-                _buildContinueReadingCard(context, activeTab),
+                _buildContinueReadingSection(context, ref, recentReadsAsync),
                 const SizedBox(height: 24),
                 const SizedBox(height: 8),
                 const Text(
@@ -71,10 +69,7 @@ class DashboardScreen extends ConsumerWidget {
                 // const SizedBox(height: 16),
                 _buildModulesGrid(context, ref),
                 const SizedBox(height: 24),
-                const Text(
-                  'Recent Reads',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                ),
+                _buildRecentReadsHeader(context, ref, recentReadsAsync),
                 const SizedBox(height: 16),
                 recentReadsAsync.when(
                   data: (items) => _buildRecentReadsStrip(context, ref, items),
@@ -101,21 +96,146 @@ class DashboardScreen extends ConsumerWidget {
     );
   }
 
-  Widget _buildContinueReadingCard(BuildContext context, ReaderTab? activeTab) {
-    final theme = Theme.of(context);
+  Widget _buildContinueReadingSection(
+    BuildContext context,
+    WidgetRef ref,
+    AsyncValue<List<RecentReadItem>> recentReadsAsync,
+  ) {
+    return recentReadsAsync.when(
+      data: (items) {
+        final bibleItem = _latestItemFor(items, FlowType.bible);
+        final sermonItem = _latestItemFor(items, FlowType.sermon);
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final width = constraints.maxWidth;
+            final isWide = width >= 700;
+            final cardHeight = isWide ? 160.0 : 150.0;
+            final gap = isWide ? 16.0 : 12.0;
 
-    final title = () {
-      if (activeTab == null) return 'Start Reading';
-      if (activeTab.type == ReaderContentType.bible &&
-          activeTab.book != null &&
-          activeTab.chapter != null) {
-        return '${activeTab.book} ${activeTab.chapter}';
-      }
-      if (activeTab.type == ReaderContentType.sermon) {
-        return activeTab.title;
-      }
-      return activeTab.title;
-    }();
+            final children = [
+              Expanded(
+                child: _buildContinueReadingCard(
+                  context: context,
+                  ref: ref,
+                  title: bibleItem?.title ?? 'Bible Reading',
+                  subtitle:
+                      bibleItem?.subtitle ?? 'Resume your Bible reading.',
+                  label: 'CONTINUE BIBLE',
+                  icon: Icons.menu_book,
+                  flowType: FlowType.bible,
+                  item: bibleItem,
+                  height: cardHeight,
+                ),
+              ),
+              SizedBox(width: gap, height: gap),
+              Expanded(
+                child: _buildContinueReadingCard(
+                  context: context,
+                  ref: ref,
+                  title: sermonItem?.title ?? 'Sermon Reading',
+                  subtitle:
+                      sermonItem?.subtitle ?? 'Resume your last sermon.',
+                  label: 'CONTINUE SERMON',
+                  icon: Icons.headphones,
+                  flowType: FlowType.sermon,
+                  item: sermonItem,
+                  height: cardHeight,
+                ),
+              ),
+            ];
+
+            return isWide
+                ? Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: children,
+                  )
+                : Column(
+                    children: [
+                      SizedBox(
+                        height: cardHeight,
+                        child: _buildContinueReadingCard(
+                          context: context,
+                          ref: ref,
+                          title: bibleItem?.title ?? 'Bible Reading',
+                          subtitle: bibleItem?.subtitle ??
+                              'Resume your Bible reading.',
+                          label: 'CONTINUE BIBLE',
+                          icon: Icons.menu_book,
+                          flowType: FlowType.bible,
+                          item: bibleItem,
+                          height: cardHeight,
+                        ),
+                      ),
+                      SizedBox(height: gap),
+                      SizedBox(
+                        height: cardHeight,
+                        child: _buildContinueReadingCard(
+                          context: context,
+                          ref: ref,
+                          title: sermonItem?.title ?? 'Sermon Reading',
+                          subtitle: sermonItem?.subtitle ??
+                              'Resume your last sermon.',
+                          label: 'CONTINUE SERMON',
+                          icon: Icons.headphones,
+                          flowType: FlowType.sermon,
+                          item: sermonItem,
+                          height: cardHeight,
+                        ),
+                      ),
+                    ],
+                  );
+          },
+        );
+      },
+      loading: () => const SizedBox(
+        height: 180,
+        child: Center(child: CircularProgressIndicator()),
+      ),
+      error: (_, _) => _buildContinueReadingError(context),
+    );
+  }
+
+  RecentReadItem? _latestItemFor(
+    List<RecentReadItem> items,
+    FlowType flowType,
+  ) {
+    final filtered = items.where((item) => item.flowType == flowType).toList();
+    if (filtered.isEmpty) return null;
+    filtered.sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    return filtered.first;
+  }
+
+  Widget _buildContinueReadingError(BuildContext context) {
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: SizedBox(
+        height: 160,
+        child: Center(
+          child: Text(
+            'Unable to load recent reading.',
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildContinueReadingCard({
+    required BuildContext context,
+    required WidgetRef ref,
+    required String title,
+    required String subtitle,
+    required String label,
+    required IconData icon,
+    required FlowType flowType,
+    required RecentReadItem? item,
+    required double height,
+  }) {
+    final theme = Theme.of(context);
+    final hasItem = item != null;
 
     return Card(
       elevation: 4,
@@ -133,20 +253,21 @@ class DashboardScreen extends ConsumerWidget {
             end: Alignment.bottomRight,
           ),
         ),
-        padding: const EdgeInsets.all(20),
+        height: height,
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
                 Icon(
-                  Icons.menu_book,
+                  icon,
                   color: theme.colorScheme.onPrimary,
                   size: 20,
                 ),
                 const SizedBox(width: 8),
                 Text(
-                  'CONTINUE READING',
+                  label,
                   style: TextStyle(
                     color: theme.colorScheme.onPrimary.withValues(alpha: 0.8),
                     fontWeight: FontWeight.bold,
@@ -156,36 +277,62 @@ class DashboardScreen extends ConsumerWidget {
                 ),
               ],
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 12),
             Text(
               title,
               style: TextStyle(
                 color: theme.colorScheme.onPrimary,
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
+                fontSize: 20,
+                fontWeight: FontWeight.w700,
               ),
             ),
-            const SizedBox(height: 8),
-            if (activeTab != null)
-              Text(
-                activeTab.type == ReaderContentType.bible
-                    ? 'Tap to resume your last Bible location.'
-                    : 'Tap to resume your last Sermon.',
-                style: TextStyle(
-                  color: theme.colorScheme.onPrimary.withValues(alpha: 0.9),
-                ),
+            const SizedBox(height: 6),
+            Text(
+              subtitle,
+              style: TextStyle(
+                color: theme.colorScheme.onPrimary.withValues(alpha: 0.9),
+                fontSize: 13,
+                fontWeight: FontWeight.w500,
               ),
-            const SizedBox(height: 16),
+            ),
+            const SizedBox(height: 12),
             ElevatedButton(
-              onPressed: () => context.push('/reader'),
+              onPressed: () {
+                if (hasItem) {
+                  if (flowType == FlowType.bible) {
+                    ref
+                        .read(readerProvider.notifier)
+                        .restoreSession(item!.snapshot);
+                    context.push('/reader');
+                  } else {
+                    ref
+                        .read(sermonFlowProvider.notifier)
+                        .restoreSession(item!.snapshot);
+                    context.push('/sermon-reader');
+                  }
+                  return;
+                }
+
+                if (flowType == FlowType.bible) {
+                  context.push('/reader');
+                } else {
+                  context.push('/sermons');
+                }
+              },
               style: ElevatedButton.styleFrom(
                 backgroundColor: theme.colorScheme.onPrimary,
                 foregroundColor: theme.colorScheme.primary,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 18,
+                  vertical: 8,
+                ),
+                minimumSize: const Size(0, 32),
+                visualDensity: VisualDensity.compact,
               ),
-              child: Text(activeTab == null ? 'Start Reading' : 'Resume'),
+              child: Text(hasItem ? 'Resume' : 'Start'),
             ),
           ],
         ),
@@ -194,6 +341,18 @@ class DashboardScreen extends ConsumerWidget {
   }
 
   Widget _buildModulesGrid(BuildContext context, WidgetRef ref) {
+    final englishSermonCountAsync = ref.watch(sermonCountByLangProvider('en'));
+    final tamilSermonCountAsync = ref.watch(sermonCountByLangProvider('ta'));
+    final englishSermonSubtitle = englishSermonCountAsync.when(
+      data: (count) => '$count Messages',
+      loading: () => 'Messages',
+      error: (_, _) => 'Messages',
+    );
+    final tamilSermonSubtitle = tamilSermonCountAsync.when(
+      data: (count) => '$count Messages',
+      loading: () => 'Messages',
+      error: (_, _) => 'Messages',
+    );
     final modules = [
       _ModuleCardData(
         icon: Icons.book_outlined,
@@ -218,7 +377,7 @@ class DashboardScreen extends ConsumerWidget {
       _ModuleCardData(
         icon: Icons.menu_outlined,
         title: 'English Sermon',
-        subtitle: 'Messages',
+        subtitle: englishSermonSubtitle,
         color: const Color(0xFF6B7FB7),
         onTap: () {
           ref.read(selectedSermonLangProvider.notifier).setLang('en');
@@ -228,7 +387,7 @@ class DashboardScreen extends ConsumerWidget {
       _ModuleCardData(
         icon: Icons.menu_outlined,
         title: 'Tamil Sermon',
-        subtitle: 'Messages',
+        subtitle: tamilSermonSubtitle,
         color: const Color(0xFF6B7FB7),
         onTap: () {
           ref.read(selectedSermonLangProvider.notifier).setLang('ta');
@@ -251,15 +410,63 @@ class DashboardScreen extends ConsumerWidget {
         color: const Color(0xFF4BA7A0),
         onTap: () => context.push('/songs'),
       ),
+          _ModuleCardData(
+        icon: Icons.article_outlined,
+        title: 'COD - Church Conduct Order (English)',
+        subtitle: 'COD sermons',
+        color: const Color(0xFF8E44AD),
+        onTap: () {
+          ref.read(selectedSermonLangProvider.notifier).setLang('en');
+          final uri = Uri(
+            path: '/sermons',
+            queryParameters: {
+              'prefix': 'Question',
+              'title': 'COD - Church Conduct Order',
+              'mode': 'cod',
+              'lang': 'en',
+            },
+          );
+          context.push(uri.toString());
+        },
+      ),
+      _ModuleCardData(
+        icon: Icons.article_outlined,
+        title: 'COD கேள்விகளும் பதில்களும் (தமிழ்)',
+        subtitle: 'COD கேள்வி & பதில்',
+        color: const Color(0xFFD35400),
+        onTap: () {
+          ref.read(selectedSermonLangProvider.notifier).setLang('ta');
+          final uri = Uri(
+            path: '/sermons',
+            queryParameters: {
+              'prefix': 'கேள்வி',
+              'title': 'COD கேள்விகளும் பதில்களும்',
+              'mode': 'cod',
+              'lang': 'ta',
+            },
+          );
+          context.push(uri.toString());
+        },
+      ),
     ];
 
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth;
-        // 3-column above 700px (e.g. Windows), 2-column on mobile
-        final crossAxisCount = width >= 700 ? 3 : 2;
-        // Adjust aspect ratio: taller on mobile (more content), square-ish on desktop
-        final childAspectRatio = width >= 700 ? 1.35 : 1.1;
+        // More columns on wider screens to reduce card size.
+        final crossAxisCount = width >= 1200
+            ? 4
+            : width >= 900
+            ? 3
+            : 2;
+        // Slightly shorter cards on desktop, taller on mobile.
+        final childAspectRatio = width >= 1200
+            ? 1.75
+            : width >= 900
+            ? 1.6
+            : width >= 700
+            ? 1.35
+            : 1.1;
 
         return GridView.builder(
           shrinkWrap: true,
@@ -282,7 +489,9 @@ class DashboardScreen extends ConsumerWidget {
     WidgetRef ref,
     List<RecentReadItem> recentItems,
   ) {
-    if (recentItems.isEmpty) {
+    final sermonFlows =
+        recentItems.where((item) => item.flowType == FlowType.sermon).toList();
+    if (sermonFlows.isEmpty) {
       return const SizedBox(
         height: 80,
         child: Center(
@@ -298,13 +507,18 @@ class DashboardScreen extends ConsumerWidget {
       height: 120,
       child: ListView.builder(
         scrollDirection: Axis.horizontal,
-        itemCount: recentItems.length,
+        itemCount: sermonFlows.length,
         itemBuilder: (context, index) {
-          final item = recentItems[index];
-          final isBible = item.flowType == FlowType.bible;
-          final title = item.title;
-          final subtitle = item.subtitle;
-          final icon = isBible ? Icons.menu_book : Icons.headphones;
+          final item = sermonFlows[index];
+          final tabs = item.snapshot.toReaderTabs();
+          final ReaderTab? firstSermon = tabs.cast<ReaderTab?>().firstWhere(
+            (t) => t?.type == ReaderContentType.sermon,
+            orElse: () => tabs.isNotEmpty ? tabs.first : null,
+          );
+          final title =
+              (firstSermon?.title ?? '').isNotEmpty ? firstSermon!.title : item.title;
+          const subtitle = 'Sermon';
+          const icon = Icons.headphones;
 
           return Padding(
             padding: const EdgeInsets.only(right: 16),
@@ -317,17 +531,10 @@ class DashboardScreen extends ConsumerWidget {
                 clipBehavior: Clip.antiAlias,
                 child: InkWell(
                   onTap: () {
-                    if (isBible) {
-                      ref
-                          .read(readerProvider.notifier)
-                          .restoreSession(item.snapshot);
-                      context.push('/reader');
-                    } else {
-                      ref
-                          .read(sermonFlowProvider.notifier)
-                          .restoreSession(item.snapshot);
-                      context.push('/sermon-reader');
-                    }
+                    ref
+                        .read(sermonFlowProvider.notifier)
+                        .restoreSession(item.snapshot);
+                    context.push('/sermon-reader');
                   },
                   child: Padding(
                     padding: const EdgeInsets.all(14.0),
@@ -377,6 +584,39 @@ class DashboardScreen extends ConsumerWidget {
       ),
     );
   }
+
+  Widget _buildRecentReadsHeader(
+    BuildContext context,
+    WidgetRef ref,
+    AsyncValue<List<RecentReadItem>> recentReadsAsync,
+  ) {
+    final hasItems = recentReadsAsync.maybeWhen(
+      data: (items) => items.isNotEmpty,
+      orElse: () => false,
+    );
+
+    return Row(
+      children: [
+        const Text(
+          'Recent Reads',
+          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+        ),
+        const Spacer(),
+        TextButton.icon(
+          onPressed: hasItems
+              ? () async {
+                  await ref
+                      .read(readingStateRepositoryProvider)
+                      .clearRecentReads();
+                  ref.invalidate(recentReadsProvider);
+                }
+              : null,
+          icon: const Icon(Icons.delete_outline, size: 18),
+          label: const Text('Clear'),
+        ),
+      ],
+    );
+  }
 }
 
 class _ModuleCardData {
@@ -405,61 +645,99 @@ class _ModuleCard extends StatelessWidget {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final color = data.color;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        final scale = (width / 220).clamp(0.85, 1.15);
+        final iconSize = 28 * scale;
+        final badgePadding = 14 * scale;
+        final titleSize = 15 * scale;
+        final subtitleSize = 12.5 * scale;
+        final cardPaddingH = 16 * scale;
+        final cardPaddingV = 12 * scale;
 
-    return Card(
-      elevation: 0,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-      clipBehavior: Clip.antiAlias,
-      color: isDark
-          ? color.withValues(alpha: 0.1)
-          : theme.colorScheme.surfaceContainerLowest,
-      child: InkWell(
-        onTap: data.onTap,
-        child: Container(
-          decoration: BoxDecoration(
-            border: Border.all(
-              color: color.withValues(alpha: isDark ? 0.3 : 0.15),
-              width: 1.5,
+        return Card(
+          elevation: 0,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          clipBehavior: Clip.antiAlias,
+          color: isDark
+              ? color.withValues(alpha: 0.1)
+              : theme.colorScheme.surfaceContainerLowest,
+          child: InkWell(
+            onTap: data.onTap,
+            child: Container(
+              decoration: BoxDecoration(
+                border: Border.all(
+                  color: color.withValues(alpha: isDark ? 0.3 : 0.15),
+                  width: 1.5,
+                ),
+                borderRadius: BorderRadius.circular(20),
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    color.withValues(alpha: isDark ? 0.18 : 0.12),
+                    theme.colorScheme.surface.withValues(
+                      alpha: isDark ? 0.4 : 0.9,
+                    ),
+                  ],
+                ),
+              ),
+              padding: EdgeInsets.symmetric(
+                horizontal: cardPaddingH,
+                vertical: cardPaddingV,
+              ),
+              child: Stack(
+                children: [
+                  Positioned(
+                    right: -8,
+                    bottom: -12,
+                    child: Icon(
+                      data.icon,
+                      size: 88 * scale,
+                      color: color.withValues(alpha: isDark ? 0.12 : 0.08),
+                    ),
+                  ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Container(
+                        padding: EdgeInsets.all(badgePadding),
+                        decoration: BoxDecoration(
+                          color: color.withValues(alpha: isDark ? 0.25 : 0.12),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Icon(data.icon, color: color, size: iconSize),
+                      ),
+                      SizedBox(height: 12 * scale),
+                      Text(
+                        data.title,
+                        textAlign: TextAlign.center,
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w600,
+                          fontSize: titleSize,
+                        ),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      SizedBox(height: 2 * scale),
+                      Text(
+                        data.subtitle,
+                        textAlign: TextAlign.center,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                          fontSize: subtitleSize,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
-            borderRadius: BorderRadius.circular(20),
           ),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: isDark ? 0.25 : 0.12),
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Icon(data.icon, color: color, size: 28),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                data.title,
-                textAlign: TextAlign.center,
-                style: theme.textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w600,
-                  fontSize: 13,
-                ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-              const SizedBox(height: 2),
-              Text(
-                data.subtitle,
-                textAlign: TextAlign.center,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                  fontSize: 11,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+        );
+      },
     );
   }
 }

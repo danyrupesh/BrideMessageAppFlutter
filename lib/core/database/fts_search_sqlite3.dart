@@ -141,6 +141,7 @@ Future<List<SermonSearchResult>> searchSermonFts({
   required int limit,
   required int offset,
   String sortOrder = 'relevance',
+  String? titlePrefix,
 }) async {
   if (!await File(dbPath).exists()) return [];
   final db = sqlite3.open(dbPath, mode: OpenMode.readOnly);
@@ -173,6 +174,11 @@ Future<List<SermonSearchResult>> searchSermonFts({
       WHERE sermon_fts MATCH ?
         AND s.language = ?
     ''';
+    final args = <Object?>[matchPattern, languageCode];
+    if (titlePrefix != null && titlePrefix.isNotEmpty) {
+      sql += ' AND s.title LIKE ?';
+      args.add('$titlePrefix%');
+    }
 
     if (sortOrder == 'relevance') {
       sql +=
@@ -185,7 +191,8 @@ Future<List<SermonSearchResult>> searchSermonFts({
           '${hasParagraphNumber ? 'COALESCE(p.paragraph_number, 0), ' : ''}p.id LIMIT ? OFFSET ?';
     }
     
-    final result = db.select(sql, [matchPattern, languageCode, limit, offset]);
+    args.addAll([limit, offset]);
+    final result = db.select(sql, args);
     final columnNames = result.columnNames;
     return result.map((row) => SermonSearchResult.fromMap(_rowToMap(columnNames, row))).toList();
   } catch (e) {

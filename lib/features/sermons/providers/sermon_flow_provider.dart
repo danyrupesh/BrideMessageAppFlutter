@@ -11,15 +11,65 @@ import 'sermon_provider.dart';
 /// Holds one Sermon reading flow:
 ///   tabs[0]  = the active sermon (always present, cannot be closed)
 ///   tabs[1+] = Bible reference tabs added by the user while reading
+class BmBibleGroup {
+  final List<ReaderTab> tabs;
+  final int activeIndex;
+
+  const BmBibleGroup({
+    required this.tabs,
+    required this.activeIndex,
+  });
+
+  BmBibleGroup copyWith({
+    List<ReaderTab>? tabs,
+    int? activeIndex,
+  }) {
+    return BmBibleGroup(
+      tabs: tabs ?? this.tabs,
+      activeIndex: activeIndex ?? this.activeIndex,
+    );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'activeIndex': activeIndex,
+      'tabs': tabs.map(readerTabToJson).toList(),
+    };
+  }
+
+  factory BmBibleGroup.fromJson(Map<String, dynamic> json) {
+    final tabsRaw = json['tabs'];
+    final tabs = tabsRaw is List
+        ? tabsRaw
+            .whereType<Map>()
+            .map((item) => Map<String, dynamic>.from(item))
+            .map(readerTabFromJson)
+            .whereType<ReaderTab>()
+            .toList(growable: false)
+        : <ReaderTab>[];
+    var activeIndex = (json['activeIndex'] as num?)?.toInt() ?? 0;
+    if (tabs.isEmpty) {
+      activeIndex = 0;
+    } else {
+      activeIndex = activeIndex.clamp(0, tabs.length - 1);
+    }
+    return BmBibleGroup(tabs: tabs, activeIndex: activeIndex);
+  }
+}
+
 class SermonFlowState {
   final List<ReaderTab> tabs;
   final int activeTabIndex;
   final bool isInitialized;
+  final bool bmMode;
+  final BmBibleGroup bmBibleGroup;
 
   const SermonFlowState({
     required this.tabs,
     required this.activeTabIndex,
     required this.isInitialized,
+    required this.bmMode,
+    required this.bmBibleGroup,
   });
 
   /// The currently displayed tab, or null if no sermon is loaded.
@@ -33,11 +83,15 @@ class SermonFlowState {
     List<ReaderTab>? tabs,
     int? activeTabIndex,
     bool? isInitialized,
+    bool? bmMode,
+    BmBibleGroup? bmBibleGroup,
   }) {
     return SermonFlowState(
       tabs: tabs ?? this.tabs,
       activeTabIndex: activeTabIndex ?? this.activeTabIndex,
       isInitialized: isInitialized ?? this.isInitialized,
+      bmMode: bmMode ?? this.bmMode,
+      bmBibleGroup: bmBibleGroup ?? this.bmBibleGroup,
     );
   }
 }
@@ -45,11 +99,19 @@ class SermonFlowState {
 // ─── Notifier ─────────────────────────────────────────────────────────────────
 
 class SermonFlowNotifier extends Notifier<SermonFlowState> {
+  ReaderTab? _pendingOpenSermon;
+  String? _pendingOpenLang;
+
   @override
   SermonFlowState build() {
     ref.listen(selectedSermonLangProvider, (previous, next) {
       if (previous != next) {
-        state = state.copyWith(tabs: [], isInitialized: false);
+        state = state.copyWith(
+          tabs: [],
+          isInitialized: false,
+          bmMode: false,
+          bmBibleGroup: const BmBibleGroup(tabs: [], activeIndex: 0),
+        );
         _hydrate();
       }
     });
@@ -59,6 +121,8 @@ class SermonFlowNotifier extends Notifier<SermonFlowState> {
       tabs: [],
       activeTabIndex: 0,
       isInitialized: false,
+      bmMode: false,
+      bmBibleGroup: BmBibleGroup(tabs: [], activeIndex: 0),
     );
   }
 
@@ -76,6 +140,7 @@ class SermonFlowNotifier extends Notifier<SermonFlowState> {
 
     if (activeSession == null) {
       state = state.copyWith(isInitialized: true);
+      _applyPendingOpenSermon();
       return;
     }
 
@@ -86,19 +151,105 @@ class SermonFlowNotifier extends Notifier<SermonFlowState> {
         tabs: [],
         activeTabIndex: 0,
         isInitialized: true,
+        bmMode: false,
+        bmBibleGroup: BmBibleGroup(tabs: [], activeIndex: 0),
       );
+      _applyPendingOpenSermon();
       return;
     }
 
-    final safeIndex = activeSession.activeTabIndex.clamp(
+    var safeIndex = activeSession.activeTabIndex.clamp(
       0,
       restoredTabs.length - 1,
     );
+    final bmState =
+        _bmStateFromMeta(activeSession.meta, restoredTabs, safeIndex);
+    if (bmState.enabled &&
+        restoredTabs[safeIndex].type != ReaderContentType.sermon) {
+      final firstSermon = _firstSermonIndex(restoredTabs);
+      if (firstSermon != -1) safeIndex = firstSermon;
+    }
+    if (!bmState.enabled &&
+        restoredTabs[safeIndex].type != ReaderContentType.sermon) {
+      final firstSermon = _firstSermonIndex(restoredTabs);
+      if (firstSermon != -1) safeIndex = firstSermon;
+    }
     state = SermonFlowState(
       tabs: restoredTabs,
       activeTabIndex: safeIndex,
       isInitialized: true,
+      bmMode: bmState.enabled,
+      bmBibleGroup: bmState.group,
     );
+    _applyPendingOpenSermon();
+  }
+
+  void _applyPendingOpenSermon() {
+    final pending = _pendingOpenSermon;
+    if (pending == null) return;
+    final pendingLang = _pendingOpenLang;
+    final currentLang = ref.read(selectedSermonLangProvider);
+    if (pendingLang != null && pendingLang != currentLang) return;
+    _pendingOpenSermon = null;
+    _pendingOpenLang = null;
+    openSermon(pending);
+  }
+
+  int _firstSermonIndex(List<ReaderTab> tabs) {
+    return tabs.indexWhere((t) => t.type == ReaderContentType.sermon);
+  }
+
+  _BmState _bmStateFromMeta(
+    Map<String, dynamic>? meta,
+    List<ReaderTab> tabs,
+    int activeIndex,
+  ) {
+    var enabled = false;
+    var group = const BmBibleGroup(tabs: [], activeIndex: 0);
+    final bmRaw = meta?['bm'];
+    if (bmRaw is Map) {
+      final bm = Map<String, dynamic>.from(bmRaw as Map);
+      enabled = bm['enabled'] == true;
+      final groupRaw = bm['group'];
+      if (groupRaw is Map) {
+        group = BmBibleGroup.fromJson(
+          Map<String, dynamic>.from(groupRaw as Map),
+        );
+      } else {
+        final groupsRaw = bm['groups'];
+        if (groupsRaw is Map) {
+          String? activeKey;
+          if (activeIndex >= 0 && activeIndex < tabs.length) {
+            final activeTab = tabs[activeIndex];
+            if (activeTab.type == ReaderContentType.sermon) {
+              activeKey = activeTab.sermonId ?? activeTab.id;
+            }
+          }
+          Map<String, dynamic>? pick;
+          if (activeKey != null && groupsRaw[activeKey] is Map) {
+            pick = Map<String, dynamic>.from(groupsRaw[activeKey] as Map);
+          } else {
+            for (final entry in groupsRaw.entries) {
+              if (entry.value is Map) {
+                pick = Map<String, dynamic>.from(entry.value as Map);
+                break;
+              }
+            }
+          }
+          if (pick != null) {
+            group = BmBibleGroup.fromJson(pick);
+          }
+        }
+      }
+    }
+    return _BmState(enabled: enabled, group: group);
+  }
+
+  Map<String, dynamic> _bmMetaFromState() {
+    return {
+      'enabled': state.bmMode,
+      'group': state.bmBibleGroup.toJson(),
+    };
   }
 
   ReadingFlowPayloadV1 _currentPayload() {
@@ -106,6 +257,7 @@ class SermonFlowNotifier extends Notifier<SermonFlowState> {
       flowType: FlowType.sermon,
       tabs: state.tabs,
       activeTabIndex: state.activeTabIndex,
+      meta: {'bm': _bmMetaFromState()},
     );
   }
 
@@ -143,8 +295,23 @@ class SermonFlowNotifier extends Notifier<SermonFlowState> {
       tabs: [sermonTab],
       activeTabIndex: 0,
       isInitialized: true,
+      bmMode: false,
+      bmBibleGroup: const BmBibleGroup(tabs: [], activeIndex: 0),
     );
     unawaited(_persistFlow());
+  }
+
+  void openSermonForLanguage(String lang, ReaderTab sermonTab) {
+    final currentLang = ref.read(selectedSermonLangProvider);
+    if (!state.isInitialized || currentLang != lang) {
+      _pendingOpenSermon = sermonTab;
+      _pendingOpenLang = lang;
+      if (currentLang != lang) {
+        ref.read(selectedSermonLangProvider.notifier).setLang(lang);
+      }
+      return;
+    }
+    openSermon(sermonTab);
   }
 
   /// Add a new sermon tab without clearing existing tabs.
@@ -179,10 +346,21 @@ class SermonFlowNotifier extends Notifier<SermonFlowState> {
     unawaited(_persistFlow());
   }
 
+  /// Replace the sermon tab at [index] with [tab] and make it active.
+  void replaceSermonTab(int index, ReaderTab tab) {
+    if (index < 0 || index >= state.tabs.length) return;
+    if (tab.type != ReaderContentType.sermon) return;
+    final newTabs = List<ReaderTab>.from(state.tabs);
+    newTabs[index] = tab;
+    state = state.copyWith(tabs: newTabs, activeTabIndex: index);
+    unawaited(_persistFlow());
+  }
+
   /// Close tab at [index]. At least one tab must always remain open.
   void closeTab(int index) {
     if (index < 0 || index >= state.tabs.length) return;
     if (state.tabs.length <= 1) return;
+    final removedTab = state.tabs[index];
     final newTabs = List<ReaderTab>.from(state.tabs)..removeAt(index);
     int newActive = state.activeTabIndex;
     if (newActive >= newTabs.length) {
@@ -190,7 +368,16 @@ class SermonFlowNotifier extends Notifier<SermonFlowState> {
     } else if (index < newActive) {
       newActive--;
     }
-    state = state.copyWith(tabs: newTabs, activeTabIndex: newActive);
+    if (state.bmMode &&
+        newTabs.isNotEmpty &&
+        newTabs[newActive].type != ReaderContentType.sermon) {
+      final firstSermon = _firstSermonIndex(newTabs);
+      if (firstSermon != -1) newActive = firstSermon;
+    }
+    state = state.copyWith(
+      tabs: newTabs,
+      activeTabIndex: newActive,
+    );
     unawaited(_persistFlow());
   }
 
@@ -208,12 +395,83 @@ class SermonFlowNotifier extends Notifier<SermonFlowState> {
         restoredTabs.first.type != ReaderContentType.sermon) {
       return;
     }
-    final safeIndex = payload.activeTabIndex.clamp(0, restoredTabs.length - 1);
+    var safeIndex = payload.activeTabIndex.clamp(0, restoredTabs.length - 1);
+    final bmState = _bmStateFromMeta(payload.meta, restoredTabs, safeIndex);
+    if (bmState.enabled &&
+        restoredTabs[safeIndex].type != ReaderContentType.sermon) {
+      final firstSermon = _firstSermonIndex(restoredTabs);
+      if (firstSermon != -1) safeIndex = firstSermon;
+    }
+    if (!bmState.enabled &&
+        restoredTabs[safeIndex].type != ReaderContentType.sermon) {
+      final firstSermon = _firstSermonIndex(restoredTabs);
+      if (firstSermon != -1) safeIndex = firstSermon;
+    }
     state = SermonFlowState(
       tabs: restoredTabs,
       activeTabIndex: safeIndex,
       isInitialized: true,
+      bmMode: bmState.enabled,
+      bmBibleGroup: bmState.group,
     );
+    unawaited(_persistFlow());
+  }
+
+  void setBmMode(bool enabled) {
+    if (state.bmMode == enabled) return;
+    var newActive = state.activeTabIndex;
+    if (state.tabs.isNotEmpty &&
+        state.tabs[newActive].type != ReaderContentType.sermon) {
+      final firstSermon = _firstSermonIndex(state.tabs);
+      if (firstSermon != -1) newActive = firstSermon;
+    }
+    state = state.copyWith(bmMode: enabled, activeTabIndex: newActive);
+    unawaited(_persistFlow());
+  }
+
+  void toggleBmMode() => setBmMode(!state.bmMode);
+
+  void upsertBmBibleTab({
+    required ReaderTab bibleTab,
+    required bool openInNewTab,
+  }) {
+    final current = state.bmBibleGroup;
+    final tabs = List<ReaderTab>.from(current.tabs);
+    var activeIndex = current.activeIndex;
+    if (openInNewTab || tabs.isEmpty) {
+      tabs.add(bibleTab);
+      activeIndex = tabs.length - 1;
+    } else {
+      final replaceIndex = activeIndex.clamp(0, tabs.length - 1);
+      tabs[replaceIndex] = bibleTab;
+    }
+    state =
+        state.copyWith(bmBibleGroup: BmBibleGroup(tabs: tabs, activeIndex: activeIndex));
+    unawaited(_persistFlow());
+  }
+
+  void setBmBibleActive(int index) {
+    final current = state.bmBibleGroup;
+    if (current.tabs.isEmpty) return;
+    if (index < 0 || index >= current.tabs.length) return;
+    state = state.copyWith(bmBibleGroup: current.copyWith(activeIndex: index));
+    unawaited(_persistFlow());
+  }
+
+  void closeBmBibleTab(int index) {
+    final current = state.bmBibleGroup;
+    if (index < 0 || index >= current.tabs.length) return;
+    final tabs = List<ReaderTab>.from(current.tabs)..removeAt(index);
+    var activeIndex = current.activeIndex;
+    if (tabs.isEmpty) {
+      activeIndex = 0;
+    } else if (index < activeIndex) {
+      activeIndex = activeIndex - 1;
+    } else if (index == activeIndex) {
+      activeIndex = activeIndex.clamp(0, tabs.length - 1);
+    }
+    state =
+        state.copyWith(bmBibleGroup: BmBibleGroup(tabs: tabs, activeIndex: activeIndex));
     unawaited(_persistFlow());
   }
 
@@ -233,6 +491,16 @@ class SermonFlowNotifier extends Notifier<SermonFlowState> {
     state = state.copyWith(tabs: newTabs);
     unawaited(_persistFlow());
   }
+}
+
+class _BmState {
+  final bool enabled;
+  final BmBibleGroup group;
+
+  const _BmState({
+    required this.enabled,
+    required this.group,
+  });
 }
 
 // ─── Provider ─────────────────────────────────────────────────────────────────

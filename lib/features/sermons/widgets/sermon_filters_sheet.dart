@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/widgets/responsive_bottom_sheet.dart';
 import '../providers/sermon_provider.dart';
 
 class SermonFiltersSheet extends ConsumerStatefulWidget {
   const SermonFiltersSheet({super.key});
 
   static void show(BuildContext context, WidgetRef ref) {
-    showModalBottomSheet(
+    showResponsiveBottomSheet(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,

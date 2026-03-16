@@ -1,6 +1,9 @@
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/reader_provider.dart';
+import '../../../core/widgets/responsive_bottom_sheet.dart';
 
 // 12-color pastel palette cycled by book_index for visual variety.
 const _kBookColors = [
@@ -19,14 +22,22 @@ const _kBookColors = [
 ];
 
 class QuickNavigationSheet extends ConsumerStatefulWidget {
-  const QuickNavigationSheet({super.key});
+  const QuickNavigationSheet({
+    super.key,
+    this.initialLang,
+  });
+
+  /// Optional initial language for this sheet ('en' or 'ta').
+  /// Falls back to the globally selected Bible language when null.
+  final String? initialLang;
 
   static void show(BuildContext context) {
-    showModalBottomSheet(
+    showResponsiveBottomSheet(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
+      maxWidth: 980,
       builder: (context) => const QuickNavigationSheet(),
     );
   }
@@ -42,6 +53,9 @@ class _QuickNavigationSheetState extends ConsumerState<QuickNavigationSheet>
   final TextEditingController _searchController = TextEditingController();
   final PageController _pageController = PageController();
 
+  /// Language used within this sheet ('en' or 'ta').
+  late String _sheetLang;
+
   bool _openInNewTab = true;
   Map<String, dynamic>? _selectedBook;
   int? _selectedChapter;
@@ -49,6 +63,8 @@ class _QuickNavigationSheetState extends ConsumerState<QuickNavigationSheet>
   @override
   void initState() {
     super.initState();
+    _sheetLang =
+        widget.initialLang ?? ref.read(selectedBibleLangProvider);
     _tabController = TabController(length: 2, vsync: this);
   }
 
@@ -90,6 +106,7 @@ class _QuickNavigationSheetState extends ConsumerState<QuickNavigationSheet>
       'book': _selectedBook!['name'],
       'chapter': _selectedChapter,
       'verse': verse,
+      'lang': _sheetLang,
       'newTab': _openInNewTab,
     });
   }
@@ -100,43 +117,54 @@ class _QuickNavigationSheetState extends ConsumerState<QuickNavigationSheet>
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final screenWidth = MediaQuery.of(context).size.width;
+    final screenHeight = MediaQuery.of(context).size.height;
+    final isWide = screenWidth >= 700;
     final maxSheetWidth = screenWidth >= 1200
         ? 980.0
         : screenWidth >= 900
         ? 860.0
         : double.infinity;
+    final height = isWide ? min(screenHeight * 0.85, 720.0) : screenHeight * 0.9;
 
-    return Align(
-      alignment: Alignment.bottomCenter,
-      child: ConstrainedBox(
-        constraints: BoxConstraints(maxWidth: maxSheetWidth),
-        child: Container(
-          height: MediaQuery.of(context).size.height * 0.9,
-          decoration: BoxDecoration(
-            color: theme.scaffoldBackgroundColor,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+    final content = Container(
+      height: height,
+      decoration: BoxDecoration(
+        color: theme.scaffoldBackgroundColor,
+        borderRadius: isWide
+            ? BorderRadius.circular(24)
+            : const BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: Column(
+        children: [
+          _buildDragHandle(theme),
+          _buildHeader(),
+          Expanded(
+            child: PageView(
+              controller: _pageController,
+              physics: const NeverScrollableScrollPhysics(),
+              children: [
+                _buildBookSelectionPage(theme),
+                _buildChapterSelectionPage(theme),
+                _buildVerseSelectionPage(theme),
+              ],
+            ),
           ),
-          child: Column(
-            children: [
-              _buildDragHandle(theme),
-              _buildHeader(),
-              Expanded(
-                child: PageView(
-                  controller: _pageController,
-                  physics: const NeverScrollableScrollPhysics(),
-                  children: [
-                    _buildBookSelectionPage(theme),
-                    _buildChapterSelectionPage(theme),
-                    _buildVerseSelectionPage(theme),
-                  ],
-                ),
-              ),
-              _buildBottomAction(theme),
-            ],
-          ),
-        ),
+          _buildBottomAction(theme),
+        ],
       ),
     );
+
+    final wrapped = ConstrainedBox(
+      constraints: BoxConstraints(maxWidth: maxSheetWidth),
+      child: content,
+    );
+
+    return isWide
+        ? Center(child: wrapped)
+        : Align(
+            alignment: Alignment.bottomCenter,
+            child: wrapped,
+          );
   }
 
   int _gridColumnsForWidth({
@@ -158,20 +186,22 @@ class _QuickNavigationSheetState extends ConsumerState<QuickNavigationSheet>
     }
     return LayoutBuilder(
       builder: (context, constraints) {
+        final isTamil = _sheetLang == 'ta';
+        final isWide = constraints.maxWidth >= 640;
         final crossAxisCount = _gridColumnsForWidth(
           width: constraints.maxWidth,
-          mobile: 4,
-          tablet: 5,
-          desktop: 6,
-          wideDesktop: 7,
+          mobile: 5,
+          tablet: 6,
+          desktop: 7,
+          wideDesktop: 8,
         );
         return GridView.builder(
           padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: crossAxisCount,
-            childAspectRatio: 1.4,
-            crossAxisSpacing: 6,
-            mainAxisSpacing: 6,
+            childAspectRatio: isWide ? 1.18 : 1.28,
+            crossAxisSpacing: 8,
+            mainAxisSpacing: 8,
           ),
           itemCount: books.length,
           itemBuilder: (context, index) {
@@ -180,8 +210,12 @@ class _QuickNavigationSheetState extends ConsumerState<QuickNavigationSheet>
             final colorCode = _kBookColors[bookIndex % _kBookColors.length];
             return _BookTile(
               name: book['book'] as String,
+              isTamil: isTamil,
               chapters: book['chapters'] as int,
               colorCode: colorCode,
+              // Always favor full names for Bible books in this view.
+              // On very narrow layouts text will gracefully wrap or ellipsize.
+              showFullName: true,
               onTap: () => _onBookSelected({
                 'name': book['book'],
                 'chapters': book['chapters'],
@@ -198,7 +232,7 @@ class _QuickNavigationSheetState extends ConsumerState<QuickNavigationSheet>
   // ── Page 0: Book selection ────────────────────────────────────────────────
 
   Widget _buildBookSelectionPage(ThemeData theme) {
-    final booksAsync = ref.watch(bibleBookListProvider);
+    final booksAsync = ref.watch(bibleBookListByLangProvider(_sheetLang));
 
     return booksAsync.when(
       loading: () => const Center(child: CircularProgressIndicator()),
@@ -252,14 +286,16 @@ class _QuickNavigationSheetState extends ConsumerState<QuickNavigationSheet>
   }
 
   Widget _buildTabBar(ThemeData theme) {
+    final isTamil =
+        ref.watch(selectedBibleLangProvider) == 'ta';
     return TabBar(
       controller: _tabController,
       labelColor: theme.colorScheme.primary,
       unselectedLabelColor: theme.colorScheme.onSurfaceVariant,
       indicatorColor: theme.colorScheme.primary,
-      tabs: const [
-        Tab(text: 'Old Testament'),
-        Tab(text: 'New Testament'),
+      tabs: [
+        Tab(text: isTamil ? 'பழைய ஏற்பாடு' : 'Old Testament'),
+        Tab(text: isTamil ? 'புதிய ஏற்பாடு' : 'New Testament'),
       ],
     );
   }
@@ -401,7 +437,7 @@ class _QuickNavigationSheetState extends ConsumerState<QuickNavigationSheet>
     ).withAlpha(isDark ? 77 : 200);
 
     final verseAsync = ref.watch(
-      verseCountProvider((bookName, _selectedChapter!)),
+      verseCountByLangProvider((_sheetLang, bookName, _selectedChapter!)),
     );
 
     return Column(
@@ -589,14 +625,52 @@ class _QuickNavigationSheetState extends ConsumerState<QuickNavigationSheet>
   }
 
   Widget _buildHeader() {
+    final theme = Theme.of(context);
+    final lang = ref.watch(selectedBibleLangProvider);
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          const Text(
-            'Quick Navigation',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Quick Navigation',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  ChoiceChip(
+                    label: const Text('English'),
+                    selected: lang == 'en',
+                    onSelected: (_) => ref
+                        .read(selectedBibleLangProvider.notifier)
+                        .setLang('en'),
+                    selectedColor: theme.colorScheme.primaryContainer,
+                    labelStyle: TextStyle(
+                      fontWeight:
+                          lang == 'en' ? FontWeight.w700 : FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  ChoiceChip(
+                    label: const Text('Tamil'),
+                    selected: lang == 'ta',
+                    onSelected: (_) => ref
+                        .read(selectedBibleLangProvider.notifier)
+                        .setLang('ta'),
+                    selectedColor: theme.colorScheme.primaryContainer,
+                    labelStyle: TextStyle(
+                      fontWeight:
+                          lang == 'ta' ? FontWeight.w700 : FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ),
           IconButton(
             icon: const Icon(Icons.close),
@@ -649,6 +723,7 @@ class _QuickNavigationSheetState extends ConsumerState<QuickNavigationSheet>
                         'book': _selectedBook!['name'],
                         'chapter': _selectedChapter,
                         'verse': null,
+                        'lang': ref.read(selectedBibleLangProvider),
                         'newTab': _openInNewTab,
                       })
                     : null,
@@ -686,27 +761,61 @@ class _BookTile extends StatelessWidget {
   final int chapters;
   final int colorCode;
   final VoidCallback onTap;
+  final bool isTamil;
+  final bool showFullName;
 
   const _BookTile({
     required this.name,
     required this.chapters,
     required this.colorCode,
     required this.onTap,
+    this.isTamil = false,
+    this.showFullName = false,
   });
 
   /// 3-char abbreviation used at small tile sizes.
-  static String _abbrev(String name) {
-    final parts = name.trim().split(' ');
+  static String _abbrev(String name, {bool isTamil = false}) {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return '';
+
+    // Tamil-specific logic: avoid cutting syllables too short and preserve
+    // meaningful prefixes like "லேவி", "2 தீமோ".
+    if (isTamil) {
+      // Explicit overrides for a few important books if needed.
+      const overrides = <String, String>{
+        'லேவியராகமம்': 'லேவி',
+      };
+      if (overrides.containsKey(trimmed)) {
+        return overrides[trimmed]!;
+      }
+
+      final parts = trimmed.split(' ');
+      if (parts.length >= 2 && RegExp(r'^\d').hasMatch(parts.first)) {
+        final prefix = parts.first; // e.g. "1", "2"
+        final rest = parts.last;
+        final take = rest.length < 4 ? rest.length : 4;
+        return '$prefix ${rest.substring(0, take)}';
+      }
+
+      final firstWord = parts.first;
+      final take = firstWord.length < 4 ? firstWord.length : 4;
+      return firstWord.substring(0, take);
+    }
+
+    // Default (non-Tamil) behaviour: keep existing abbreviation style.
+    final parts = trimmed.split(' ');
     if (parts.length >= 2) {
       // e.g. "1 Samuel" → "1Sa", "Song of Solomon" → "SoS"
       final prefix = parts.first;
       final rest = parts.last;
       if (RegExp(r'^\d').hasMatch(prefix)) {
-        return '$prefix${rest.substring(0, rest.length.clamp(0, 2))}';
+        final take = rest.length < 2 ? rest.length : 2;
+        return '$prefix${rest.substring(0, take)}';
       }
       return parts.map((p) => p[0]).take(3).join();
     }
-    return name.substring(0, name.length.clamp(0, 3));
+    final take = trimmed.length < 3 ? trimmed.length : 3;
+    return trimmed.substring(0, take);
   }
 
   @override
@@ -720,7 +829,7 @@ class _BookTile extends StatelessWidget {
       tileColor = hsl.withLightness(hsl.lightness * 0.4).toColor();
     }
 
-    final abbrev = _abbrev(name);
+    final abbrev = _abbrev(name, isTamil: isTamil);
 
     return Material(
       color: tileColor,
@@ -733,30 +842,33 @@ class _BookTile extends StatelessWidget {
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Text(
-                abbrev,
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 13,
-                  color: isDark ? Colors.white : Colors.black87,
+              if (!showFullName)
+                Text(
+                  abbrev,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 15,
+                    color: isDark ? Colors.white : Colors.black87,
+                  ),
                 ),
-              ),
               Text(
                 name,
                 textAlign: TextAlign.center,
-                maxLines: 1,
+                maxLines: showFullName ? 2 : 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                  fontSize: 9,
-                  color: isDark ? Colors.white70 : Colors.black54,
+                  fontWeight: FontWeight.w600,
+                  fontSize: showFullName ? 13 : 11,
+                  color: isDark ? Colors.white : Colors.black87,
                 ),
               ),
               Text(
                 '$chapters ch',
                 style: TextStyle(
-                  fontSize: 9,
-                  color: isDark ? Colors.white60 : Colors.black45,
+                  fontSize: showFullName ? 11 : 10,
+                  fontWeight: FontWeight.w600,
+                  color: isDark ? Colors.white70 : Colors.black54,
                 ),
               ),
             ],

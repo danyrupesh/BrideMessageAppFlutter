@@ -55,6 +55,8 @@ class ReaderNotifier extends Notifier<ReaderState> {
   static const _restoreTabsKey = 'reader_restore_tabs';
   static const _tabsKey = 'reader_saved_tabs';
   static const _activeTabIndexKey = 'reader_active_tab_index';
+  ReaderTab? _pendingOpenTab;
+  String? _pendingOpenLang;
 
   @override
   ReaderState build() {
@@ -82,7 +84,7 @@ class ReaderNotifier extends Notifier<ReaderState> {
   Future<void> _hydrate() async {
     final prefs = await SharedPreferences.getInstance();
     final repo = ref.read(readingStateRepositoryProvider);
-    final restoreTabs = prefs.getBool(_restoreTabsKey) ?? true;
+    const restoreTabs = true;
     final legacySavedTabsRaw = prefs.getString(_tabsKey);
     final legacySavedIndex = prefs.getInt(_activeTabIndexKey) ?? 0;
 
@@ -156,6 +158,19 @@ class ReaderNotifier extends Notifier<ReaderState> {
       restoreTabs: restoreTabs,
       isInitialized: true,
     );
+    _applyPendingOpenTab();
+    await prefs.setBool(_restoreTabsKey, true);
+  }
+
+  void _applyPendingOpenTab() {
+    final pending = _pendingOpenTab;
+    if (pending == null) return;
+    final pendingLang = _pendingOpenLang;
+    final currentLang = ref.read(selectedBibleLangProvider);
+    if (pendingLang != null && pendingLang != currentLang) return;
+    _pendingOpenTab = null;
+    _pendingOpenLang = null;
+    openTab(pending);
   }
 
   ReadingFlowPayloadV1 _currentPayload() {
@@ -211,6 +226,16 @@ class ReaderNotifier extends Notifier<ReaderState> {
     final newTabs = [...state.tabs, tab];
     state = state.copyWith(tabs: newTabs, activeTabIndex: newTabs.length - 1);
     unawaited(_persistTabs());
+  }
+
+  void openTabForLanguage(String lang, ReaderTab tab) {
+    final withLang = tab.copyWith(bibleLang: lang);
+    if (!state.isInitialized) {
+      _pendingOpenTab = withLang;
+      _pendingOpenLang = lang;
+      return;
+    }
+    openTab(withLang);
   }
 
   void closeTab(int index) {
@@ -318,6 +343,13 @@ final bibleBookListProvider = FutureProvider<List<Map<String, dynamic>>>((
   return repo.getDistinctBooks();
 });
 
+/// All distinct Bible books by language (for mixed-language tabs).
+final bibleBookListByLangProvider =
+    FutureProvider.family<List<Map<String, dynamic>>, String>((ref, lang) async {
+  final repo = await ref.watch(bibleRepositoryByLangProvider(lang).future);
+  return repo.getDistinctBooks();
+});
+
 /// Verse count for a given book + chapter (used by the verse-selection page).
 final verseCountProvider = FutureProvider.family<int, (String, int)>((
   ref,
@@ -325,6 +357,13 @@ final verseCountProvider = FutureProvider.family<int, (String, int)>((
 ) async {
   final repo = await ref.watch(bibleRepositoryProvider.future);
   return repo.getVerseCount(args.$1, args.$2);
+});
+
+/// Verse count by language (for mixed-language tabs).
+final verseCountByLangProvider =
+    FutureProvider.family<int, (String, String, int)>((ref, args) async {
+  final repo = await ref.watch(bibleRepositoryByLangProvider(args.$1).future);
+  return repo.getVerseCount(args.$2, args.$3);
 });
 
 /// Load verses for the active reader tab using the resolved Bible repo.
@@ -335,7 +374,9 @@ final chapterVersesProvider =
           tab.chapter == null) {
         return [];
       }
-      final repoAsync = ref.watch(bibleRepositoryProvider);
+      final lang =
+          (tab.bibleLang ?? ref.read(selectedBibleLangProvider)) ?? 'en';
+      final repoAsync = ref.watch(bibleRepositoryByLangProvider(lang));
       return repoAsync.when(
         data: (repo) => repo.getVersesByChapter(tab.book!, tab.chapter!),
         loading: () => Future.value([]),

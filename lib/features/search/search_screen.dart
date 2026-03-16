@@ -10,33 +10,41 @@ import '../../features/onboarding/services/selective_database_importer.dart';
 import 'widgets/search_filters.dart';
 import 'widgets/bible_results_tab.dart';
 import 'widgets/sermon_results_tab.dart';
+import 'widgets/cod_results_tab.dart';
+import 'widgets/song_results_tab.dart';
 
 class SearchScreen extends ConsumerStatefulWidget {
-  const SearchScreen({super.key});
+  const SearchScreen({super.key, this.initialTab});
+
+  final String? initialTab;
 
   @override
   ConsumerState<SearchScreen> createState() => _SearchScreenState();
 }
 
-class _SearchScreenState extends ConsumerState<SearchScreen> with SingleTickerProviderStateMixin {
+class _SearchScreenState extends ConsumerState<SearchScreen>
+    with SingleTickerProviderStateMixin {
   late TabController _tabController;
   late TextEditingController _searchController;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
     _searchController = TextEditingController();
     // Warm FTS indexes on first search screen open (mirrors Android's SearchViewModel.warmUp).
     WidgetsBinding.instance.addPostFrameCallback((_) => _warmFts());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final initial = _parseInitialTab(widget.initialTab);
+      if (initial != null) {
+        _tabController.index = _tabIndexFor(initial);
+        ref.read(searchProvider.notifier).updateTab(initial);
+      }
+    });
     _tabController.addListener(() {
       if (!_tabController.indexIsChanging) {
         final notifier = ref.read(searchProvider.notifier);
-        if (_tabController.index == 0) {
-          notifier.updateTab(SearchTab.bible);
-        } else if (_tabController.index == 1) {
-          notifier.updateTab(SearchTab.sermon);
-        }
+        notifier.updateTab(_tabForIndex(_tabController.index));
       }
     });
   }
@@ -68,21 +76,23 @@ class _SearchScreenState extends ConsumerState<SearchScreen> with SingleTickerPr
     final history = ref.watch(searchHistoryProvider);
 
     // Sync external state changes back to UI if needed
-    if (searchState.activeTab == SearchTab.bible && _tabController.index != 0) {
-      _tabController.index = 0;
-    } else if (searchState.activeTab == SearchTab.sermon &&
-        _tabController.index != 1) {
-      _tabController.index = 1;
+    final desiredIndex = _tabIndexFor(searchState.activeTab);
+    if (_tabController.index != desiredIndex) {
+      _tabController.index = desiredIndex;
     }
 
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
-          icon: const Icon(Icons.home),
-          onPressed: () => context.go('/'),
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () => context.pop(),
         ),
         title: const Text('Bride Message Search'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.home),
+            onPressed: () => context.go('/'),
+          ),
           IconButton(
             icon: const Icon(Icons.cloud_outlined),
             tooltip: 'Import databases',
@@ -98,7 +108,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> with SingleTickerPr
               controller: _searchController,
               autofocus: true,
               decoration: InputDecoration(
-                hintText: 'Search Bible & Sermons',
+                hintText: 'Search Bible, Sermons, COD, Songs',
                 prefixIcon: const Icon(Icons.search),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(24),
@@ -136,7 +146,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> with SingleTickerPr
             child: Align(
               alignment: Alignment.centerLeft,
               child: Text(
-                'Found ${searchState.bibleResults.length} Bible verses and ${searchState.sermonResults.length} sermon occurrences',
+                _resultsLabel(searchState),
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ),
@@ -146,6 +156,8 @@ class _SearchScreenState extends ConsumerState<SearchScreen> with SingleTickerPr
             tabs: const [
               Tab(text: 'Bible'),
               Tab(text: 'Sermons'),
+              Tab(text: 'COD'),
+              Tab(text: 'Songs'),
             ],
           ),
           Expanded(
@@ -154,6 +166,8 @@ class _SearchScreenState extends ConsumerState<SearchScreen> with SingleTickerPr
               children: const [
                 BibleResultsTab(),
                 SermonResultsTab(),
+                CodResultsTab(),
+                SongResultsTab(),
               ],
             ),
           ),
@@ -162,4 +176,66 @@ class _SearchScreenState extends ConsumerState<SearchScreen> with SingleTickerPr
     );
   }
 
+  SearchTab? _parseInitialTab(String? raw) {
+    if (raw == null) return null;
+    switch (raw.toLowerCase()) {
+      case 'bible':
+        return SearchTab.bible;
+      case 'sermon':
+      case 'sermons':
+        return SearchTab.sermon;
+      case 'cod':
+        return SearchTab.cod;
+      case 'songs':
+      case 'song':
+        return SearchTab.songs;
+      default:
+        return null;
+    }
+  }
+
+  int _tabIndexFor(SearchTab tab) {
+    switch (tab) {
+      case SearchTab.bible:
+        return 0;
+      case SearchTab.sermon:
+        return 1;
+      case SearchTab.cod:
+        return 2;
+      case SearchTab.songs:
+        return 3;
+      case SearchTab.all:
+        return 0;
+    }
+  }
+
+  SearchTab _tabForIndex(int index) {
+    switch (index) {
+      case 0:
+        return SearchTab.bible;
+      case 1:
+        return SearchTab.sermon;
+      case 2:
+        return SearchTab.cod;
+      case 3:
+        return SearchTab.songs;
+      default:
+        return SearchTab.bible;
+    }
+  }
+
+  String _resultsLabel(SearchState state) {
+    switch (state.activeTab) {
+      case SearchTab.bible:
+        return 'Found ${state.bibleResults.length} Bible verses';
+      case SearchTab.sermon:
+        return 'Found ${state.sermonResults.length} sermon occurrences';
+      case SearchTab.cod:
+        return 'Found ${state.codResults.length} COD occurrences';
+      case SearchTab.songs:
+        return 'Found ${state.songResults.length} songs';
+      case SearchTab.all:
+        return 'Found ${state.bibleResults.length} Bible verses and ${state.sermonResults.length} sermon occurrences';
+    }
+  }
 }

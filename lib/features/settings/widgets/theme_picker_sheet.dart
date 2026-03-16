@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
+import '../../../core/widgets/responsive_bottom_sheet.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/theme_provider.dart';
 
@@ -8,7 +9,7 @@ class ThemePickerSheet extends ConsumerWidget {
   const ThemePickerSheet({super.key});
 
   static void show(BuildContext context) {
-    showModalBottomSheet(
+    showResponsiveBottomSheet(
       context: context,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(

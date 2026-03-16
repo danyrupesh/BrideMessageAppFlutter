@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -45,7 +47,11 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
               });
               notifier.onClearSearch();
             } else {
-              context.pop();
+              if (context.canPop()) {
+                context.pop();
+              } else {
+                context.go('/');
+              }
             }
           },
         ),
@@ -90,6 +96,11 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
                   ),
               ]
             : [
+                IconButton(
+                  icon: const Icon(Icons.manage_search),
+                  tooltip: 'Advanced Search',
+                  onPressed: () => context.push('/search?tab=songs'),
+                ),
                 IconButton(
                   icon: const Icon(Icons.search),
                   onPressed: () {
@@ -234,12 +245,17 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
                   const Divider(height: 1),
               itemBuilder: (context, index) {
                 final hymn = success.songs[index];
+                final subtitle = success.isSearchActive &&
+                        success.searchLyrics
+                    ? _buildSearchSubtitle(hymn.firstLine, hymn.lyrics, _query)
+                    : hymn.firstLine;
                 return SongListCard(
                   number: hymn.hymnNo,
                   title: hymn.title,
-                  subtitle: hymn.firstLine,
+                  subtitle: subtitle,
                   keyBadge: hymn.chord.isEmpty ? null : hymn.chord,
                   isFavorite: hymn.isFavorite,
+                  highlightQuery: _isSearchExpanded ? _query : null,
                   onTap: () {
                     context.push(
                       '/song-detail',
@@ -256,5 +272,34 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
       ],
     );
   }
-}
 
+  String _buildSearchSubtitle(
+    String firstLine,
+    String lyrics,
+    String query,
+  ) {
+    final cleaned = query.trim();
+    if (cleaned.isEmpty) return firstLine;
+
+    final lowerQuery = cleaned.toLowerCase();
+    final firstLineClean = firstLine.replaceAll('\n', ' ').trim();
+    if (firstLineClean.toLowerCase().contains(lowerQuery)) {
+      return firstLineClean;
+    }
+
+    final lyricsClean = lyrics.replaceAll('\n', ' ').trim();
+    final lyricsLower = lyricsClean.toLowerCase();
+    final idx = lyricsLower.indexOf(lowerQuery);
+    if (idx < 0) return firstLineClean;
+
+    const contextChars = 20;
+    final start = max(0, idx - contextChars);
+    final end = min(lyricsClean.length, idx + lowerQuery.length + contextChars);
+    var snippet = lyricsClean.substring(start, end).trim();
+
+    if (start > 0) snippet = '...$snippet';
+    if (end < lyricsClean.length) snippet = '$snippet...';
+
+    return snippet.replaceAll(RegExp(r'\\s+'), ' ');
+  }
+}

@@ -64,13 +64,31 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: '/search',
-        builder: (context, state) => const SearchScreen(),
+        builder: (context, state) {
+          final tab = state.uri.queryParameters['tab'];
+          return SearchScreen(initialTab: tab);
+        },
       ),
       GoRoute(
         path: '/sermons',
         builder: (context, state) {
           final resume = state.uri.queryParameters['resume'] == '1';
-          return SermonListScreen(autoResume: resume);
+          final prefix = state.uri.queryParameters['prefix'];
+          final title = state.uri.queryParameters['title'];
+          final mode = state.uri.queryParameters['mode'];
+          final lang = state.uri.queryParameters['lang'];
+          if (mode == 'cod' && lang != null) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              ref.read(selectedSermonLangProvider.notifier).setLang(lang);
+            });
+          }
+          return SermonListScreen(
+            autoResume: resume,
+            initialQuery: mode == 'cod' ? null : prefix,
+            titlePrefix: mode == 'cod' ? prefix : null,
+            customTitle: title,
+            hideFilters: mode == 'cod',
+          );
         },
       ),
       GoRoute(

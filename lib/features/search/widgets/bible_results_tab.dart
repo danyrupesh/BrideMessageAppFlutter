@@ -115,12 +115,15 @@ class BibleResultsTab extends ConsumerWidget {
             verse: r.verse,
             snippet: FtsHighlightText(rawSnippet: r.highlighted ?? r.text),
             onTap: () {
-              ref.read(readerProvider.notifier).openTab(
+              ref.read(readerProvider.notifier).openTabForLanguage(
+                    state.languageCode,
                     ReaderTab(
                       type: ReaderContentType.bible,
                       title: '${r.book} ${r.chapter}',
                       book: r.book,
                       chapter: r.chapter,
+                      initialSearchQuery: state.query,
+                      openedFromSearch: true,
                     ),
                   );
               context.go('/reader');

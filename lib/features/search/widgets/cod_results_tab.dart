@@ -8,8 +8,8 @@ import '../../../core/database/models/sermon_search_result.dart';
 import '../../common/widgets/cards.dart';
 import '../../common/widgets/fts_highlight_text.dart';
 
-class SermonResultsTab extends ConsumerWidget {
-  const SermonResultsTab({super.key});
+class CodResultsTab extends ConsumerWidget {
+  const CodResultsTab({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -29,9 +29,9 @@ class SermonResultsTab extends ConsumerWidget {
     if (state.query.isEmpty || state.query.length <= 2) {
       return const Center(child: Text('Type at least 3 characters to search'));
     }
-    final results = state.sermonResults;
+    final results = state.codResults;
     if (results.isEmpty) {
-      return Center(child: Text('No sermons found for "${state.query}"'));
+      return Center(child: Text('No COD results for "${state.query}"'));
     }
 
     return ListView.separated(
@@ -47,7 +47,10 @@ class SermonResultsTab extends ConsumerWidget {
           location: r.location,
           metaRightBadge: r.year?.toString(),
           subtitle: r.paragraphNumber != null ? '¶${r.paragraphNumber}' : null,
-          snippet: FtsHighlightText(rawSnippet: r.snippet),
+          highlightQuery: state.query,
+          snippet: r.snippet.trim().isNotEmpty
+              ? FtsHighlightText(rawSnippet: r.snippet)
+              : null,
           onTap: () {
             ref.read(sermonFlowProvider.notifier).openSermonForLanguage(
                   state.languageCode,

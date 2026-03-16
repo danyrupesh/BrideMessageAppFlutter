@@ -124,6 +124,80 @@ class HymnRepository {
         .toList();
   }
 
+  Future<List<Hymn>> searchSongsAdvanced(
+    String query, {
+    required bool exactMatch,
+    required bool anyWord,
+    required bool prefixOnly,
+    required bool searchLyrics,
+    int limit = 50,
+    int offset = 0,
+  }) async {
+    final db = await _openDb();
+    final favorites = await _favoritesStore.loadFavorites();
+    final cleaned = query.trim().toLowerCase();
+    if (cleaned.isEmpty) return const [];
+
+    final fields = [
+      'LOWER(HymnTitle)',
+      'LOWER(FirstIndexSearch)',
+      if (searchLyrics) 'LOWER(HymnLyrics)',
+    ];
+
+    final buffer = StringBuffer('SELECT * FROM Hymns WHERE ');
+    final args = <Object?>[];
+
+    if (exactMatch) {
+      final like = '%$cleaned%';
+      final conds =
+          fields.map((f) => '$f LIKE ?').toList(growable: false);
+      buffer.write(conds.join(' OR '));
+      args.addAll(List.filled(conds.length, like));
+    } else {
+      final tokens = cleaned
+          .split(RegExp(r'\s+'))
+          .where((t) => t.isNotEmpty)
+          .toList();
+      if (tokens.isEmpty) return const [];
+
+      final joiner = anyWord ? ' OR ' : ' AND ';
+      final groupClauses = <String>[];
+      for (final token in tokens) {
+        final perField = <String>[];
+        if (prefixOnly) {
+          final like1 = '$token%';
+          final like2 = '% $token%';
+          for (final field in fields) {
+            perField.add('($field LIKE ? OR $field LIKE ?)');
+            args.add(like1);
+            args.add(like2);
+          }
+        } else {
+          final like = '%$token%';
+          for (final field in fields) {
+            perField.add('$field LIKE ?');
+            args.add(like);
+          }
+        }
+        groupClauses.add('(${perField.join(' OR ')})');
+      }
+      buffer.write(groupClauses.join(joiner));
+    }
+
+    buffer.write(' ORDER BY HymnNo ASC LIMIT ? OFFSET ?');
+    args.addAll([limit, offset]);
+
+    final rows = await db.rawQuery(buffer.toString(), args);
+    return rows
+        .map(
+          (row) => Hymn.fromRow(
+            row,
+            isFavorite: favorites.contains(row['HymnNo'] as int),
+          ),
+        )
+        .toList();
+  }
+
   Future<void> toggleFavorite(int hymnNo) =>
       _favoritesStore.toggleFavorite(hymnNo);
 }

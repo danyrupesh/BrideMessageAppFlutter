@@ -2,6 +2,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/widgets/responsive_bottom_sheet.dart';
 import '../providers/song_install_provider.dart';
 
 class SongImportSheet extends ConsumerWidget {
@@ -13,7 +14,7 @@ class SongImportSheet extends ConsumerWidget {
   final VoidCallback onDismiss;
 
   static Future<bool?> show(BuildContext context) {
-    return showModalBottomSheet<bool>(
+    return showResponsiveBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(

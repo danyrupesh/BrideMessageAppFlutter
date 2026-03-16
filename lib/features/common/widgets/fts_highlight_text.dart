@@ -32,9 +32,8 @@ class FtsHighlightText extends StatelessWidget {
           TextSpan(
             text: innerParts[0],
             style: TextStyle(
-              backgroundColor:
-                  theme.colorScheme.primaryContainer.withOpacity(0.7),
-              color: theme.colorScheme.onPrimaryContainer,
+              backgroundColor: Colors.yellow.shade300,
+              color: Colors.black,
               fontWeight: FontWeight.bold,
             ),
           ),

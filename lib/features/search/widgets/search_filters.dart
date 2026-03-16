@@ -11,6 +11,7 @@ class SearchFilters extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(searchProvider);
     final notifier = ref.read(searchProvider.notifier);
+    final isSongs = state.activeTab == SearchTab.songs;
 
     return Column(
       children: [
@@ -44,84 +45,105 @@ class SearchFilters extends ConsumerWidget {
             ],
           ),
         ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16.0),
-          child: Row(
-            children: [
-              PillToggleChip(
-                label: 'Standard rank',
-                selected: state.matchMode == MatchMode.exactMatch,
-                onTap: () => notifier.updateMatchMode(MatchMode.exactMatch),
-              ),
-              const SizedBox(width: 8),
-              PillToggleChip(
-                label: 'Accurate rank',
-                selected: state.matchMode == MatchMode.accurate,
-                onTap: () => notifier.updateMatchMode(MatchMode.accurate),
-              ),
-              IconButton(
-                icon: const Icon(Icons.info_outline, size: 18),
-                tooltip:
-                    'Ranking only: changes result order, not which verses appear.',
-                onPressed: () {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text(
-                        'Standard/Accurate rank only change result order, not which verses appear.',
+        if (!isSongs) ...[
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            child: Row(
+              children: [
+                PillToggleChip(
+                  label: 'Standard rank',
+                  selected: state.matchMode == MatchMode.exactMatch,
+                  onTap: () => notifier.updateMatchMode(MatchMode.exactMatch),
+                ),
+                const SizedBox(width: 8),
+                PillToggleChip(
+                  label: 'Accurate rank',
+                  selected: state.matchMode == MatchMode.accurate,
+                  onTap: () => notifier.updateMatchMode(MatchMode.accurate),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.info_outline, size: 18),
+                  tooltip:
+                      'Ranking only: changes result order, not which verses appear.',
+                  onPressed: () {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'Standard/Accurate rank only change result order, not which verses appear.',
+                        ),
                       ),
-                    ),
-                  );
-                },
-              ),
-            ],
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16.0),
-          child: Align(
-            alignment: Alignment.centerLeft,
-            child: Text(
-              'Ranking only: changes result order, not which verses appear.',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).textTheme.bodySmall?.color
-                        ?.withOpacity(0.7),
-                  ),
+                    );
+                  },
+                ),
+              ],
             ),
           ),
-        ),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-          child: Row(
-            children: [
-              PillToggleChip(
-                label: 'EN',
-                icon: Icons.book_outlined,
-                selected: state.languageCode == 'en',
-                onTap: () {
-                  if (state.languageCode != 'en') {
-                    notifier.toggleLanguage();
-                  }
-                },
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Ranking only: changes result order, not which verses appear.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).textTheme.bodySmall?.color
+                          ?.withOpacity(0.7),
+                    ),
               ),
-              const SizedBox(width: 8),
-              PillToggleChip(
-                label: 'TA',
-                icon: Icons.book_outlined,
-                selected: state.languageCode == 'ta',
-                onTap: () {
-                  if (state.languageCode != 'ta') {
-                    notifier.toggleLanguage();
-                  }
-                },
-              ),
-              const Spacer(),
-              IconButton(
-                icon: const Icon(Icons.help_outline),
-                onPressed: () => context.push('/search-help'),
-              ),
-            ],
+            ),
           ),
-        ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+            child: Row(
+              children: [
+                PillToggleChip(
+                  label: 'EN',
+                  icon: Icons.book_outlined,
+                  selected: state.languageCode == 'en',
+                  onTap: () {
+                    if (state.languageCode != 'en') {
+                      notifier.toggleLanguage();
+                    }
+                  },
+                ),
+                const SizedBox(width: 8),
+                PillToggleChip(
+                  label: 'TA',
+                  icon: Icons.book_outlined,
+                  selected: state.languageCode == 'ta',
+                  onTap: () {
+                    if (state.languageCode != 'ta') {
+                      notifier.toggleLanguage();
+                    }
+                  },
+                ),
+                const Spacer(),
+                IconButton(
+                  icon: const Icon(Icons.help_outline),
+                  onPressed: () => context.push('/search-help'),
+                ),
+              ],
+            ),
+          ),
+        ],
+        if (isSongs)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+            child: Row(
+              children: [
+                PillToggleChip(
+                  label: 'Lyrics',
+                  icon: Icons.library_music,
+                  selected: state.searchLyrics,
+                  onTap: notifier.toggleSearchLyrics,
+                ),
+                const Spacer(),
+                IconButton(
+                  icon: const Icon(Icons.help_outline),
+                  onPressed: () => context.push('/search-help'),
+                ),
+              ],
+            ),
+          ),
       ],
     );
   }

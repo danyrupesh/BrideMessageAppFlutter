@@ -1,16 +1,31 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 import 'widgets/theme_picker_sheet.dart';
 import '../onboarding/onboarding_screen.dart';
 import '../search/providers/search_history_provider.dart';
+import 'screens/developer_details_screen.dart';
 
-class SettingsScreen extends ConsumerWidget {
+class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends ConsumerState<SettingsScreen> {
+  late Future<PackageInfo> _packageInfoFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _packageInfoFuture = PackageInfo.fromPlatform();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
     return Scaffold(
@@ -103,42 +118,66 @@ class SettingsScreen extends ConsumerWidget {
           ),
           const SizedBox(height: 8),
           Card(
-            child: ListTile(
-              leading: const Icon(Icons.info_outline),
-              title: const Text('App Info'),
-              subtitle: const Text('Version 1.9 • com.niflarosh.bride_message_app'),
-              onTap: () {
-                // Could show a simple dialog with more details.
-              },
-            ),
-          ),
-          const SizedBox(height: 12),
-          Card(
             child: Column(
-              children: const [
-                _AboutTile(
-                  icon: Icons.favorite_border,
-                  title: 'Vision & Sponsorship',
+              children: [
+                // ── Expandable App Info ──
+                FutureBuilder<PackageInfo>(
+                  future: _packageInfoFuture,
+                  builder: (context, snapshot) {
+                    final packageInfo = snapshot.data;
+                    return ExpansionTile(
+                      leading: const Icon(Icons.info_outline),
+                      title: const Text('App Info'),
+                      subtitle: Text(
+                        'Version ${packageInfo?.version ?? 'Loading'} • ${packageInfo?.packageName ?? ''}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      onExpansionChanged: (expanded) {
+                        // State management for expansion animation
+                      },
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _AppInfoRow(
+                                label: 'Version',
+                                value: packageInfo?.version ?? 'Loading...',
+                              ),
+                              const SizedBox(height: 12),
+                              _AppInfoRow(
+                                label: 'Package',
+                                value: packageInfo?.packageName ??
+                                    'com.niflarosh.bride_message_app',
+                              ),
+                              const SizedBox(height: 12),
+                              _AppInfoRow(
+                                label: 'Build',
+                                value: packageInfo?.buildNumber ?? 'N/A',
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    );
+                  },
                 ),
-                Divider(height: 1),
-                _AboutTile(
-                  icon: Icons.church_outlined,
-                  title: 'Spiritual Oversight',
-                ),
-                Divider(height: 1),
-                _AboutTile(
-                  icon: Icons.public,
-                  title: 'App Website',
-                ),
-                Divider(height: 1),
-                _AboutTile(
-                  icon: Icons.code,
-                  title: 'Developed By',
-                ),
-                Divider(height: 1),
-                _AboutTile(
-                  icon: Icons.group_outlined,
-                  title: 'Development Team',
+                const Divider(height: 1),
+                // ── Developer & Ministry Details ──
+                ListTile(
+                  leading: const Icon(Icons.person_outlined),
+                  title: const Text('Developer & Ministry Details'),
+                  subtitle: const Text('Project guidance & development team'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => const DeveloperDetailsScreen(),
+                      ),
+                    );
+                  },
                 ),
               ],
             ),
@@ -249,25 +288,33 @@ class _StorageTile extends StatelessWidget {
   }
 }
 
-class _AboutTile extends StatelessWidget {
-  final IconData icon;
-  final String title;
+class _AppInfoRow extends StatelessWidget {
+  final String label;
+  final String value;
 
-  const _AboutTile({
-    required this.icon,
-    required this.title,
+  const _AppInfoRow({
+    required this.label,
+    required this.value,
   });
 
   @override
   Widget build(BuildContext context) {
-    return ListTile(
-      leading: Icon(icon),
-      title: Text(title),
-      trailing: const Icon(Icons.chevron_right),
-      onTap: () {
-        // TODO: Link to detailed content or external URLs.
-      },
+    final theme = Theme.of(context);
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          label,
+          style: theme.textTheme.bodySmall?.copyWith(color: Colors.grey),
+        ),
+        Flexible(
+          child: Text(
+            value,
+            textAlign: TextAlign.end,
+            style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w500),
+          ),
+        ),
+      ],
     );
   }
 }
-

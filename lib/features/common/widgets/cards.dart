@@ -85,7 +85,9 @@ class SermonResultCard extends StatelessWidget {
   final String? location;
   final String? metaRightBadge;
   final String? subtitle;
+  final String? highlightQuery;
   final VoidCallback? onTap;
+  final Widget? snippet;
 
   const SermonResultCard({
     super.key,
@@ -96,12 +98,19 @@ class SermonResultCard extends StatelessWidget {
     this.location,
     this.metaRightBadge,
     this.subtitle,
+    this.highlightQuery,
     this.onTap,
+    this.snippet,
   });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final titleWidget = _buildHighlightedTitle(
+      theme,
+      title,
+      highlightQuery,
+    );
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
@@ -125,13 +134,7 @@ class SermonResultCard extends StatelessWidget {
                   ),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: Text(
-                      title,
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                    ),
+                    child: titleWidget,
                   ),
                   if (metaRightBadge != null)
                     Container(
@@ -193,10 +196,76 @@ class SermonResultCard extends StatelessWidget {
                   ],
                 ],
               ),
+              if (snippet != null) ...[
+                const SizedBox(height: 8),
+                snippet!,
+              ],
             ],
           ),
         ),
       ),
+    );
+  }
+
+  Widget _buildHighlightedTitle(
+    ThemeData theme,
+    String title,
+    String? query,
+  ) {
+    final cleaned = query?.trim() ?? '';
+    if (cleaned.isEmpty) {
+      return Text(
+        title,
+        style: theme.textTheme.titleMedium?.copyWith(
+          fontWeight: FontWeight.w600,
+        ),
+        overflow: TextOverflow.ellipsis,
+      );
+    }
+
+    final regex = RegExp(RegExp.escape(cleaned), caseSensitive: false);
+    final matches = regex.allMatches(title).toList();
+    if (matches.isEmpty) {
+      return Text(
+        title,
+        style: theme.textTheme.titleMedium?.copyWith(
+          fontWeight: FontWeight.w600,
+        ),
+        overflow: TextOverflow.ellipsis,
+      );
+    }
+
+    final spans = <TextSpan>[];
+    var start = 0;
+    for (final m in matches) {
+      if (m.start > start) {
+        spans.add(TextSpan(text: title.substring(start, m.start)));
+      }
+      spans.add(
+        TextSpan(
+          text: title.substring(m.start, m.end),
+          style: TextStyle(
+            backgroundColor: theme.colorScheme.tertiaryContainer,
+            color: theme.colorScheme.onTertiaryContainer,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      );
+      start = m.end;
+    }
+    if (start < title.length) {
+      spans.add(TextSpan(text: title.substring(start)));
+    }
+
+    return RichText(
+      text: TextSpan(
+        style: theme.textTheme.titleMedium?.copyWith(
+          fontWeight: FontWeight.w600,
+        ),
+        children: spans,
+      ),
+      maxLines: 2,
+      overflow: TextOverflow.ellipsis,
     );
   }
 }
@@ -208,6 +277,7 @@ class SongListCard extends StatelessWidget {
   final String subtitle;
   final String? keyBadge;
   final bool isFavorite;
+  final String? highlightQuery;
   final VoidCallback? onTap;
   final VoidCallback? onToggleFavorite;
 
@@ -218,6 +288,7 @@ class SongListCard extends StatelessWidget {
     required this.subtitle,
     this.keyBadge,
     this.isFavorite = false,
+    this.highlightQuery,
     this.onTap,
     this.onToggleFavorite,
   });
@@ -225,6 +296,20 @@ class SongListCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final titleWidget = _buildHighlightedText(
+      theme,
+      title,
+      highlightQuery,
+      theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+    );
+    final subtitleWidget = _buildHighlightedText(
+      theme,
+      subtitle,
+      highlightQuery,
+      theme.textTheme.bodySmall?.copyWith(
+        color: theme.colorScheme.onSurfaceVariant,
+      ),
+    );
 
     return InkWell(
       onTap: onTap,
@@ -247,21 +332,9 @@ class SongListCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    title,
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
+                  titleWidget,
                   const SizedBox(height: 2),
-                  Text(
-                    subtitle,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
+                  subtitleWidget,
                 ],
               ),
             ),
@@ -294,6 +367,63 @@ class SongListCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildHighlightedText(
+    ThemeData theme,
+    String text,
+    String? query,
+    TextStyle? baseStyle,
+  ) {
+    final cleaned = query?.trim() ?? '';
+    if (cleaned.isEmpty) {
+      return Text(
+        text,
+        style: baseStyle,
+        overflow: TextOverflow.ellipsis,
+      );
+    }
+
+    final regex = RegExp(RegExp.escape(cleaned), caseSensitive: false);
+    final matches = regex.allMatches(text).toList();
+    if (matches.isEmpty) {
+      return Text(
+        text,
+        style: baseStyle,
+        overflow: TextOverflow.ellipsis,
+      );
+    }
+
+    final spans = <TextSpan>[];
+    var start = 0;
+    for (final m in matches) {
+      if (m.start > start) {
+        spans.add(TextSpan(text: text.substring(start, m.start)));
+      }
+      spans.add(
+        TextSpan(
+          text: text.substring(m.start, m.end),
+          style: TextStyle(
+            backgroundColor: theme.colorScheme.tertiaryContainer,
+            color: theme.colorScheme.onTertiaryContainer,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      );
+      start = m.end;
+    }
+    if (start < text.length) {
+      spans.add(TextSpan(text: text.substring(start)));
+    }
+
+    return RichText(
+      text: TextSpan(
+        style: baseStyle,
+        children: spans,
+      ),
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
     );
   }
 }

@@ -10,6 +10,9 @@ class ReaderTab {
   final int? chapter;
   final int? verse; // optional — used to scroll to a specific verse on open
   final String? sermonId;
+  final String? bibleLang; // 'en' or 'ta' for Bible tabs
+  final String? initialSearchQuery; // optional — search query to auto-activate on open
+  final bool openedFromSearch; // true when opened from Common Search results
 
   ReaderTab({
     String? id,
@@ -19,6 +22,9 @@ class ReaderTab {
     this.chapter,
     this.verse,
     this.sermonId,
+    this.bibleLang,
+    this.initialSearchQuery,
+    this.openedFromSearch = false,
   }) : id = id ?? const Uuid().v4();
 
   ReaderTab copyWith({
@@ -27,6 +33,9 @@ class ReaderTab {
     int? chapter,
     int? verse,
     String? sermonId,
+    String? bibleLang,
+    String? initialSearchQuery,
+    bool? openedFromSearch,
   }) {
     return ReaderTab(
       id: id,
@@ -36,6 +45,9 @@ class ReaderTab {
       chapter: chapter ?? this.chapter,
       verse: verse,
       sermonId: sermonId ?? this.sermonId,
+      bibleLang: bibleLang ?? this.bibleLang,
+      initialSearchQuery: initialSearchQuery ?? this.initialSearchQuery,
+      openedFromSearch: openedFromSearch ?? this.openedFromSearch,
     );
   }
 }

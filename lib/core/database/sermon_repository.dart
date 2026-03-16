@@ -18,6 +18,8 @@ class SermonRepository {
     int offset = 0,
     int? year,
     String? searchQuery,
+    String? titlePrefix,
+    String? titleContains,
     String sortBy = 'year_asc',
     int? yearFrom,
     int? yearTo,
@@ -39,6 +41,16 @@ class SermonRepository {
         sql += ' AND year <= ?';
         args.add(yearTo);
       }
+    }
+
+    if (titlePrefix != null && titlePrefix.isNotEmpty) {
+      sql += ' AND title LIKE ?';
+      args.add('$titlePrefix%');
+    }
+
+    if (titleContains != null && titleContains.isNotEmpty) {
+      sql += ' AND title LIKE ?';
+      args.add('%$titleContains%');
     }
 
     if (searchQuery != null && searchQuery.isNotEmpty) {
@@ -83,6 +95,17 @@ ORDER BY
       [languageCode],
     );
     return results.map((e) => e['year'] as int).toList();
+  }
+
+  Future<int> getSermonCount() async {
+    final db = await _dbManager.getDatabase(dbFileName);
+    final rows = await db.rawQuery(
+      'SELECT COUNT(*) AS c FROM sermons WHERE language = ?',
+      [languageCode],
+    );
+    if (rows.isEmpty) return 0;
+    final value = rows.first['c'];
+    return (value is int) ? value : (value as num?)?.toInt() ?? 0;
   }
 
   Future<List<SermonParagraphEntity>> getParagraphsForSermon(
@@ -142,6 +165,7 @@ ORDER BY
     bool prefixOnly = false,
     bool accurateMatch = false,
     String sortOrder = 'relevance',
+    String? titlePrefix,
   }) async {
     final matchPattern = FtsQueryBuilder.buildMatchQuery(
       query,
@@ -157,6 +181,7 @@ ORDER BY
       limit: limit,
       offset: offset,
       sortOrder: sortOrder,
+      titlePrefix: titlePrefix,
     );
     if (ftsResults.isNotEmpty) return ftsResults;
 
@@ -168,6 +193,7 @@ ORDER BY
       anyWord: anyWord,
       prefixOnly: prefixOnly,
       sortOrder: sortOrder,
+      titlePrefix: titlePrefix,
     );
   }
 
@@ -179,6 +205,7 @@ ORDER BY
     required bool anyWord,
     required bool prefixOnly,
     String sortOrder = 'relevance',
+    String? titlePrefix,
   }) async {
     final normalizedQuery = query.replaceAll(RegExp(r'[^\w\s]'), ' ').trim();
     if (normalizedQuery.isEmpty) return const [];
@@ -191,6 +218,11 @@ ORDER BY
         .split(RegExp(r'\s+'))
         .where((token) => token.isNotEmpty)
         .toList();
+
+    if (titlePrefix != null && titlePrefix.isNotEmpty) {
+      where.write(' AND s.title LIKE ?');
+      args.add('$titlePrefix%');
+    }
 
     if (exactMatch || prefixOnly || tokens.length <= 1) {
       where.write(' AND LOWER(p.text) LIKE ?');

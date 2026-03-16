@@ -5,8 +5,10 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:share_plus/share_plus.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/database/models/hymn_models.dart';
+import '../../core/widgets/responsive_bottom_sheet.dart';
 import 'providers/song_detail_provider.dart';
 
 class SongDetailScreen extends StatelessWidget {
@@ -70,39 +72,74 @@ class _SongDetailReaderState extends ConsumerState<_SongDetailReader> {
               ),
               onPressed: notifier.toggleFavorite,
             ),
-            IconButton(
-              tooltip: 'Copy',
-              icon: const Icon(Icons.copy),
-              onPressed: () async {
-                final text = _shareTextFor(hymn);
-                await Clipboard.setData(ClipboardData(text: text));
-                if (!context.mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Copied')),
-                );
-              },
-            ),
-            IconButton(
-              tooltip: 'Share',
-              icon: const Icon(Icons.share),
-              onPressed: () {
-                SharePlus.instance.share(
-                  ShareParams(text: _shareTextFor(hymn)),
-                );
-              },
-            ),
-            IconButton(
-              tooltip: 'Print',
-              icon: const Icon(Icons.print),
-              onPressed: () async {
-                final doc = await _buildHymnPdf(hymn, lyricsLines);
-                await Printing.layoutPdf(
-                  onLayout: (_) => doc.save(),
-                  name: 'Hymn ${hymn.hymnNo} – ${hymn.title}',
-                );
+            PopupMenuButton<String>(
+              tooltip: 'More',
+              icon: const Icon(Icons.more_vert),
+              itemBuilder: (_) => const [
+                PopupMenuItem(
+                  value: 'copy',
+                  child: Row(
+                    children: [
+                      Icon(Icons.copy, size: 18),
+                      SizedBox(width: 12),
+                      Text('Copy'),
+                    ],
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'share',
+                  child: Row(
+                    children: [
+                      Icon(Icons.share, size: 18),
+                      SizedBox(width: 12),
+                      Text('Share'),
+                    ],
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'print',
+                  child: Row(
+                    children: [
+                      Icon(Icons.print, size: 18),
+                      SizedBox(width: 12),
+                      Text('Print'),
+                    ],
+                  ),
+                ),
+              ],
+              onSelected: (value) async {
+                if (value == 'copy') {
+                  final text = _shareTextFor(hymn);
+                  await Clipboard.setData(ClipboardData(text: text));
+                  if (!context.mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Copied')),
+                  );
+                } else if (value == 'share') {
+                  SharePlus.instance.share(
+                    ShareParams(text: _shareTextFor(hymn)),
+                  );
+                } else if (value == 'print') {
+                  final doc = await _buildHymnPdf(hymn, lyricsLines);
+                  await Printing.layoutPdf(
+                    onLayout: (_) => doc.save(),
+                    name: 'Hymn ${hymn.hymnNo} – ${hymn.title}',
+                  );
+                }
               },
             ),
           ],
+
+          IconButton(
+            tooltip: 'Song Index',
+            icon: const Icon(Icons.list),
+            onPressed: () => GoRouter.of(context).push('/songs'),
+          ),
+          IconButton(
+            tooltip: 'Home',
+            icon: const Icon(Icons.home),
+            onPressed: () => GoRouter.of(context).go('/'),
+          ),
           IconButton(
             tooltip: 'Reader settings',
             icon: const Icon(Icons.text_fields),
@@ -158,7 +195,7 @@ class _SongDetailReaderState extends ConsumerState<_SongDetailReader> {
     required SongDetailNotifier notifier,
     required _ReaderPalette palette,
   }) {
-    return showModalBottomSheet<void>(
+    return showResponsiveBottomSheet<void>(
       context: context,
       showDragHandle: true,
       backgroundColor: palette.sheetBackground,
@@ -225,33 +262,9 @@ class _ContentView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final hymn = state.hymn;
-    String? prevName;
-    String? nextName;
-
-    if (state.prevTitle != null) {
-      prevName = _truncateTitle(state.prevTitle!);
-    }
-    if (state.nextTitle != null) {
-      nextName = _truncateTitle(state.nextTitle!);
-    }
-
-    final isMobile = MediaQuery.of(context).size.width < 600;
-
     return Column(
       children: [
         const SizedBox(height: 8),
-        _SongNavigationBar(
-          current: hymn.hymnNo,
-          currentTitle: '${hymn.hymnNo}. ${hymn.title}',
-          prevTitle: prevName,
-          nextTitle: nextName,
-          prev: state.prevHymnNo,
-          next: state.nextHymnNo,
-          onPrev: state.prevHymnNo == null ? null : onPrev,
-          onNext: state.nextHymnNo == null ? null : onNext,
-          palette: palette,
-        ),
-        Divider(color: palette.divider),
         _SongHeader(
           hymnNo: hymn.hymnNo,
           title: hymn.title,
@@ -276,156 +289,7 @@ class _ContentView extends StatelessWidget {
             ),
           ),
         ),
-        if (!isMobile) ...[
-          Divider(color: palette.divider),
-          _SongNavigationBar(
-            current: hymn.hymnNo,
-            currentTitle: '${hymn.hymnNo}. ${hymn.title}',
-            prevTitle: prevName,
-            nextTitle: nextName,
-            prev: state.prevHymnNo,
-            next: state.nextHymnNo,
-            onPrev: state.prevHymnNo == null ? null : onPrev,
-            onNext: state.nextHymnNo == null ? null : onNext,
-            palette: palette,
-          ),
-          const SizedBox(height: 10),
-        ],
       ],
-    );
-  }
-}
-
-class _SongNavigationBar extends StatelessWidget {
-  const _SongNavigationBar({
-    required this.current,
-    required this.currentTitle,
-    required this.prevTitle,
-    required this.nextTitle,
-    required this.prev,
-    required this.next,
-    required this.onPrev,
-    required this.onNext,
-    required this.palette,
-  });
-
-  final int current;
-  final String currentTitle;
-  final String? prevTitle;
-  final String? nextTitle;
-  final int? prev;
-  final int? next;
-  final VoidCallback? onPrev;
-  final VoidCallback? onNext;
-  final _ReaderPalette palette;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final screenWidth = MediaQuery.of(context).size.width;
-    final isMobile = screenWidth < 600;
-
-    Widget sideButton({
-      required IconData icon,
-      required int? hymnNo,
-      required String? title,
-      required VoidCallback? onTap,
-      required Alignment alignment,
-    }) {
-      final enabled = hymnNo != null && onTap != null;
-      // Only show title on non-mobile screens to prevent collision/overflow
-      final effectiveTitle = (enabled && !isMobile) ? title : null;
-
-      final content = Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (alignment == Alignment.centerLeft)
-              Icon(
-                icon,
-                color: enabled
-                    ? palette.onBackground
-                    : palette.onBackgroundMuted,
-              ),
-            if (effectiveTitle != null) ...[
-              const SizedBox(width: 6),
-              Flexible(
-                child: Text(
-                  effectiveTitle,
-                  style: theme.textTheme.labelLarge?.copyWith(
-                    color: enabled
-                        ? palette.onBackground
-                        : palette.onBackgroundMuted,
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                  maxLines: 1,
-                ),
-              ),
-            ],
-            if (alignment == Alignment.centerRight) ...[
-              if (effectiveTitle != null) const SizedBox(width: 6),
-              Icon(
-                icon,
-                color: enabled
-                    ? palette.onBackground
-                    : palette.onBackgroundMuted,
-              ),
-            ],
-          ],
-        ),
-      );
-
-      final widget = InkWell(
-        onTap: enabled ? onTap : null,
-        borderRadius: BorderRadius.circular(12),
-        child: Align(
-          alignment: alignment,
-          child: content,
-        ),
-      );
-
-      // On mobile, icons take minimal space to give central title room.
-      // On desktop, expansion helps balance the row.
-      return isMobile ? widget : Expanded(child: widget);
-    }
-
-    return Material(
-      color: palette.navBackground,
-      borderRadius: BorderRadius.circular(14),
-      child: Row(
-        children: [
-          sideButton(
-            icon: Icons.chevron_left,
-            hymnNo: prev,
-            title: prevTitle,
-            onTap: onPrev,
-            alignment: Alignment.centerLeft,
-          ),
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 10),
-              child: Text(
-                currentTitle,
-                textAlign: TextAlign.center,
-                style: theme.textTheme.titleMedium?.copyWith(
-                  color: palette.onBackground,
-                  fontWeight: FontWeight.w700,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          ),
-          sideButton(
-            icon: Icons.chevron_right,
-            hymnNo: next,
-            title: nextTitle,
-            onTap: onNext,
-            alignment: Alignment.centerRight,
-          ),
-        ],
-      ),
     );
   }
 }
@@ -568,11 +432,6 @@ class _LyricsLineView extends StatelessWidget {
         ),
     };
   }
-}
-
-String _truncateTitle(String title, {int max = 15}) {
-  if (title.length <= max) return title;
-  return '${title.substring(0, max)}...';
 }
 
 Future<pw.Document> _buildHymnPdf(Hymn hymn, List<LyricsLine> lines) async {
