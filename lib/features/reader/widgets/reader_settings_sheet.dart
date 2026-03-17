@@ -32,17 +32,20 @@ class _ReaderSettingsSheetState extends ConsumerState<ReaderSettingsSheet> {
     final typography = ref.watch(typographyProvider);
     final themeSettings = ref.watch(themeProvider);
 
+    final bottomInset = MediaQuery.of(context).padding.bottom;
+
     return Padding(
       padding: EdgeInsets.only(
         left: 24,
         right: 24,
         top: 24,
-        bottom: MediaQuery.of(context).padding.bottom + 24,
+        bottom: bottomInset + 16,
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -241,6 +244,7 @@ class _ReaderSettingsSheetState extends ConsumerState<ReaderSettingsSheet> {
             onChanged: (_) =>
                 ref.read(typographyProvider.notifier).toggleFullscreen(),
           ),
+          const SizedBox(height: 8),
         ],
       ),
     );

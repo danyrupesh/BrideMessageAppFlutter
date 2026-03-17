@@ -1,41 +1,13 @@
-import 'dart:math';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../../core/database/models/hymn_models.dart';
 import '../providers/search_provider.dart';
 import '../../common/widgets/cards.dart';
+import '../../songs/utils/song_search_utils.dart';
 
 class SongResultsTab extends ConsumerWidget {
   const SongResultsTab({super.key});
-
-  String _buildSearchSubtitle(Hymn hymn, String query) {
-    final cleaned = query.trim();
-    if (cleaned.isEmpty) return hymn.firstLine;
-
-    final lowerQuery = cleaned.toLowerCase();
-    final firstLine = hymn.firstLine.replaceAll('\n', ' ').trim();
-    if (firstLine.toLowerCase().contains(lowerQuery)) {
-      return firstLine;
-    }
-
-    final lyrics = hymn.lyrics.replaceAll('\n', ' ').trim();
-    final lyricsLower = lyrics.toLowerCase();
-    final idx = lyricsLower.indexOf(lowerQuery);
-    if (idx < 0) return firstLine;
-
-    const contextChars = 20;
-    final start = max(0, idx - contextChars);
-    final end = min(lyrics.length, idx + lowerQuery.length + contextChars);
-    var snippet = lyrics.substring(start, end).trim();
-
-    if (start > 0) snippet = '…$snippet';
-    if (end < lyrics.length) snippet = '$snippet…';
-
-    return snippet.replaceAll(RegExp(r'\s+'), ' ');
-  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -68,7 +40,11 @@ class SongResultsTab extends ConsumerWidget {
         return SongListCard(
           number: hymn.hymnNo,
           title: hymn.title,
-          subtitle: _buildSearchSubtitle(hymn, state.query),
+          subtitle: buildSongSearchSubtitle(
+            firstLine: hymn.firstLine,
+            lyrics: hymn.lyrics,
+            query: state.query,
+          ),
           keyBadge: hymn.chord.isEmpty ? null : hymn.chord,
           isFavorite: hymn.isFavorite,
           highlightQuery: state.query,

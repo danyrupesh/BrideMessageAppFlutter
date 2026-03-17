@@ -12,6 +12,7 @@ class ReaderTab {
   final String? sermonId;
   final String? bibleLang; // 'en' or 'ta' for Bible tabs
   final String? initialSearchQuery; // optional — search query to auto-activate on open
+  final int? initialFocusParagraph; // optional — paragraph number to focus on search open
   final bool openedFromSearch; // true when opened from Common Search results
 
   ReaderTab({
@@ -24,6 +25,7 @@ class ReaderTab {
     this.sermonId,
     this.bibleLang,
     this.initialSearchQuery,
+    this.initialFocusParagraph,
     this.openedFromSearch = false,
   }) : id = id ?? const Uuid().v4();
 
@@ -35,6 +37,7 @@ class ReaderTab {
     String? sermonId,
     String? bibleLang,
     String? initialSearchQuery,
+    int? initialFocusParagraph,
     bool? openedFromSearch,
   }) {
     return ReaderTab(
@@ -47,6 +50,7 @@ class ReaderTab {
       sermonId: sermonId ?? this.sermonId,
       bibleLang: bibleLang ?? this.bibleLang,
       initialSearchQuery: initialSearchQuery ?? this.initialSearchQuery,
+      initialFocusParagraph: initialFocusParagraph ?? this.initialFocusParagraph,
       openedFromSearch: openedFromSearch ?? this.openedFromSearch,
     );
   }

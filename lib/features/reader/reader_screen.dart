@@ -5,7 +5,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:share_plus/share_plus.dart' show SharePlus, ShareParams;
-import 'package:flutter/gestures.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
@@ -13,6 +12,7 @@ import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
 import '../../core/utils/desktop_file_saver.dart';
 import '../../core/widgets/responsive_bottom_sheet.dart';
+import '../../core/widgets/selection_action_bar.dart';
 import 'providers/reader_provider.dart';
 import 'providers/typography_provider.dart';
 import 'models/reader_tab.dart';
@@ -55,12 +55,15 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
   // ── Verse selection ───────────────────────────────────────────────────────
   final Set<int> _selectedVerseNumbers = {};
+  String? _activeSelectionText;
+  int? _lastVerseTapped;
 
   // ── Current verses cache (needed for search + share) ─────────────────────
   List<BibleSearchResult> _currentVerses = [];
   String? _lastChapterSignature;
   String? _pendingSearchRecalcSignature;
   String? _pendingVerseJumpSignature;
+  String? _initialSearchScrollTabId;
 
   // ─────────────────────────────────────────────────────────────────────────
 
@@ -132,6 +135,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     // Clear selection and search when navigating to a new chapter.
     setState(() {
       _selectedVerseNumbers.clear();
+      _activeSelectionText = null;
+      _lastVerseTapped = null;
       _isSearching = false;
       _searchController.clear();
       _clearMatches();
@@ -140,7 +145,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
   // ── In-page search helpers ─────────────────────────────────────────────────
 
-  void _computeMatches(String query) {
+  void _computeMatches(String query, {bool scrollToMatch = true}) {
     if (query.isEmpty || _currentVerses.isEmpty) {
       setState(() {
         _matchVerseIndices = [];
@@ -166,7 +171,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       _currentMatchIndex = 0;
     });
 
-    if (indices.isNotEmpty) {
+    if (indices.isNotEmpty && scrollToMatch) {
       _scrollToCurrentMatch();
     }
   }
@@ -215,16 +220,91 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     }
   }
 
+  void _scrollToVerseIndex(int verseIndex) {
+    if (_currentVerses.isEmpty) return;
+    void doScroll() {
+      if (!mounted || !_scrollController.hasClients || _currentVerses.isEmpty) {
+        return;
+      }
+      final clamped = verseIndex.clamp(0, _currentVerses.length - 1);
+      final frac = (clamped / _currentVerses.length).clamp(0.0, 1.0);
+      final target = frac * _scrollController.position.maxScrollExtent;
+      _scrollController.animateTo(
+        target,
+        duration: const Duration(milliseconds: 280),
+        curve: Curves.easeOutCubic,
+      );
+    }
+    if (_scrollController.hasClients) {
+      doScroll();
+    } else {
+      WidgetsBinding.instance.addPostFrameCallback((_) => doScroll());
+    }
+  }
+
+  void _applyInitialSearchFocus(ReaderTab tab) {
+    if (_initialSearchScrollTabId == tab.id) return;
+    final query = tab.initialSearchQuery;
+    if (query == null || query.isEmpty || _currentVerses.isEmpty) return;
+
+    _computeMatches(query, scrollToMatch: false);
+
+    int? focusIndex;
+    if (tab.verse != null) {
+      focusIndex =
+          _currentVerses.indexWhere((v) => v.verse == tab.verse);
+      if (focusIndex < 0) focusIndex = null;
+    }
+
+    if (focusIndex != null) {
+      final matchIndex =
+          _matchVerseIndices.indexWhere((idx) => idx == focusIndex);
+      if (matchIndex != -1) {
+        setState(() => _currentMatchIndex = matchIndex);
+        _initialSearchScrollTabId = tab.id;
+        _scrollToCurrentMatch();
+        return;
+      }
+      _initialSearchScrollTabId = tab.id;
+      _scrollToVerseIndex(focusIndex);
+      return;
+    }
+
+    if (_matchVerseIndices.isNotEmpty) {
+      _initialSearchScrollTabId = tab.id;
+      _scrollToCurrentMatch();
+    }
+  }
+
   // ── Verse selection helpers ───────────────────────────────────────────────
 
   void _toggleVerseSelection(int verseNumber) {
     setState(() {
-      if (_selectedVerseNumbers.contains(verseNumber)) {
-        _selectedVerseNumbers.remove(verseNumber);
+      final hasShift = HardwareKeyboard.instance.isShiftPressed;
+      if (hasShift && _lastVerseTapped != null) {
+        final start = _lastVerseTapped!;
+        final from = start < verseNumber ? start : verseNumber;
+        final to = start < verseNumber ? verseNumber : start;
+        for (final verse in _currentVerses) {
+          if (verse.verse >= from && verse.verse <= to) {
+            _selectedVerseNumbers.add(verse.verse);
+          }
+        }
       } else {
-        _selectedVerseNumbers.add(verseNumber);
+        if (_selectedVerseNumbers.contains(verseNumber)) {
+          _selectedVerseNumbers.remove(verseNumber);
+        } else {
+          _selectedVerseNumbers.add(verseNumber);
+        }
       }
+      _activeSelectionText = null;
+      _lastVerseTapped = _selectedVerseNumbers.isEmpty ? null : verseNumber;
     });
+  }
+
+  bool get _hasAnySelection {
+    final textSelected = _activeSelectionText?.trim().isNotEmpty ?? false;
+    return textSelected || _selectedVerseNumbers.isNotEmpty;
   }
 
   void _shareSelectedVerses() {
@@ -233,6 +313,11 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     final text = _buildSelectedVersesPayload(activeTab);
     if (text.isEmpty) return;
     SharePlus.instance.share(ShareParams(text: text));
+    setState(() {
+      _selectedVerseNumbers.clear();
+      _activeSelectionText = null;
+      _lastVerseTapped = null;
+    });
   }
 
   void _copySelectedVerses() {
@@ -244,6 +329,11 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Copied to clipboard')),
     );
+    setState(() {
+      _selectedVerseNumbers.clear();
+      _activeSelectionText = null;
+      _lastVerseTapped = null;
+    });
   }
 
   /// Builds the text payload for share / copy, including a header like
@@ -634,40 +724,83 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
             body: activeTab == null
                 ? const Center(child: Text('No open tabs. Please open a book.'))
                 : isFullscreen
-                ? Stack(
-                    children: [
-                      _buildTabContent(activeTab, typographyState),
-                      // Fullscreen exit overlay — always visible in top-right corner.
-                      Positioned(
-                        top: 12,
-                        right: 12,
-                        child: SafeArea(
-                          child: Material(
-                            color: Colors.black45,
-                            borderRadius: BorderRadius.circular(20),
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(20),
-                              onTap: () => ref
-                                  .read(typographyProvider.notifier)
-                                  .toggleFullscreen(),
-                              child: const Padding(
-                                padding: EdgeInsets.all(8),
-                                child: Icon(
-                                  Icons.fullscreen_exit,
-                                  color: Colors.white,
-                                  size: 22,
+                    ? Stack(
+                        children: [
+                          Column(
+                            children: [
+                              Expanded(
+                                child: _buildTabContent(
+                                  activeTab,
+                                  typographyState,
+                                ),
+                              ),
+                              SelectionActionBar(
+                                isVisible:
+                                    (_activeSelectionText?.trim().isNotEmpty ??
+                                        false),
+                                selectedText: _activeSelectionText,
+                                onCopy: () => _copySelectedVerses(),
+                                onShare: () => _shareSelectedVerses(),
+                                onDismiss: () {
+                                  setState(() => _activeSelectionText = null);
+                                },
+                              ),
+                            ],
+                          ),
+                          // Fullscreen exit overlay — always visible in top-right corner.
+                          Positioned(
+                            top: 12,
+                            right: 12,
+                            child: SafeArea(
+                              child: Material(
+                                color: Colors.black45,
+                                borderRadius: BorderRadius.circular(20),
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(20),
+                                  onTap: () => ref
+                                      .read(typographyProvider.notifier)
+                                      .toggleFullscreen(),
+                                  child: const Padding(
+                                    padding: EdgeInsets.all(8),
+                                    child: Icon(
+                                      Icons.fullscreen_exit,
+                                      color: Colors.white,
+                                      size: 22,
+                                    ),
+                                  ),
                                 ),
                               ),
                             ),
                           ),
-                        ),
+                        ],
+                      )
+                    : Column(
+                        children: [
+                          Expanded(
+                            child: _buildTabContent(
+                              activeTab,
+                              typographyState,
+                            ),
+                          ),
+                          SelectionActionBar(
+                            isVisible:
+                                (_activeSelectionText?.trim().isNotEmpty ??
+                                    false),
+                            selectedText: _activeSelectionText,
+                            onCopy: () => _copySelectedVerses(),
+                            onShare: () => _shareSelectedVerses(),
+                            onDismiss: () {
+                              setState(() => _activeSelectionText = null);
+                            },
+                          ),
+                        ],
                       ),
-                    ],
-                  )
-                : _buildTabContent(activeTab, typographyState),
             // FAB opens Quick Navigation sheet.
             floatingActionButton:
-                (activeTab == null || isFullscreen || _isSearching)
+                (activeTab == null ||
+                        isFullscreen ||
+                        _isSearching ||
+                        _hasAnySelection)
                     ? null
                     : FloatingActionButton(
                         onPressed: _openQuickNav,
@@ -761,7 +894,11 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
         icon: const Icon(Icons.arrow_back),
         onPressed: () {
           if (openedFromSearch) {
-            context.go('/search?tab=bible');
+            if (context.canPop()) {
+              context.pop();
+            } else {
+              context.go('/search?tab=bible');
+            }
           } else {
             context.pop();
           }
@@ -789,7 +926,11 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
           ),
           IconButton(
             icon: const Icon(Icons.clear),
-            onPressed: () => setState(() => _selectedVerseNumbers.clear()),
+            onPressed: () => setState(() {
+              _selectedVerseNumbers.clear();
+              _activeSelectionText = null;
+              _lastVerseTapped = null;
+            }),
           ),
         ] else ...[
           IconButton(
@@ -839,7 +980,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
             }
 
             // Re-enable quick-nav verse jump once per chapter signature.
-            if (tab.verse != null && verses.isNotEmpty) {
+            if (tab.verse != null &&
+                verses.isNotEmpty &&
+                !(tab.openedFromSearch && tab.initialSearchQuery != null)) {
               final jumpSig = '$chapterSig:${tab.verse}';
               _pendingVerseJumpSignature = jumpSig;
               WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -867,9 +1010,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                 setState(() {
                   _isSearching = true;
                   _searchController.text = tab.initialSearchQuery!;
-                  _computeMatches(tab.initialSearchQuery!);
                   _lastSearchActivatedTabId = tab.id;
                 });
+                _applyInitialSearchFocus(tab);
               });
             }
           }
@@ -915,6 +1058,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                     final verse = verses[index];
                     final isSelected =
                         _selectedVerseNumbers.contains(verse.verse);
+                    final plainText = '${verse.verse} ${verse.text}';
 
                     // Compute which occurrence within this verse is the current match.
                     int? currentOccurrence;
@@ -927,46 +1071,63 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                               .length;
                     }
 
-                    return AnimatedContainer(
+                    return GestureDetector(
                       key: ValueKey<int>(verse.verse),
-                      duration: const Duration(milliseconds: 150),
-                      decoration: BoxDecoration(
-                        color: isSelected
-                            ? cs.primaryContainer.withAlpha(120)
-                            : Colors.transparent,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 6,
-                        vertical: 4,
-                      ),
-                      margin: const EdgeInsets.only(bottom: 4),
-                      child: SelectableText.rich(
-                        TextSpan(
-                          style: baseStyle,
-                          children: [
-                            TextSpan(
-                              text: '${verse.verse} ',
-                              recognizer: TapGestureRecognizer()
-                                ..onTap = () => _toggleVerseSelection(
-                                      verse.verse,
-                                    ),
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: typography.fontSize * 0.8,
-                                color: isSelected
-                                    ? cs.primary
-                                    : cs.onSurfaceVariant,
+                      onTap: () => _toggleVerseSelection(verse.verse),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 150),
+                        decoration: BoxDecoration(
+                          color: isSelected
+                              ? cs.primaryContainer.withAlpha(120)
+                              : Colors.transparent,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                          vertical: 4,
+                        ),
+                        margin: const EdgeInsets.only(bottom: 4),
+                        child: SelectableText.rich(
+                          TextSpan(
+                            style: baseStyle,
+                            children: [
+                              TextSpan(
+                                text: '${verse.verse} ',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: typography.fontSize * 0.8,
+                                  color: isSelected
+                                      ? cs.primary
+                                      : cs.onSurfaceVariant,
+                                ),
                               ),
-                            ),
-                            ..._buildHighlightedSpans(
-                              verse.text,
-                              baseStyle,
-                              highlightStyle,
-                              currentMatchStyle,
-                              currentOccurrenceIndex: currentOccurrence,
-                            ),
-                          ],
+                              ..._buildHighlightedSpans(
+                                verse.text,
+                                baseStyle,
+                                highlightStyle,
+                                currentMatchStyle,
+                                currentOccurrenceIndex: currentOccurrence,
+                              ),
+                            ],
+                          ),
+                          onSelectionChanged: (selection, cause) {
+                            if (selection.start == selection.end) {
+                              if (_activeSelectionText != null) {
+                                setState(() => _activeSelectionText = null);
+                              }
+                              return;
+                            }
+                            final start = selection.start.clamp(0, plainText.length);
+                            final end = selection.end.clamp(0, plainText.length);
+                            if (start >= end) return;
+                            final selected = plainText.substring(start, end).trim();
+                            if (selected.isEmpty) return;
+                            setState(() {
+                              _activeSelectionText = selected;
+                              _selectedVerseNumbers.clear();
+                              _lastVerseTapped = null;
+                            });
+                          },
                         ),
                       ),
                     );

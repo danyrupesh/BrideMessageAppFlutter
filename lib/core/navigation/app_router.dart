@@ -66,7 +66,8 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: '/search',
         builder: (context, state) {
           final tab = state.uri.queryParameters['tab'];
-          return SearchScreen(initialTab: tab);
+          final fresh = state.uri.queryParameters['fresh'] == '1';
+          return SearchScreen(initialTab: tab, fresh: fresh);
         },
       ),
       GoRoute(

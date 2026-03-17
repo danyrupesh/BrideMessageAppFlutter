@@ -122,11 +122,12 @@ class BibleResultsTab extends ConsumerWidget {
                       title: '${r.book} ${r.chapter}',
                       book: r.book,
                       chapter: r.chapter,
+                      verse: r.verse,
                       initialSearchQuery: state.query,
                       openedFromSearch: true,
                     ),
                   );
-              context.go('/reader');
+              context.push('/reader');
             },
           ),
         );

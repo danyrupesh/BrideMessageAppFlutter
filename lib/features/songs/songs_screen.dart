@@ -1,5 +1,3 @@
-import 'dart:math';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -7,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../common/widgets/cards.dart';
 import '../common/widgets/chips.dart';
 import 'providers/songs_provider.dart';
+import 'utils/song_search_utils.dart';
 
 class SongsScreen extends ConsumerStatefulWidget {
   const SongsScreen({super.key});
@@ -247,7 +246,11 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
                 final hymn = success.songs[index];
                 final subtitle = success.isSearchActive &&
                         success.searchLyrics
-                    ? _buildSearchSubtitle(hymn.firstLine, hymn.lyrics, _query)
+                    ? buildSongSearchSubtitle(
+                        firstLine: hymn.firstLine,
+                        lyrics: hymn.lyrics,
+                        query: _query,
+                      )
                     : hymn.firstLine;
                 return SongListCard(
                   number: hymn.hymnNo,
@@ -273,33 +276,4 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
     );
   }
 
-  String _buildSearchSubtitle(
-    String firstLine,
-    String lyrics,
-    String query,
-  ) {
-    final cleaned = query.trim();
-    if (cleaned.isEmpty) return firstLine;
-
-    final lowerQuery = cleaned.toLowerCase();
-    final firstLineClean = firstLine.replaceAll('\n', ' ').trim();
-    if (firstLineClean.toLowerCase().contains(lowerQuery)) {
-      return firstLineClean;
-    }
-
-    final lyricsClean = lyrics.replaceAll('\n', ' ').trim();
-    final lyricsLower = lyricsClean.toLowerCase();
-    final idx = lyricsLower.indexOf(lowerQuery);
-    if (idx < 0) return firstLineClean;
-
-    const contextChars = 20;
-    final start = max(0, idx - contextChars);
-    final end = min(lyricsClean.length, idx + lowerQuery.length + contextChars);
-    var snippet = lyricsClean.substring(start, end).trim();
-
-    if (start > 0) snippet = '...$snippet';
-    if (end < lyricsClean.length) snippet = '$snippet...';
-
-    return snippet.replaceAll(RegExp(r'\\s+'), ' ');
-  }
 }

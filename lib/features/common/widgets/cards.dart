@@ -87,6 +87,8 @@ class SermonResultCard extends StatelessWidget {
   final String? subtitle;
   final String? highlightQuery;
   final VoidCallback? onTap;
+  final VoidCallback? onDoubleTap;
+  final VoidCallback? onLongPress;
   final Widget? snippet;
 
   const SermonResultCard({
@@ -100,6 +102,8 @@ class SermonResultCard extends StatelessWidget {
     this.subtitle,
     this.highlightQuery,
     this.onTap,
+    this.onDoubleTap,
+    this.onLongPress,
     this.snippet,
   });
 
@@ -118,6 +122,8 @@ class SermonResultCard extends StatelessWidget {
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
         onTap: onTap,
+        onDoubleTap: onDoubleTap,
+        onLongPress: onLongPress,
         child: Padding(
           padding: const EdgeInsets.all(12),
           child: Column(

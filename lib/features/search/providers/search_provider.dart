@@ -164,6 +164,13 @@ class SearchNotifier extends Notifier<SearchState> {
     if (state.query.length > 2) _executeSearch(state.query);
   }
 
+  void reset({SearchTab? activeTab}) {
+    state = SearchState(
+      activeTab: activeTab ?? SearchTab.bible,
+      languageCode: state.languageCode,
+    );
+  }
+
   void updateQuery(String value) {
     if (value == state.query) return;
     state = state.copyWith(query: value);

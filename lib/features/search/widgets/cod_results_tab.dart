@@ -59,6 +59,7 @@ class CodResultsTab extends ConsumerWidget {
                     title: r.title,
                     sermonId: r.sermonId,
                     initialSearchQuery: state.query,
+                    initialFocusParagraph: r.paragraphNumber,
                     openedFromSearch: true,
                   ),
                 );

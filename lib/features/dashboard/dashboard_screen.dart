@@ -401,7 +401,7 @@ class DashboardScreen extends ConsumerWidget {
         title: 'Search',
         subtitle: 'Bible & Sermons',
         color: const Color(0xFF7B5EA7),
-        onTap: () => context.push('/search'),
+        onTap: () => context.push('/search?fresh=1'),
       ),
       _ModuleCardData(
         icon: Icons.music_note_outlined,
@@ -412,8 +412,8 @@ class DashboardScreen extends ConsumerWidget {
       ),
           _ModuleCardData(
         icon: Icons.article_outlined,
-        title: 'COD - Church Conduct Order (English)',
-        subtitle: 'COD sermons',
+        title: 'Question and Answers',
+        subtitle: 'COD English',
         color: const Color(0xFF8E44AD),
         onTap: () {
           ref.read(selectedSermonLangProvider.notifier).setLang('en');
@@ -421,7 +421,7 @@ class DashboardScreen extends ConsumerWidget {
             path: '/sermons',
             queryParameters: {
               'prefix': 'Question',
-              'title': 'COD - Church Conduct Order',
+              'title': 'COD - Question and Answers',
               'mode': 'cod',
               'lang': 'en',
             },
@@ -431,8 +431,8 @@ class DashboardScreen extends ConsumerWidget {
       ),
       _ModuleCardData(
         icon: Icons.article_outlined,
-        title: 'COD கேள்விகளும் பதில்களும் (தமிழ்)',
-        subtitle: 'COD கேள்வி & பதில்',
+        title: 'கேள்விகளும் பதில்களும்',
+        subtitle: 'COD தமிழ்',
         color: const Color(0xFFD35400),
         onTap: () {
           ref.read(selectedSermonLangProvider.notifier).setLang('ta');
@@ -440,7 +440,7 @@ class DashboardScreen extends ConsumerWidget {
             path: '/sermons',
             queryParameters: {
               'prefix': 'கேள்வி',
-              'title': 'COD கேள்விகளும் பதில்களும்',
+              'title': 'COD - கேள்விகளும் பதில்களும்',
               'mode': 'cod',
               'lang': 'ta',
             },

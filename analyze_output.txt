@@ -1,0 +1,67 @@
+Analyzing AppFlutter...                                         
+
+warning - Unused import: 'package:go_router/go_router.dart' - lib\core\navigation\app_links_handler.dart:5:8 - unused_import
+   info - 'value' is deprecated and shouldn't be used. Use component accessors like .r or .g, or toARGB32 for an explicit conversion - lib\core\theme\theme_provider.dart:37:69 - deprecated_member_use
+   info - 'value' is deprecated and shouldn't be used. Use component accessors like .r or .g, or toARGB32 for an explicit conversion - lib\core\theme\theme_provider.dart:53:41 - deprecated_member_use
+   info - 'dialogBackgroundColor' is deprecated and shouldn't be used. Use DialogThemeData.backgroundColor instead. This feature was deprecated after v3.27.0-0.1.pre - lib\core\widgets\responsive_bottom_sheet.dart:58:58 - deprecated_member_use
+   info - 'surfaceVariant' is deprecated and shouldn't be used. Use surfaceContainerHighest instead. This feature was deprecated after v3.18.0-0.1.pre - lib\features\common\widgets\chips.dart:30:35 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\features\common\widgets\chips.dart:30:50 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\features\common\widgets\grids.dart:31:33 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\features\common\widgets\grids.dart:56:53 - deprecated_member_use
+warning - The '!' will have no effect because the receiver can't be null - lib\features\dashboard\dashboard_screen.dart:305:45 - unnecessary_non_null_assertion
+warning - The '!' will have no effect because the receiver can't be null - lib\features\dashboard\dashboard_screen.dart:310:45 - unnecessary_non_null_assertion
+   info - Angle brackets will be interpreted as HTML - lib\features\onboarding\services\selective_database_importer.dart:44:26 - unintended_html_in_doc_comment
+   info - Angle brackets will be interpreted as HTML - lib\features\onboarding\services\selective_database_importer.dart:94:28 - unintended_html_in_doc_comment
+warning - Dead code - lib\features\reader\providers\reader_provider.dart:99:11 - dead_code
+warning - The operand can't be 'null', so the condition is always 'true' - lib\features\reader\reader_screen.dart:361:60 - unnecessary_null_comparison
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\features\reader\widgets\reader_settings_sheet.dart:204:64 - deprecated_member_use
+   info - Don't use 'BuildContext's across async gaps - lib\features\reader\widgets\reader_settings_sheet.dart:412:50 - use_build_context_synchronously
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\features\reader\widgets\reader_settings_sheet.dart:535:45 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\features\reader\widgets\reader_settings_sheet.dart:540:52 - deprecated_member_use
+warning - The declaration '_titleContainsQuery' isn't referenced - lib\features\search\providers\search_provider.dart:373:8 - unused_element
+warning - The declaration '_toSearchResult' isn't referenced - lib\features\search\providers\search_provider.dart:383:22 - unused_element
+   info - 'surfaceVariant' is deprecated and shouldn't be used. Use surfaceContainerHighest instead. This feature was deprecated after v3.18.0-0.1.pre - lib\features\search\search_help_screen.dart:266:34 - deprecated_member_use
+   info - Unnecessary use of multiple underscores - lib\features\search\widgets\cod_results_tab.dart:39:29 - unnecessary_underscores
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\features\search\widgets\search_filters.dart:89:29 - deprecated_member_use
+   info - Unnecessary use of multiple underscores - lib\features\search\widgets\sermon_results_tab.dart:39:29 - unnecessary_underscores
+   info - Unnecessary use of multiple underscores - lib\features\search\widgets\song_results_tab.dart:37:29 - unnecessary_underscores
+warning - Unnecessary cast - lib\features\sermons\providers\sermon_flow_provider.dart:211:44 - unnecessary_cast
+warning - Unnecessary cast - lib\features\sermons\providers\sermon_flow_provider.dart:216:37 - unnecessary_cast
+warning - The value of the local variable 'removedTab' isn't used - lib\features\sermons\providers\sermon_flow_provider.dart:363:11 - unused_local_variable
+warning - The '!' will have no effect because the receiver can't be null - lib\features\sermons\providers\sermon_provider.dart:310:58 - unnecessary_non_null_assertion
+  error - Undefined name '_selectedParagraphIndices' - lib\features\sermons\sermon_reader_screen.dart:1469:35 - undefined_identifier
+  error - Undefined name '_copySelectedParagraphs' - lib\features\sermons\sermon_reader_screen.dart:1558:24 - undefined_identifier
+  error - Undefined name '_shareSelectedParagraphs' - lib\features\sermons\sermon_reader_screen.dart:1562:24 - undefined_identifier
+  error - Undefined name '_selectedParagraphIndices' - lib\features\sermons\sermon_reader_screen.dart:1765:17 - undefined_identifier
+  error - Undefined name '_lastParagraphTappedIndex' - lib\features\sermons\sermon_reader_screen.dart:1766:17 - undefined_identifier
+  error - The method '_buildSermonParagraphList' isn't defined for the type '_SermonReaderScreenState' - lib\features\sermons\sermon_reader_screen.dart:1795:30 - undefined_method
+warning - The declaration '_buildSermonBody' isn't referenced - lib\features\sermons\sermon_reader_screen.dart:2229:10 - unused_element
+   info - Unnecessary escape in string literal - lib\features\sermons\utils\sermon_html_builder.dart:26:30 - unnecessary_string_escapes
+   info - Unnecessary escape in string literal - lib\features\sermons\utils\sermon_html_builder.dart:26:73 - unnecessary_string_escapes
+   info - Unnecessary escape in string literal - lib\features\sermons\utils\sermon_html_builder.dart:28:16 - unnecessary_string_escapes
+   info - Unnecessary escape in string literal - lib\features\sermons\utils\sermon_html_builder.dart:28:52 - unnecessary_string_escapes
+   info - Unnecessary escape in string literal - lib\features\sermons\utils\sermon_html_builder.dart:35:17 - unnecessary_string_escapes
+   info - Unnecessary escape in string literal - lib\features\sermons\utils\sermon_html_builder.dart:35:52 - unnecessary_string_escapes
+   info - Unnecessary escape in string literal - lib\features\sermons\utils\sermon_html_builder.dart:48:17 - unnecessary_string_escapes
+   info - Unnecessary escape in string literal - lib\features\sermons\utils\sermon_html_builder.dart:48:52 - unnecessary_string_escapes
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\features\sermons\widgets\sermon_filters_sheet.dart:64:59 - deprecated_member_use
+   info - 'value' is deprecated and shouldn't be used. Use initialValue instead. This will set the initial value for the form field. This feature was deprecated after v3.33.0-1.0.pre - lib\features\sermons\widgets\sermon_filters_sheet.dart:104:21 - deprecated_member_use
+   info - Unnecessary use of multiple underscores - lib\features\sermons\widgets\sermon_filters_sheet.dart:151:24 - unnecessary_underscores
+   info - 'groupValue' is deprecated and shouldn't be used. Use a RadioGroup ancestor to manage group value instead. This feature was deprecated after v3.32.0-0.0.pre - lib\features\sermons\widgets\sermon_filters_sheet.dart:161:13 - deprecated_member_use
+   info - 'onChanged' is deprecated and shouldn't be used. Use RadioGroup to handle value change instead. This feature was deprecated after v3.32.0-0.0.pre - lib\features\sermons\widgets\sermon_filters_sheet.dart:162:13 - deprecated_member_use
+   info - 'groupValue' is deprecated and shouldn't be used. Use a RadioGroup ancestor to manage group value instead. This feature was deprecated after v3.32.0-0.0.pre - lib\features\sermons\widgets\sermon_filters_sheet.dart:169:13 - deprecated_member_use
+   info - 'onChanged' is deprecated and shouldn't be used. Use RadioGroup to handle value change instead. This feature was deprecated after v3.32.0-0.0.pre - lib\features\sermons\widgets\sermon_filters_sheet.dart:170:13 - deprecated_member_use
+   info - 'groupValue' is deprecated and shouldn't be used. Use a RadioGroup ancestor to manage group value instead. This feature was deprecated after v3.32.0-0.0.pre - lib\features\sermons\widgets\sermon_filters_sheet.dart:177:13 - deprecated_member_use
+   info - 'onChanged' is deprecated and shouldn't be used. Use RadioGroup to handle value change instead. This feature was deprecated after v3.32.0-0.0.pre - lib\features\sermons\widgets\sermon_filters_sheet.dart:178:13 - deprecated_member_use
+   info - 'groupValue' is deprecated and shouldn't be used. Use a RadioGroup ancestor to manage group value instead. This feature was deprecated after v3.32.0-0.0.pre - lib\features\sermons\widgets\sermon_filters_sheet.dart:185:13 - deprecated_member_use
+   info - 'onChanged' is deprecated and shouldn't be used. Use RadioGroup to handle value change instead. This feature was deprecated after v3.32.0-0.0.pre - lib\features\sermons\widgets\sermon_filters_sheet.dart:186:13 - deprecated_member_use
+   info - 'value' is deprecated and shouldn't be used. Use component accessors like .r or .g, or toARGB32 for an explicit conversion - lib\features\settings\widgets\theme_picker_sheet.dart:140:47 - deprecated_member_use
+   info - 'value' is deprecated and shouldn't be used. Use component accessors like .r or .g, or toARGB32 for an explicit conversion - lib\features\settings\widgets\theme_picker_sheet.dart:140:62 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\features\settings\widgets\theme_picker_sheet.dart:185:45 - deprecated_member_use
+   info - 'withOpacity' is deprecated and shouldn't be used. Use .withValues() to avoid precision loss - lib\features\settings\widgets\theme_picker_sheet.dart:190:52 - deprecated_member_use
+   info - Don't invoke 'print' in production code - modify_sermon.dart:24:5 - avoid_print
+   info - Don't invoke 'print' in production code - modify_sermon.dart:26:7 - avoid_print
+   info - Don't invoke 'print' in production code - modify_sermon.dart:288:5 - avoid_print
+   info - Don't invoke 'print' in production code - modify_sermon.dart:290:5 - avoid_print
+   info - The package name 'MessageApp' isn't a lower_case_with_underscores identifier - pubspec.yaml:1:7 - package_names
+
