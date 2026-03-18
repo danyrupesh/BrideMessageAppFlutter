@@ -74,6 +74,7 @@ class SermonListState {
   final String sortBy;
   final int? yearFrom;
   final int? yearTo;
+  final List<String>? allowedIds;
 
   SermonListState({
     this.sermons = const [],
@@ -86,6 +87,7 @@ class SermonListState {
     this.sortBy = 'year_asc',
     this.yearFrom,
     this.yearTo,
+    this.allowedIds,
   });
 
   SermonListState copyWith({
@@ -99,6 +101,7 @@ class SermonListState {
     String? sortBy,
     int? yearFrom,
     int? yearTo,
+    Object? allowedIds = _unset,
   }) {
     return SermonListState(
       sermons: sermons ?? this.sermons,
@@ -114,6 +117,8 @@ class SermonListState {
       sortBy: sortBy ?? this.sortBy,
       yearFrom: yearFrom ?? this.yearFrom,
       yearTo: yearTo ?? this.yearTo,
+      allowedIds:
+          identical(allowedIds, _unset) ? this.allowedIds : allowedIds as List<String>?,
     );
   }
 }
@@ -188,6 +193,7 @@ class SermonListNotifier extends Notifier<SermonListState> {
       sortBy: state.sortBy,
       yearFrom: state.yearFrom,
       yearTo: state.yearTo,
+      allowedIds: state.allowedIds,
     );
       state = state.copyWith(
         sermons: [...state.sermons, ...results],
@@ -207,6 +213,7 @@ class SermonListNotifier extends Notifier<SermonListState> {
     String? sortBy,
     int? yearFrom,
     int? yearTo,
+    List<String>? allowedIds,
   }) async {
     final effectiveSortBy = sortBy ?? state.sortBy;
     final normalizedPrefix =
@@ -244,6 +251,7 @@ class SermonListNotifier extends Notifier<SermonListState> {
       // These assignments will be used once state is updated.
       // Note: yearFrom/yearTo only meaningful when year == null.
       // When year != null we clear them.
+      allowedIds: allowedIds,
     );
     state = state.copyWith(
       sortBy: effectiveSortBy,
@@ -269,6 +277,7 @@ class SermonListNotifier extends Notifier<SermonListState> {
         sortBy: effectiveSortBy,
         yearFrom: year == null ? yearFrom : null,
         yearTo: year == null ? yearTo : null,
+        allowedIds: allowedIds,
       );
       state = state.copyWith(
         sermons: results,
@@ -304,6 +313,7 @@ class SermonListNotifier extends Notifier<SermonListState> {
     required String sortBy,
     required int? yearFrom,
     required int? yearTo,
+    List<String>? allowedIds,
   }) async {
     final useTitlePrefix =
         titlePrefix != null && titlePrefix.trim().isNotEmpty;
@@ -317,6 +327,7 @@ class SermonListNotifier extends Notifier<SermonListState> {
       sortBy: sortBy,
       yearFrom: yearFrom,
       yearTo: yearTo,
+      allowedIds: allowedIds,
     );
     if (results.isNotEmpty || !useTitlePrefix) return results;
 
@@ -332,6 +343,7 @@ class SermonListNotifier extends Notifier<SermonListState> {
       sortBy: sortBy,
       yearFrom: yearFrom,
       yearTo: yearTo,
+      allowedIds: allowedIds,
     );
   }
 }

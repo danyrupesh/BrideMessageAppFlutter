@@ -23,6 +23,7 @@ class SermonRepository {
     String sortBy = 'year_asc',
     int? yearFrom,
     int? yearTo,
+    List<String>? allowedIds,
   }) async {
     final db = await _dbManager.getDatabase(dbFileName);
 
@@ -60,6 +61,12 @@ class SermonRepository {
       args.add('%$searchQuery%');
       args.add('%$searchQuery%');
       args.add('%$searchQuery%');
+    }
+
+    if (allowedIds != null && allowedIds.isNotEmpty) {
+      final placeholders = List.filled(allowedIds.length, '?').join(', ');
+      sql += ' AND id IN ($placeholders)';
+      args.addAll(allowedIds);
     }
 
     String orderClause;

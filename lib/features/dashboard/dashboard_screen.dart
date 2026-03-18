@@ -107,10 +107,12 @@ class DashboardScreen extends ConsumerWidget {
         final sermonItem = _latestItemFor(items, FlowType.sermon);
         return LayoutBuilder(
           builder: (context, constraints) {
-            final width = constraints.maxWidth;
-            final isWide = width >= 700;
-            final cardHeight = isWide ? 160.0 : 150.0;
-            final gap = isWide ? 16.0 : 12.0;
+          final width = constraints.maxWidth;
+          final isWide = width >= 700;
+          // Give mobile cards a bit more vertical room so long
+          // titles/subtitles (especially Tamil) don't overflow.
+          final cardHeight = isWide ? 160.0 : 210.0;
+          final gap = isWide ? 16.0 : 12.0;
 
             final children = [
               Expanded(
@@ -349,9 +351,9 @@ class DashboardScreen extends ConsumerWidget {
       error: (_, _) => 'Messages',
     );
     final tamilSermonSubtitle = tamilSermonCountAsync.when(
-      data: (count) => '$count Messages',
-      loading: () => 'Messages',
-      error: (_, _) => 'Messages',
+      data: (count) => '$count செய்திகள்',
+      loading: () => 'செய்திகள்',
+      error: (_, _) => 'செய்திகள்',
     );
     final modules = [
       _ModuleCardData(
@@ -386,7 +388,7 @@ class DashboardScreen extends ConsumerWidget {
       ),
       _ModuleCardData(
         icon: Icons.menu_outlined,
-        title: 'Tamil Sermon',
+        title: 'தமிழ் செய்திகள்',
         subtitle: tamilSermonSubtitle,
         color: const Color(0xFF6B7FB7),
         onTap: () {
@@ -442,6 +444,42 @@ class DashboardScreen extends ConsumerWidget {
               'prefix': 'கேள்வி',
               'title': 'COD - கேள்விகளும் பதில்களும்',
               'mode': 'cod',
+              'lang': 'ta',
+            },
+          );
+          context.push(uri.toString());
+        },
+      ),
+      _ModuleCardData(
+        icon: Icons.layers_outlined,
+        title: 'Seven Seals',
+        subtitle: '10 Messages',
+        color: const Color(0xFF2E86AB),
+        onTap: () {
+          ref.read(selectedSermonLangProvider.notifier).setLang('en');
+          final uri = Uri(
+            path: '/sermons',
+            queryParameters: {
+              'mode': 'sevenSeals',
+              'title': '7 Seals',
+              'lang': 'en',
+            },
+          );
+          context.push(uri.toString());
+        },
+      ),
+      _ModuleCardData(
+        icon: Icons.layers_outlined,
+        title: 'ஏழு முத்திரைகள்',
+        subtitle: '10 செய்திகள்',
+        color: const Color(0xFF6A4C93),
+        onTap: () {
+          ref.read(selectedSermonLangProvider.notifier).setLang('ta');
+          final uri = Uri(
+            path: '/sermons',
+            queryParameters: {
+              'mode': 'sevenSeals',
+              'title': 'ஏழு முத்திரைகள்',
               'lang': 'ta',
             },
           );

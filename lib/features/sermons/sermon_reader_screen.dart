@@ -40,6 +40,51 @@ class _PrevMatchIntent extends Intent {
   const _PrevMatchIntent();
 }
 
+class _AppBarChip extends StatelessWidget {
+  final String label;
+  final IconData? icon;
+  final VoidCallback onTap;
+
+  const _AppBarChip({
+    required this.label,
+    required this.onTap,
+    this.icon,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final cs = theme.colorScheme;
+    return InkWell(
+      borderRadius: BorderRadius.circular(18),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: cs.primaryContainer.withAlpha(160),
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (icon != null) ...[
+              Icon(icon, size: 16, color: cs.primary),
+              const SizedBox(width: 4),
+            ],
+            Text(
+              label,
+              style: theme.textTheme.labelSmall?.copyWith(
+                fontWeight: FontWeight.w600,
+                color: cs.onPrimaryContainer,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class SermonReaderScreen extends ConsumerStatefulWidget {
   const SermonReaderScreen({super.key});
 
@@ -1099,6 +1144,62 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     });
   }
 
+  void _openCodList(BuildContext context) {
+    final lang = ref.read(selectedSermonLangProvider);
+    if (lang == 'ta') {
+      ref.read(selectedSermonLangProvider.notifier).setLang('ta');
+      final uri = Uri(
+        path: '/sermons',
+        queryParameters: const {
+          'prefix': 'கேள்வி',
+          'title': 'COD - கேள்விகளும் பதில்களும்',
+          'mode': 'cod',
+          'lang': 'ta',
+        },
+      );
+      context.push(uri.toString());
+    } else {
+      ref.read(selectedSermonLangProvider.notifier).setLang('en');
+      final uri = Uri(
+        path: '/sermons',
+        queryParameters: const {
+          'prefix': 'Question',
+          'title': 'COD - Question and Answers',
+          'mode': 'cod',
+          'lang': 'en',
+        },
+      );
+      context.push(uri.toString());
+    }
+  }
+
+  void _openSevenSealsList(BuildContext context) {
+    final lang = ref.read(selectedSermonLangProvider);
+    if (lang == 'ta') {
+      ref.read(selectedSermonLangProvider.notifier).setLang('ta');
+      final uri = Uri(
+        path: '/sermons',
+        queryParameters: const {
+          'mode': 'sevenSeals',
+          'title': '7 முத்திரைகள்',
+          'lang': 'ta',
+        },
+      );
+      context.push(uri.toString());
+    } else {
+      ref.read(selectedSermonLangProvider.notifier).setLang('en');
+      final uri = Uri(
+        path: '/sermons',
+        queryParameters: const {
+          'mode': 'sevenSeals',
+          'title': '7 Seals',
+          'lang': 'en',
+        },
+      );
+      context.push(uri.toString());
+    }
+  }
+
   void _enterSearchMode() {
     setState(() {
       _isSearching = true;
@@ -1275,7 +1376,10 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
                 appBar: isFullscreen
                     ? null
                     : (_isSearching
-                        ? _buildSearchAppBar(context)
+                        ? _buildSearchAppBar(
+                            context,
+                            openedFromSearch: openedFromSearch,
+                          )
                         : _buildDefaultAppBar(
                             context,
                             activeTab,
@@ -1478,12 +1582,19 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
 
   // ── App bars ──────────────────────────────────────────────────────────────
 
-  AppBar _buildSearchAppBar(BuildContext context) {
+  AppBar _buildSearchAppBar(BuildContext context, {required bool openedFromSearch}) {
     return AppBar(
       toolbarHeight: kToolbarHeight,
       leading: IconButton(
         icon: const Icon(Icons.arrow_back),
         onPressed: () {
+          if (openedFromSearch) {
+            // When this tab was opened from Common Search, the back button
+            // should return to the search page instead of just exiting
+            // in-page search mode.
+            context.pop();
+            return;
+          }
           setState(() {
             _isSearching = false;
             _searchAllSermons = false;
@@ -1664,6 +1775,9 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     final theme = Theme.of(context);
     final hasSelection = _selectedVerseNumbers.isNotEmpty;
     final isOnBibleTab = flowState.activeTab?.type == ReaderContentType.bible;
+    final isSermonTab =
+        flowState.activeTab?.type == ReaderContentType.sermon &&
+            activeTab?.sermonId != null;
 
     // Subtitle metadata for the sermon tab.
     Widget titleWidget;
@@ -1737,7 +1851,42 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
         icon: const Icon(Icons.arrow_back),
         onPressed: () => context.pop(),
       ),
-      title: titleWidget,
+      title: LayoutBuilder(
+        builder: (context, constraints) {
+          final showPcChips = constraints.maxWidth >= 900 && isSermonTab;
+          if (!showPcChips) {
+            return titleWidget;
+          }
+
+          final lang = ref.watch(selectedSermonLangProvider);
+          final codLabel = lang == 'ta' ? 'COD Tamil' : 'COD English';
+          final sealsLabel = lang == 'ta' ? 'ஏழு முத்திரைகள்' : 'Seven Seals';
+
+          return Row(
+            mainAxisAlignment: MainAxisAlignment.start,
+            mainAxisSize: MainAxisSize.max,
+            children: [
+              Expanded(child: titleWidget),
+              const SizedBox(width: 16),
+              Wrap(
+                spacing: 8,
+                children: [
+                  _AppBarChip(
+                    label: codLabel,
+                    icon: Icons.article_outlined,
+                    onTap: () => _openCodList(context),
+                  ),
+                  _AppBarChip(
+                    label: sealsLabel,
+                    icon: Icons.layers_outlined,
+                    onTap: () => _openSevenSealsList(context),
+                  ),
+                ],
+              ),
+            ],
+          );
+        },
+      ),
       actions: [
         if (hasSelection && isOnBibleTab) ...[
           IconButton(

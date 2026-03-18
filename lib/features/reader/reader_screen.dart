@@ -110,6 +110,23 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     _handleNavResult(result);
   }
 
+  Future<void> _openQuickNavForTestament(int testamentIndex) async {
+    // testamentIndex: 0 = Old, 1 = New
+    final lang = ref.read(selectedBibleLangProvider);
+    final result = await showResponsiveBottomSheet<Map<String, dynamic>>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      maxWidth: 980,
+      builder: (_) => QuickNavigationSheet(
+        initialLang: lang,
+        initialTestamentIndex: testamentIndex,
+      ),
+    );
+    _handleNavResult(result);
+  }
+
   void _handleNavResult(Map<String, dynamic>? result) {
     if (result == null) return;
     final verse = result['verse'] as int?;
@@ -888,6 +905,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   AppBar _buildDefaultAppBar(BuildContext context, ReaderTab? activeTab) {
     final hasSelection = _selectedVerseNumbers.isNotEmpty;
     final openedFromSearch = activeTab?.openedFromSearch ?? false;
+    final isBibleTab =
+        activeTab?.type == ReaderContentType.bible && activeTab?.book != null;
 
     return AppBar(
       leading: IconButton(
@@ -904,15 +923,64 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
           }
         },
       ),
-      title: InkWell(
-        onTap: _openQuickNav,
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(activeTab?.title ?? 'Reader'),
-            const Icon(Icons.arrow_drop_down),
-          ],
-        ),
+      title: LayoutBuilder(
+        builder: (context, constraints) {
+          final showPcShortcuts = constraints.maxWidth >= 700 && isBibleTab;
+          if (!showPcShortcuts) {
+            return InkWell(
+              onTap: _openQuickNav,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(activeTab?.title ?? 'Reader'),
+                  const Icon(Icons.arrow_drop_down),
+                ],
+              ),
+            );
+          }
+
+          return Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            mainAxisSize: MainAxisSize.max,
+            children: [
+              InkWell(
+                onTap: _openQuickNav,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(activeTab?.title ?? 'Reader'),
+                    const Icon(Icons.arrow_drop_down),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 24),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 6.0, vertical: 2.0),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(20),
+                  color: Theme.of(context)
+                      .colorScheme
+                      .surfaceVariant
+                      .withAlpha(80),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextButton(
+                      onPressed: () => _openQuickNavForTestament(0),
+                      child: const Text('Old Testament'),
+                    ),
+                    TextButton(
+                      onPressed: () => _openQuickNavForTestament(1),
+                      child: const Text('New Testament'),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          );
+        },
       ),
       actions: [
         if (hasSelection) ...[

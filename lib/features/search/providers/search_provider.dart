@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/database/bible_repository.dart';
 import '../../../core/database/database_manager.dart';
@@ -351,7 +353,14 @@ class SearchNotifier extends Notifier<SearchState> {
       }
     } catch (e) {
       if (state.query == query) {
-        state = state.copyWith(isLoading: false, error: e.toString());
+        String message = e.toString();
+        if (e is FileSystemException &&
+            e.path != null &&
+            e.path!.endsWith('hymn.db')) {
+          message =
+              'Songs database is not installed. Please import the Only Believe songs database from the onboarding/import screen and try again.';
+        }
+        state = state.copyWith(isLoading: false, error: message);
       }
     }
   }

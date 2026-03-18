@@ -25,20 +25,32 @@ class QuickNavigationSheet extends ConsumerStatefulWidget {
   const QuickNavigationSheet({
     super.key,
     this.initialLang,
+    this.initialTestamentIndex,
   });
 
   /// Optional initial language for this sheet ('en' or 'ta').
   /// Falls back to the globally selected Bible language when null.
   final String? initialLang;
 
-  static void show(BuildContext context) {
+  /// Optional initial testament tab index: 0 = Old, 1 = New.
+  /// When null, defaults to Old Testament.
+  final int? initialTestamentIndex;
+
+  static void show(
+    BuildContext context, {
+    String? initialLang,
+    int? initialTestamentIndex,
+  }) {
     showResponsiveBottomSheet(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
       maxWidth: 980,
-      builder: (context) => const QuickNavigationSheet(),
+      builder: (context) => QuickNavigationSheet(
+        initialLang: initialLang,
+        initialTestamentIndex: initialTestamentIndex,
+      ),
     );
   }
 
@@ -66,6 +78,9 @@ class _QuickNavigationSheetState extends ConsumerState<QuickNavigationSheet>
     _sheetLang =
         widget.initialLang ?? ref.read(selectedBibleLangProvider);
     _tabController = TabController(length: 2, vsync: this);
+    // Clamp provided initial testament index into [0,1]; default to OT.
+    final initialIndex = (widget.initialTestamentIndex ?? 0).clamp(0, 1);
+    _tabController.index = initialIndex;
   }
 
   @override
@@ -626,7 +641,6 @@ class _QuickNavigationSheetState extends ConsumerState<QuickNavigationSheet>
 
   Widget _buildHeader() {
     final theme = Theme.of(context);
-    final lang = ref.watch(selectedBibleLangProvider);
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
@@ -639,36 +653,6 @@ class _QuickNavigationSheetState extends ConsumerState<QuickNavigationSheet>
               const Text(
                 'Quick Navigation',
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 4),
-              Row(
-                children: [
-                  ChoiceChip(
-                    label: const Text('English'),
-                    selected: lang == 'en',
-                    onSelected: (_) => ref
-                        .read(selectedBibleLangProvider.notifier)
-                        .setLang('en'),
-                    selectedColor: theme.colorScheme.primaryContainer,
-                    labelStyle: TextStyle(
-                      fontWeight:
-                          lang == 'en' ? FontWeight.w700 : FontWeight.w500,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  ChoiceChip(
-                    label: const Text('Tamil'),
-                    selected: lang == 'ta',
-                    onSelected: (_) => ref
-                        .read(selectedBibleLangProvider.notifier)
-                        .setLang('ta'),
-                    selectedColor: theme.colorScheme.primaryContainer,
-                    labelStyle: TextStyle(
-                      fontWeight:
-                          lang == 'ta' ? FontWeight.w700 : FontWeight.w500,
-                    ),
-                  ),
-                ],
               ),
             ],
           ),

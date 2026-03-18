@@ -20,6 +20,7 @@ class SermonListScreen extends ConsumerStatefulWidget {
     this.titlePrefix,
     this.customTitle,
     this.hideFilters = false,
+    this.allowedIds,
   });
 
   final bool autoResume;
@@ -27,6 +28,7 @@ class SermonListScreen extends ConsumerStatefulWidget {
   final String? titlePrefix;
   final String? customTitle;
   final bool hideFilters;
+  final List<String>? allowedIds;
 
   @override
   ConsumerState<SermonListScreen> createState() => _SermonListScreenState();
@@ -190,7 +192,17 @@ class _SermonListScreenState extends ConsumerState<SermonListScreen> {
     // Apply an initial search filter when provided (e.g. COD-specific screens).
     final initialQuery = widget.initialQuery?.trim();
     final titlePrefix = widget.titlePrefix?.trim();
-    if (titlePrefix != null && titlePrefix.isNotEmpty) {
+    if (widget.allowedIds != null && widget.allowedIds!.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        ref.read(sermonListProvider.notifier).filterSermons(
+              year: null,
+              query: '',
+              titlePrefix: null,
+              allowedIds: widget.allowedIds,
+            );
+      });
+    } else if (titlePrefix != null && titlePrefix.isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         ref

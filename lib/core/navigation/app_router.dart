@@ -78,19 +78,33 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           final title = state.uri.queryParameters['title'];
           final mode = state.uri.queryParameters['mode'];
           final lang = state.uri.queryParameters['lang'];
-          if (mode == 'cod' && lang != null) {
+          const sevenSealsIds = [
+            '63-0317M',
+            '63-0317E',
+            '63-0318',
+            '63-0319',
+            '63-0320',
+            '63-0321',
+            '63-0322',
+            '63-0323',
+            '63-0324M',
+            '63-0324E',
+          ];
+          final isSevenSeals = mode == 'sevenSeals';
+          if ((mode == 'cod' || isSevenSeals) && lang != null) {
             WidgetsBinding.instance.addPostFrameCallback((_) {
               ref.read(selectedSermonLangProvider.notifier).setLang(lang);
             });
           }
           return SermonListScreen(
             autoResume: resume,
-            initialQuery: mode == 'cod' ? null : prefix,
+            initialQuery: mode == 'cod' || isSevenSeals ? null : prefix,
             titlePrefix: mode == 'cod' ? prefix : null,
             customTitle: title,
-            hideFilters: mode == 'cod',
+            hideFilters: mode == 'cod' || isSevenSeals,
+            allowedIds: isSevenSeals ? sevenSealsIds : null,
           );
-        },
+        },*
       ),
       GoRoute(
         path: '/sermon-reader',

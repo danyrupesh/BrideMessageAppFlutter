@@ -31,7 +31,6 @@ class _ReaderSettingsSheetState extends ConsumerState<ReaderSettingsSheet> {
   Widget build(BuildContext context) {
     final typography = ref.watch(typographyProvider);
     final themeSettings = ref.watch(themeProvider);
-
     final bottomInset = MediaQuery.of(context).padding.bottom;
 
     return Padding(
@@ -46,25 +45,25 @@ class _ReaderSettingsSheetState extends ConsumerState<ReaderSettingsSheet> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                'Reader Settings',
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Reader Settings',
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
                 ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.close),
-                onPressed: () => Navigator.pop(context),
-              ),
-            ],
-          ),
-          const SizedBox(height: 24),
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
 
-          Text('Text Size', style: Theme.of(context).textTheme.titleMedium),
-          Row(
+            Text('Text Size', style: Theme.of(context).textTheme.titleMedium),
+            Row(
             children: [
               IconButton(
                 icon: const Icon(Icons.remove),
@@ -102,7 +101,6 @@ class _ReaderSettingsSheetState extends ConsumerState<ReaderSettingsSheet> {
             ],
           ),
 
-   
           const SizedBox(height: 16),
           Text('Line Height', style: Theme.of(context).textTheme.titleMedium),
           Row(
@@ -189,7 +187,6 @@ class _ReaderSettingsSheetState extends ConsumerState<ReaderSettingsSheet> {
             ],
           ),
 
-
           const SizedBox(height: 24),
           Text(
             'Font Family',
@@ -215,8 +212,8 @@ class _ReaderSettingsSheetState extends ConsumerState<ReaderSettingsSheet> {
                     child: Text(
                       _fontLabel(typography),
                       style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
+                            fontWeight: FontWeight.w600,
+                          ),
                     ),
                   ),
                   const Icon(Icons.arrow_drop_down),
@@ -247,7 +244,8 @@ class _ReaderSettingsSheetState extends ConsumerState<ReaderSettingsSheet> {
           const SizedBox(height: 8),
         ],
       ),
-    );
+    ),
+  );
   }
 
   String _fontLabel(TypographySettings typography) {
