@@ -1,0 +1,24 @@
+                          isDense: true,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 10,
+                            vertical: 8,
+                          ),
+                        ),
+                        onChanged: (value) {
+                          setState(() {
+                            _topicSearch = value.trim().isEmpty ? null : value;
+                          });
+                        },
+                      ),
+                    ),
+                  ),
+                  if (filteredTopics.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 2, 12, 8),
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          isTamil
+                              ? 'தலைப்புகள் கிடைக்கவில்லை'
+                              : 'No matching topics',
+

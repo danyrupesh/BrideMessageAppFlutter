@@ -396,6 +396,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
       book: result['book'] as String,
       chapter: result['chapter'] as int,
       verse: verse,
+      bibleLang: result['lang'] as String?,
     );
     if (!isBmMode) {
       ref.read(sermonFlowProvider.notifier).setBmMode(true);
@@ -440,6 +441,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
       book: result['book'] as String,
       chapter: result['chapter'] as int,
       verse: verse,
+      bibleLang: result['lang'] as String?,
     );
 
     if (isBm) {
@@ -656,7 +658,50 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     return count;
   }
 
-  void _scrollToCurrentMatch() {
+  double _estimatedOffsetForIndex(int index) {
+    if (!_scrollController.hasClients || _verseKeys.isEmpty) return 0;
+    final max = _scrollController.position.maxScrollExtent;
+    final frac = _verseKeys.length <= 1 ? 0.0 : index / (_verseKeys.length - 1);
+    final offset = max * frac;
+    return offset.clamp(0.0, max).toDouble();
+  }
+
+  Future<void> _alignItemNearTop(
+    int index, {
+    double desiredTopPx = 120,
+  }) async {
+    if (!_scrollController.hasClients ||
+        index < 0 ||
+        index >= _verseKeys.length) {
+      return;
+    }
+    final ctx = _verseKeys[index].currentContext;
+    if (ctx == null) return;
+    final scrollableState = Scrollable.of(ctx);
+    final targetRender = ctx.findRenderObject();
+    final viewportRender = scrollableState.context.findRenderObject();
+    if (targetRender is! RenderBox || viewportRender is! RenderBox) return;
+
+    final current = _scrollController.offset;
+    final targetTopInViewport = targetRender.localToGlobal(
+      Offset.zero,
+      ancestor: viewportRender,
+    ).dy;
+    final delta = targetTopInViewport - desiredTopPx;
+    if (delta.abs() < 2) return;
+
+    final nextOffset = (current + delta).clamp(
+      0.0,
+      _scrollController.position.maxScrollExtent,
+    );
+    await _scrollController.animateTo(
+      nextOffset.toDouble(),
+      duration: const Duration(milliseconds: 160),
+      curve: Curves.easeOut,
+    );
+  }
+
+  void _scrollToCurrentMatch({int retryCount = 0}) {
     if (_matchVerseIndices.isEmpty) return;
     final vi = _matchVerseIndices[_currentMatchIndex];
     WidgetsBinding.instance.addPostFrameCallback((_) async {
@@ -668,30 +713,30 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
             ctx,
             duration: const Duration(milliseconds: 300),
             curve: Curves.easeInOut,
-            alignment: 0.2,
+            alignment: 0.12,
+            alignmentPolicy: ScrollPositionAlignmentPolicy.explicit,
           );
+          if (!mounted) return;
+          await _alignItemNearTop(vi);
           return;
         }
       }
-      if (!_scrollController.hasClients || _verseKeys.isEmpty) return;
-      final frac = vi / _verseKeys.length;
-      final target = frac * _scrollController.position.maxScrollExtent;
-      await _scrollController.animateTo(
-        target,
-        duration: const Duration(milliseconds: 200),
-        curve: Curves.easeInOut,
-      );
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted || vi >= _verseKeys.length) return;
-        final ctx2 = _verseKeys[vi].currentContext;
-        if (ctx2 != null) {
-          Scrollable.ensureVisible(
-            ctx2,
-            duration: const Duration(milliseconds: 200),
-            curve: Curves.easeInOut,
-            alignment: 0.2,
+      if (_scrollController.hasClients) {
+        final estimated = _estimatedOffsetForIndex(vi);
+        final current = _scrollController.offset;
+        // Nudge toward target so item can build, then resolve via ensureVisible.
+        if ((estimated - current).abs() > 8) {
+          await _scrollController.animateTo(
+            estimated,
+            duration: const Duration(milliseconds: 140),
+            curve: Curves.easeOut,
           );
         }
+      }
+      if (retryCount >= 8) return;
+      Future<void>.delayed(const Duration(milliseconds: 16), () {
+        if (!mounted) return;
+        _scrollToCurrentMatch(retryCount: retryCount + 1);
       });
     });
   }
@@ -735,7 +780,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     }
   }
 
-  void _scrollToParagraphIndex(int index) {
+  void _scrollToParagraphIndex(int index, {int retryCount = 0}) {
     if (index < 0 || _verseKeys.isEmpty || index >= _verseKeys.length) return;
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
@@ -745,18 +790,29 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
           ctx,
           duration: const Duration(milliseconds: 300),
           curve: Curves.easeInOut,
-          alignment: 0.2,
+          alignment: 0.12,
+          alignmentPolicy: ScrollPositionAlignmentPolicy.explicit,
         );
+        if (!mounted) return;
+        await _alignItemNearTop(index);
         return;
       }
-      if (!_scrollController.hasClients || _verseKeys.isEmpty) return;
-      final frac = index / _verseKeys.length;
-      final target = frac * _scrollController.position.maxScrollExtent;
-      await _scrollController.animateTo(
-        target,
-        duration: const Duration(milliseconds: 200),
-        curve: Curves.easeOut,
-      );
+      if (_scrollController.hasClients) {
+        final estimated = _estimatedOffsetForIndex(index);
+        final current = _scrollController.offset;
+        if ((estimated - current).abs() > 8) {
+          await _scrollController.animateTo(
+            estimated,
+            duration: const Duration(milliseconds: 140),
+            curve: Curves.easeOut,
+          );
+        }
+      }
+      if (retryCount >= 8) return;
+      Future<void>.delayed(const Duration(milliseconds: 16), () {
+        if (!mounted) return;
+        _scrollToParagraphIndex(index, retryCount: retryCount + 1);
+      });
     });
   }
 
@@ -777,14 +833,34 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     }
 
     if (focusIndex != null) {
-      final matchIndex =
+      final exactMatchIndex =
           _matchVerseIndices.indexWhere((idx) => idx == focusIndex);
-      if (matchIndex != -1) {
-        setState(() => _currentMatchIndex = matchIndex);
+      if (exactMatchIndex != -1) {
+        setState(() => _currentMatchIndex = exactMatchIndex);
         _initialSearchScrollTabId = tab.id;
         _scrollToCurrentMatch();
         return;
       }
+
+      if (_matchVerseIndices.isNotEmpty) {
+        // Some DB snippets can report a nearby paragraph number; choose the
+        // closest actual match so the highlighted result is visible immediately.
+        var nearestMatchListIndex = 0;
+        var nearestDistance =
+            (_matchVerseIndices.first - focusIndex).abs();
+        for (var i = 1; i < _matchVerseIndices.length; i++) {
+          final distance = (_matchVerseIndices[i] - focusIndex).abs();
+          if (distance < nearestDistance) {
+            nearestDistance = distance;
+            nearestMatchListIndex = i;
+          }
+        }
+        setState(() => _currentMatchIndex = nearestMatchListIndex);
+        _initialSearchScrollTabId = tab.id;
+        _scrollToCurrentMatch();
+        return;
+      }
+
       _initialSearchScrollTabId = tab.id;
       _scrollToParagraphIndex(focusIndex);
       return;
@@ -794,6 +870,20 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
       _initialSearchScrollTabId = tab.id;
       _scrollToCurrentMatch();
     }
+  }
+
+  bool _hasParagraphContentChanged(List<SermonParagraphEntity> next) {
+    if (_currentParagraphs.length != next.length) return true;
+    for (var i = 0; i < next.length; i++) {
+      final a = _currentParagraphs[i];
+      final b = next[i];
+      if (a.id != b.id ||
+          a.paragraphNumber != b.paragraphNumber ||
+          a.text != b.text) {
+        return true;
+      }
+    }
+    return false;
   }
 
   bool get _hasAnySelection {
@@ -2084,7 +2174,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
           }
 
           // Cache paragraphs and rebuild keys / match indices when content changes.
-          if (_currentParagraphs != paragraphs) {
+          if (_hasParagraphContentChanged(paragraphs)) {
             WidgetsBinding.instance.addPostFrameCallback((_) {
               if (!mounted) return;
               setState(() {

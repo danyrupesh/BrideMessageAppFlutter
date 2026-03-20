@@ -12,6 +12,8 @@ import '../../features/sermons/sermon_reader_screen.dart';
 import '../../features/settings/settings_screen.dart';
 import '../../features/songs/songs_gate_screen.dart';
 import '../../features/songs/song_detail_screen.dart';
+import '../../features/cod/cod_questions_screen.dart';
+import '../../features/cod/cod_answer_screen.dart';
 import '../database/metadata/installed_content_provider.dart';
 import '../../features/reader/providers/reader_provider.dart';
 import '../../features/reader/models/reader_tab.dart';
@@ -67,7 +69,8 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         builder: (context, state) {
           final tab = state.uri.queryParameters['tab'];
           final fresh = state.uri.queryParameters['fresh'] == '1';
-          return SearchScreen(initialTab: tab, fresh: fresh);
+          final query = state.uri.queryParameters['q'];
+          return SearchScreen(initialTab: tab, fresh: fresh, initialQuery: query);
         },
       ),
       GoRoute(
@@ -104,7 +107,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             hideFilters: mode == 'cod' || isSevenSeals,
             allowedIds: isSevenSeals ? sevenSealsIds : null,
           );
-        },*
+        },
       ),
       GoRoute(
         path: '/sermon-reader',
@@ -191,6 +194,21 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/search-help',
         builder: (context, state) => const SearchHelpScreen(),
+      ),
+      GoRoute(
+        path: '/cod',
+        builder: (context, state) {
+          final lang = state.uri.queryParameters['lang'] ?? 'en';
+          return CodQuestionsScreen(lang: lang);
+        },
+      ),
+      GoRoute(
+        path: '/cod/detail/:id',
+        builder: (context, state) {
+          final lang = state.uri.queryParameters['lang'] ?? 'en';
+          final id = state.pathParameters['id']!;
+          return CodAnswerScreen(lang: lang, id: id);
+        },
       ),
     ],
   );

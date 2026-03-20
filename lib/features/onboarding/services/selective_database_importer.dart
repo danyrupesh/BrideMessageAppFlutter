@@ -139,6 +139,48 @@ class SelectiveDatabaseImporter {
     }
   }
 
+  /// Import a COD (Church Order Doctrine) database from [sourceFile] into the app.
+  /// Target file names:
+  /// - cod_tamil.db
+  /// - cod_english.db
+  ///
+  /// COD is intentionally not tracked in InstalledDatabaseRegistry, because the
+  /// existing registry currently only models Bible + Sermons.
+  Future<ImportResult> importCodDatabase({
+    required File sourceFile,
+    required String targetDbFileName, // cod_tamil.db | cod_english.db
+    required String displayName, // e.g. COD Tamil
+    required void Function(double, String) onProgress,
+  }) async {
+    try {
+      onProgress(0.1, 'Validating $displayName database...');
+      if (!_validateCod(sourceFile.path)) {
+        return ImportResult.failure(
+          'Invalid COD database: missing questions / answers tables.',
+        );
+      }
+
+      onProgress(0.3, 'Installing $displayName...');
+      final dbDir = await _dbManager.getDatabaseDirectoryPath();
+      final targetPath = p.join(dbDir.path, targetDbFileName);
+
+      await _dbManager.closeDatabase(targetDbFileName);
+      await _dbManager.deleteDatabaseFiles(targetDbFileName);
+      await sourceFile.copy(targetPath);
+
+      onProgress(0.7, 'Preparing COD search index...');
+      _ensureCodFts(targetPath);
+      onProgress(0.8, 'Optimizing database...');
+      await _optimizeCodDb(targetPath);
+
+      onProgress(1.0, 'Import complete!');
+      return ImportResult.success('$displayName installed successfully.');
+    } catch (e, st) {
+      debugPrint('importCodDatabase error: $e\n$st');
+      return ImportResult.failure('COD import failed: $e');
+    }
+  }
+
   /// Import all databases from a unified ZIP file.
   /// Classifies each .db by filename — same rules as Android's importAllFromZip.
   Future<ImportResult> importAllFromZip({
@@ -228,6 +270,28 @@ class SelectiveDatabaseImporter {
               onProgress: (p, m) => onProgress(
                   baseProgress + p * (0.85 / dbEntries.length), m),
             );
+          } else if (fileName.contains('cod_tamil')) {
+            onProgress(baseProgress, 'Importing Tamil COD...');
+            result = await importCodDatabase(
+              sourceFile: tempFile,
+              targetDbFileName: 'cod_tamil.db',
+              displayName: 'COD Tamil',
+              onProgress: (p, m) => onProgress(
+                baseProgress + p * (0.85 / dbEntries.length),
+                m,
+              ),
+            );
+          } else if (fileName.contains('cod_english')) {
+            onProgress(baseProgress, 'Importing English COD...');
+            result = await importCodDatabase(
+              sourceFile: tempFile,
+              targetDbFileName: 'cod_english.db',
+              displayName: 'COD English',
+              onProgress: (p, m) => onProgress(
+                baseProgress + p * (0.85 / dbEntries.length),
+                m,
+              ),
+            );
           } else {
             debugPrint('Skipping unknown DB: ${entry.name}');
             results.add('Skipped: ${p.basename(entry.name)} (unknown type)');
@@ -311,6 +375,117 @@ class SelectiveDatabaseImporter {
       }
     } catch (_) {
       return false;
+    }
+  }
+
+  bool _validateCod(String dbPath) {
+    try {
+      final db = sql.sqlite3.open(dbPath, mode: sql.OpenMode.readOnly);
+      try {
+        final tables = db
+            .select("SELECT name FROM sqlite_master WHERE type='table'")
+            .map((r) => (r.columnAt(0) as String).toLowerCase())
+            .toSet();
+        return tables.contains('questions') && tables.contains('answers');
+      } finally {
+        db.close();
+      }
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _optimizeCodDb(String dbPath) async {
+    try {
+      final db = sql.sqlite3.open(dbPath);
+      try {
+        db.execute('PRAGMA optimize');
+      } finally {
+        db.close();
+      }
+    } catch (_) {
+      // Best-effort only.
+    }
+  }
+
+  void _ensureCodFts(String dbPath) {
+    try {
+      final db = sql.sqlite3.open(dbPath);
+      try {
+        // Create FTS5 tables if they don't exist (older DBs / schema variants).
+        db.execute('''
+          CREATE VIRTUAL TABLE IF NOT EXISTS questions_fts
+          USING fts5(
+            id UNINDEXED,
+            title,
+            title_short,
+            scriptures
+          )
+        ''');
+        db.execute('''
+          CREATE VIRTUAL TABLE IF NOT EXISTS answers_fts
+          USING fts5(
+            question_id UNINDEXED,
+            para_label,
+            plain_text
+          )
+        ''');
+
+        // Check if populated; if not, rebuild from `questions`/`answers`.
+        final questionsCount = _safeFtsCount(db, 'questions_fts');
+        final answersCount = _safeFtsCount(db, 'answers_fts');
+
+        if (questionsCount == 0 || answersCount == 0) {
+          debugPrint('COD FTS empty — rebuilding $dbPath...');
+          try {
+            db.execute('DELETE FROM questions_fts;');
+            db.execute('DELETE FROM answers_fts;');
+
+            // Best-effort rebuild:
+            // - If columns like `title_short` / `scriptures` are missing,
+            //   the rebuild query may fail. In that case we keep the DB as-is.
+            db.execute('''
+              INSERT INTO questions_fts(id, title, title_short, scriptures)
+              SELECT
+                q.id,
+                q.title,
+                COALESCE(q.title_short, ''),
+                COALESCE(CAST(q.scriptures AS TEXT), '')
+              FROM questions q
+            ''');
+
+            db.execute('''
+              INSERT INTO answers_fts(question_id, para_label, plain_text)
+              SELECT
+                a.question_id,
+                COALESCE(a.para_label, ''),
+                a.plain_text
+              FROM answers a
+            ''');
+          } catch (e) {
+            debugPrint('COD FTS rebuild warning: $e');
+          }
+        }
+
+        // Warm/optimize FTS for faster queries.
+        db.execute("INSERT INTO questions_fts(questions_fts) VALUES('optimize')");
+        db.execute("INSERT INTO answers_fts(answers_fts) VALUES('optimize')");
+        db.execute('PRAGMA optimize');
+      } finally {
+        db.close();
+      }
+    } catch (e) {
+      debugPrint('_ensureCodFts warning: $e');
+    }
+  }
+
+  int _safeFtsCount(sql.Database db, String tableName) {
+    try {
+      final res = db.select('SELECT COUNT(*) FROM $tableName');
+      if (res.isEmpty) return 0;
+      return res.first.columnAt(0) as int? ?? 0;
+    } catch (_) {
+      return 0;
     }
   }
 

@@ -7,6 +7,7 @@ import 'widgets/theme_picker_sheet.dart';
 import '../onboarding/onboarding_screen.dart';
 import '../search/providers/search_history_provider.dart';
 import 'screens/developer_details_screen.dart';
+import 'screens/database_management_screen.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -81,12 +82,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 const Divider(height: 1),
                 ListTile(
                   leading: const Icon(Icons.storage),
-                  title: const Text('App Storage & Memory'),
-                  subtitle: const Text('View storage usage & data breakdown'),
+                  title: const Text('Manage Databases'),
+                  subtitle: const Text(
+                    'View installed Bibles & sermons, delete or re-import',
+                  ),
                   onTap: () {
                     Navigator.of(context).push(
                       MaterialPageRoute(
-                        builder: (_) => const StorageOverviewScreen(),
+                        builder: (_) => const DatabaseManagementScreen(),
                       ),
                     );
                   },
@@ -184,106 +187,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
         ],
       ),
-    );
-  }
-}
-
-class StorageOverviewScreen extends StatelessWidget {
-  const StorageOverviewScreen({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Storage Overview'),
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Total Storage Used',
-                    style: theme.textTheme.titleMedium
-                        ?.copyWith(fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    '737.78 MB',
-                    style: theme.textTheme.displaySmall
-                        ?.copyWith(fontWeight: FontWeight.bold),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Initial App Size + Downloaded Databases',
-                    style: theme.textTheme.bodySmall,
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          Card(
-            child: Column(
-              children: const [
-                _StorageTile(
-                  label: 'English Sermons',
-                  size: '320 MB',
-                ),
-                Divider(height: 1),
-                _StorageTile(
-                  label: 'Tamil Sermons',
-                  size: '295 MB',
-                ),
-                Divider(height: 1),
-                _StorageTile(
-                  label: 'BSI Tamil Bible',
-                  size: '60 MB',
-                ),
-                Divider(height: 1),
-                _StorageTile(
-                  label: 'KJV Bible',
-                  size: '35 MB',
-                ),
-                Divider(height: 1),
-                _StorageTile(
-                  label: 'Your Personal Data',
-                  size: '24 KB',
-                ),
-                Divider(height: 1),
-                _StorageTile(
-                  label: 'App Settings',
-                  size: '12 KB',
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _StorageTile extends StatelessWidget {
-  final String label;
-  final String size;
-
-  const _StorageTile({
-    required this.label,
-    required this.size,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return ListTile(
-      title: Text(label),
-      trailing: Text(size),
     );
   }
 }

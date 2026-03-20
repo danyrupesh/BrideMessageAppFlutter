@@ -20,6 +20,7 @@ import 'widgets/reader_settings_sheet.dart';
 import 'widgets/quick_navigation_sheet.dart';
 import '../../core/database/models/bible_search_result.dart';
 import '../../core/utils/pdf_fonts.dart';
+import '../onboarding/onboarding_screen.dart';
 
 class _NextMatchIntent extends Intent {
   const _NextMatchIntent();
@@ -842,6 +843,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
         : '0/0';
 
     return AppBar(
+      centerTitle: false,
       leading: IconButton(
         icon: const Icon(Icons.arrow_back),
         onPressed: () {
@@ -940,8 +942,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
           }
 
           return Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            mainAxisSize: MainAxisSize.max,
+            mainAxisAlignment: MainAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
             children: [
               InkWell(
                 onTap: _openQuickNav,
@@ -1219,7 +1221,51 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
           );
         },
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (err, stack) => Center(child: Text('Error: $err')),
+        error: (err, stack) {
+          final isFileError = err is FileSystemException;
+          final message = err.toString();
+
+          return Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                const Icon(
+                  Icons.error_outline,
+                  size: 40,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  'Error loading chapter',
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  message,
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+                if (isFileError) ...[
+                  const SizedBox(height: 20),
+                  FilledButton.icon(
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => const OnboardingScreen(
+                            showImportDirectly: true,
+                          ),
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.cloud_download_outlined),
+                    label: const Text('Import Database'),
+                  ),
+                ],
+              ],
+            ),
+          );
+        },
       );
     }
 

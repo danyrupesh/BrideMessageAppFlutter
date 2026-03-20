@@ -418,17 +418,7 @@ class DashboardScreen extends ConsumerWidget {
         subtitle: 'COD English',
         color: const Color(0xFF8E44AD),
         onTap: () {
-          ref.read(selectedSermonLangProvider.notifier).setLang('en');
-          final uri = Uri(
-            path: '/sermons',
-            queryParameters: {
-              'prefix': 'Question',
-              'title': 'COD - Question and Answers',
-              'mode': 'cod',
-              'lang': 'en',
-            },
-          );
-          context.push(uri.toString());
+          context.push('/cod?lang=en');
         },
       ),
       _ModuleCardData(
@@ -437,17 +427,7 @@ class DashboardScreen extends ConsumerWidget {
         subtitle: 'COD தமிழ்',
         color: const Color(0xFFD35400),
         onTap: () {
-          ref.read(selectedSermonLangProvider.notifier).setLang('ta');
-          final uri = Uri(
-            path: '/sermons',
-            queryParameters: {
-              'prefix': 'கேள்வி',
-              'title': 'COD - கேள்விகளும் பதில்களும்',
-              'mode': 'cod',
-              'lang': 'ta',
-            },
-          );
-          context.push(uri.toString());
+          context.push('/cod?lang=ta');
         },
       ),
       _ModuleCardData(

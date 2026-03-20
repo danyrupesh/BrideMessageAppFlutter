@@ -14,10 +14,16 @@ import 'widgets/cod_results_tab.dart';
 import 'widgets/song_results_tab.dart';
 
 class SearchScreen extends ConsumerStatefulWidget {
-  const SearchScreen({super.key, this.initialTab, this.fresh = false});
+  const SearchScreen({
+    super.key,
+    this.initialTab,
+    this.fresh = false,
+    this.initialQuery,
+  });
 
   final String? initialTab;
   final bool fresh;
+  final String? initialQuery;
 
   @override
   ConsumerState<SearchScreen> createState() => _SearchScreenState();
@@ -73,20 +79,31 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
+      final notifier = ref.read(searchProvider.notifier);
       // Warm FTS indexes on first search screen open (mirrors Android's SearchViewModel.warmUp).
       _warmFts();
       if (widget.fresh) {
-        ref
-            .read(searchProvider.notifier)
-            .reset(activeTab: initial ?? SearchTab.bible);
+        notifier.reset(activeTab: initial ?? SearchTab.bible);
         _syncingQuery = true;
         _searchController.clear();
         _syncingQuery = false;
-        return;
-      }
-      if (initial != null) {
+      } else if (initial != null) {
         _tabController.index = _tabIndexFor(initial);
-        ref.read(searchProvider.notifier).updateTab(initial);
+        notifier.updateTab(initial);
+      }
+
+      final incomingQuery = widget.initialQuery?.trim();
+      if (incomingQuery != null && incomingQuery.isNotEmpty) {
+        _syncingQuery = true;
+        _searchController.value = _searchController.value.copyWith(
+          text: incomingQuery,
+          selection: TextSelection.fromPosition(
+            TextPosition(offset: incomingQuery.length),
+          ),
+          composing: TextRange.empty,
+        );
+        _syncingQuery = false;
+        notifier.updateQuery(incomingQuery);
       }
     });
     _tabController.addListener(() {
