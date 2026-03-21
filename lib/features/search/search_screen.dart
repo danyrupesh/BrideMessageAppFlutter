@@ -171,6 +171,18 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
               decoration: InputDecoration(
                 hintText: 'Search Bible, Sermons, COD, Songs',
                 prefixIcon: const Icon(Icons.search),
+                suffixIcon: searchState.query.trim().isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear),
+                        tooltip: 'Clear',
+                        onPressed: () {
+                          _syncingQuery = true;
+                          _searchController.clear();
+                          _syncingQuery = false;
+                          ref.read(searchProvider.notifier).updateQuery('');
+                        },
+                      )
+                    : null,
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(24),
                 ),
@@ -204,7 +216,10 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
             ),
           const SearchFilters(),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
+            padding: const EdgeInsets.symmetric(
+              horizontal: 16.0,
+              vertical: 4.0,
+            ),
             child: Align(
               alignment: Alignment.centerLeft,
               child: Text(

@@ -15,11 +15,29 @@ class CodQuestionsScreen extends ConsumerStatefulWidget {
 }
 
 class _CodQuestionsScreenState extends ConsumerState<CodQuestionsScreen> {
+  late final TextEditingController _questionSearchController;
+  late final TextEditingController _topicStripSearchController;
+
   String? _search;
   String? _topicSearch;
   String? _category;
   String? _topicSlug;
   bool _onlyScriptures = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _questionSearchController = TextEditingController();
+    _topicStripSearchController = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _questionSearchController.dispose();
+    _topicStripSearchController.dispose();
+    super.dispose();
+  }
+
   static const String _allTopicsToken = '__all_topics__';
   static final RegExp _trailingQuestionRefPattern = RegExp(
     r'\s+[Qq]\.\s*\d+\s*$',
@@ -89,204 +107,226 @@ class _CodQuestionsScreenState extends ConsumerState<CodQuestionsScreen> {
     bool isTamil,
     ColorScheme cs,
   ) async {
-    final selectedSlug = await showDialog<String>(
-      context: context,
-      builder: (dialogContext) {
-        String dialogSearchQuery = '';
-        return StatefulBuilder(
-          builder: (context, setStateBuilder) {
-            final normalizedQuery = dialogSearchQuery.trim().toLowerCase();
-            final filtered = normalizedQuery.isEmpty
-                ? topics
-                : topics
-                      .where(
-                        (t) => t.topicTitle.toLowerCase().contains(
-                          normalizedQuery,
-                        ),
-                      )
-                      .toList();
+    final dialogTopicSearchController = TextEditingController();
+    String? selectedSlug;
+    try {
+      selectedSlug = await showDialog<String>(
+        context: context,
+        builder: (dialogContext) {
+          return StatefulBuilder(
+            builder: (context, setStateBuilder) {
+              final normalizedQuery = dialogTopicSearchController.text
+                  .trim()
+                  .toLowerCase();
+              final filtered = normalizedQuery.isEmpty
+                  ? topics
+                  : topics
+                        .where(
+                          (t) => t.topicTitle.toLowerCase().contains(
+                            normalizedQuery,
+                          ),
+                        )
+                        .toList();
 
-            final screenWidth = MediaQuery.of(dialogContext).size.width;
-            final dialogWidth = (screenWidth * 0.88)
-                .clamp(320.0, 800.0)
-                .toDouble();
+              final screenWidth = MediaQuery.of(dialogContext).size.width;
+              final dialogWidth = (screenWidth * 0.88)
+                  .clamp(320.0, 800.0)
+                  .toDouble();
 
-            return AlertDialog(
-              backgroundColor: cs.surfaceContainerLow,
-              titlePadding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
-              title: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      isTamil ? 'தலைப்புகள்' : 'Topics',
-                      style: const TextStyle(fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.close),
-                    onPressed: () => Navigator.of(dialogContext).pop(),
-                  ),
-                ],
-              ),
-              contentPadding: const EdgeInsets.only(
-                left: 20,
-                right: 20,
-                bottom: 20,
-              ),
-              content: SizedBox(
-                width: dialogWidth,
-                height: 500,
-                child: Column(
+              return AlertDialog(
+                backgroundColor: cs.surfaceContainerLow,
+                titlePadding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+                title: Row(
                   children: [
-                    TextField(
-                      decoration: InputDecoration(
-                        prefixIcon: const Icon(Icons.search, size: 20),
-                        hintText: isTamil
-                            ? 'தலைப்பைத் தேடுங்கள்...'
-                            : 'Search topics...',
-                        filled: true,
-                        fillColor: cs.surfaceContainerHighest.withValues(
-                          alpha: 0.5,
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide.none,
-                        ),
-                        isDense: true,
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 12,
-                        ),
-                      ),
-                      onChanged: (val) {
-                        setStateBuilder(() {
-                          dialogSearchQuery = val;
-                        });
-                      },
-                    ),
-                    const SizedBox(height: 16),
                     Expanded(
-                      child: filtered.isEmpty
-                          ? Center(
-                              child: Text(
-                                isTamil
-                                    ? 'தலைப்புகள் கிடைக்கவில்லை'
-                                    : 'No matching topics',
-                                style: TextStyle(color: cs.onSurfaceVariant),
-                              ),
-                            )
-                          : SingleChildScrollView(
-                              child: Wrap(
-                                spacing: 8,
-                                runSpacing: 8,
-                                children: [
-                                  if (dialogSearchQuery.trim().isEmpty)
-                                    ActionChip(
-                                      key: const ValueKey('dialog_all_topics'),
-                                      label: Text(
-                                        isTamil ? 'அனைத்தும்' : 'All Topics',
-                                      ),
-                                      backgroundColor: _topicSlug == null
-                                          ? cs.primaryContainer
-                                          : cs.surfaceContainerHighest,
-                                      labelStyle: TextStyle(
-                                        fontWeight: FontWeight.w600,
-                                        color: _topicSlug == null
-                                            ? cs.onPrimaryContainer
-                                            : cs.onSurface,
-                                      ),
-                                      side: BorderSide.none,
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(12),
-                                      ),
-                                      onPressed: () {
-                                        Navigator.of(
-                                          dialogContext,
-                                        ).pop(_allTopicsToken);
-                                      },
-                                    ),
-                                  for (var i = 0; i < filtered.length; i++)
-                                    Builder(
-                                      builder: (context) {
-                                        final topic = filtered[i];
-                                        final isSelected =
-                                            _topicSlug == topic.topicSlug;
-
-                                        final hue = (i * 137.5) % 360;
-                                        final fallbackBgColor =
-                                            HSLColor.fromAHSL(
-                                              1.0,
-                                              hue,
-                                              0.4,
-                                              0.92,
-                                            ).toColor();
-                                        final fallbackTextColor =
-                                            HSLColor.fromAHSL(
-                                              1.0,
-                                              hue,
-                                              0.8,
-                                              0.25,
-                                            ).toColor();
-
-                                        final bgColor = isSelected
-                                            ? cs.primaryContainer
-                                            : (Theme.of(context).brightness ==
-                                                      Brightness.dark
-                                                  ? HSLColor.fromAHSL(
-                                                      1.0,
-                                                      hue,
-                                                      0.4,
-                                                      0.15,
-                                                    ).toColor()
-                                                  : fallbackBgColor);
-                                        final textColor = isSelected
-                                            ? cs.onPrimaryContainer
-                                            : (Theme.of(context).brightness ==
-                                                      Brightness.dark
-                                                  ? HSLColor.fromAHSL(
-                                                      1.0,
-                                                      hue,
-                                                      0.8,
-                                                      0.85,
-                                                    ).toColor()
-                                                  : fallbackTextColor);
-
-                                        return ActionChip(
-                                          key: ValueKey('dialog_topic_${topic.topicSlug}'),
-                                          label: Text(topic.topicTitle),
-                                          backgroundColor: bgColor,
-                                          labelStyle: TextStyle(
-                                            fontWeight: isSelected
-                                                ? FontWeight.w600
-                                                : FontWeight.w500,
-                                            color: textColor,
-                                          ),
-                                          side: BorderSide.none,
-                                          shape: RoundedRectangleBorder(
-                                            borderRadius: BorderRadius.circular(
-                                              12,
-                                            ),
-                                          ),
-                                          onPressed: () {
-                                            Navigator.of(
-                                              dialogContext,
-                                            ).pop(topic.topicSlug);
-                                          },
-                                        );
-                                      },
-                                    ),
-                                ],
-                              ),
-                            ),
+                      child: Text(
+                        isTamil ? 'தலைப்புகள்' : 'Topics',
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.of(dialogContext).pop(),
                     ),
                   ],
                 ),
-              ),
-            );
-          },
-        );
-      },
-    );
+                contentPadding: const EdgeInsets.only(
+                  left: 20,
+                  right: 20,
+                  bottom: 20,
+                ),
+                content: SizedBox(
+                  width: dialogWidth,
+                  height: 500,
+                  child: Column(
+                    children: [
+                      TextField(
+                        controller: dialogTopicSearchController,
+                        decoration: InputDecoration(
+                          prefixIcon: const Icon(Icons.search, size: 20),
+                          hintText: isTamil
+                              ? 'தலைப்பைத் தேடுங்கள்...'
+                              : 'Search topics...',
+                          filled: true,
+                          fillColor: cs.surfaceContainerHighest.withValues(
+                            alpha: 0.5,
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide.none,
+                          ),
+                          isDense: true,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 12,
+                          ),
+                          suffixIcon:
+                              dialogTopicSearchController.text.trim().isNotEmpty
+                              ? IconButton(
+                                  icon: const Icon(Icons.clear, size: 20),
+                                  tooltip: isTamil ? 'அழி' : 'Clear',
+                                  onPressed: () {
+                                    dialogTopicSearchController.clear();
+                                    setStateBuilder(() {});
+                                  },
+                                )
+                              : null,
+                        ),
+                        onChanged: (_) => setStateBuilder(() {}),
+                      ),
+                      const SizedBox(height: 16),
+                      Expanded(
+                        child: filtered.isEmpty
+                            ? Center(
+                                child: Text(
+                                  isTamil
+                                      ? 'தலைப்புகள் கிடைக்கவில்லை'
+                                      : 'No matching topics',
+                                  style: TextStyle(color: cs.onSurfaceVariant),
+                                ),
+                              )
+                            : SingleChildScrollView(
+                                child: Wrap(
+                                  spacing: 8,
+                                  runSpacing: 8,
+                                  children: [
+                                    if (dialogTopicSearchController.text
+                                        .trim()
+                                        .isEmpty)
+                                      ActionChip(
+                                        key: const ValueKey(
+                                          'dialog_all_topics',
+                                        ),
+                                        label: Text(
+                                          isTamil ? 'அனைத்தும்' : 'All Topics',
+                                        ),
+                                        backgroundColor: _topicSlug == null
+                                            ? cs.primaryContainer
+                                            : cs.surfaceContainerHighest,
+                                        labelStyle: TextStyle(
+                                          fontWeight: FontWeight.w600,
+                                          color: _topicSlug == null
+                                              ? cs.onPrimaryContainer
+                                              : cs.onSurface,
+                                        ),
+                                        side: BorderSide.none,
+                                        shape: RoundedRectangleBorder(
+                                          borderRadius: BorderRadius.circular(
+                                            12,
+                                          ),
+                                        ),
+                                        onPressed: () {
+                                          Navigator.of(
+                                            dialogContext,
+                                          ).pop(_allTopicsToken);
+                                        },
+                                      ),
+                                    for (var i = 0; i < filtered.length; i++)
+                                      Builder(
+                                        builder: (context) {
+                                          final topic = filtered[i];
+                                          final isSelected =
+                                              _topicSlug == topic.topicSlug;
+
+                                          final hue = (i * 137.5) % 360;
+                                          final fallbackBgColor =
+                                              HSLColor.fromAHSL(
+                                                1.0,
+                                                hue,
+                                                0.4,
+                                                0.92,
+                                              ).toColor();
+                                          final fallbackTextColor =
+                                              HSLColor.fromAHSL(
+                                                1.0,
+                                                hue,
+                                                0.8,
+                                                0.25,
+                                              ).toColor();
+
+                                          final bgColor = isSelected
+                                              ? cs.primaryContainer
+                                              : (Theme.of(context).brightness ==
+                                                        Brightness.dark
+                                                    ? HSLColor.fromAHSL(
+                                                        1.0,
+                                                        hue,
+                                                        0.4,
+                                                        0.15,
+                                                      ).toColor()
+                                                    : fallbackBgColor);
+                                          final textColor = isSelected
+                                              ? cs.onPrimaryContainer
+                                              : (Theme.of(context).brightness ==
+                                                        Brightness.dark
+                                                    ? HSLColor.fromAHSL(
+                                                        1.0,
+                                                        hue,
+                                                        0.8,
+                                                        0.85,
+                                                      ).toColor()
+                                                    : fallbackTextColor);
+
+                                          return ActionChip(
+                                            key: ValueKey(
+                                              'dialog_topic_${topic.topicSlug}',
+                                            ),
+                                            label: Text(topic.topicTitle),
+                                            backgroundColor: bgColor,
+                                            labelStyle: TextStyle(
+                                              fontWeight: isSelected
+                                                  ? FontWeight.w600
+                                                  : FontWeight.w500,
+                                              color: textColor,
+                                            ),
+                                            side: BorderSide.none,
+                                            shape: RoundedRectangleBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(12),
+                                            ),
+                                            onPressed: () {
+                                              Navigator.of(
+                                                dialogContext,
+                                              ).pop(topic.topicSlug);
+                                            },
+                                          );
+                                        },
+                                      ),
+                                  ],
+                                ),
+                              ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          );
+        },
+      );
+    } finally {
+      dialogTopicSearchController.dispose();
+    }
 
     if (!mounted || selectedSlug == null) return;
 
@@ -332,27 +372,32 @@ class _CodQuestionsScreenState extends ConsumerState<CodQuestionsScreen> {
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 12),
-            child: Center(
-              child: ActionChip(
-                label: Text(isTamil ? 'COD செய்திகள்' : 'COD Sermons'),
-                backgroundColor: theme.colorScheme.secondaryContainer,
-                labelStyle: TextStyle(
-                  color: theme.colorScheme.onSecondaryContainer,
+            child: FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: theme.colorScheme.secondary,
+                foregroundColor: theme.colorScheme.onSecondary,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
                 ),
-                onPressed: () {
-                  final uri = Uri(
-                    path: '/sermons',
-                    queryParameters: {
-                      'mode': 'cod',
-                      'prefix': isTamil ? 'கேள்வி' : 'Question',
-                      'title': isTamil
-                          ? 'COD - கேள்விகளும் பதில்களும்'
-                          : 'COD - Question and Answers',
-                      'lang': widget.lang,
-                    },
-                  );
-                  context.push(uri.toString());
-                },
+              ),
+              onPressed: () {
+                final uri = Uri(
+                  path: '/sermons',
+                  queryParameters: {
+                    'mode': 'cod',
+                    'prefix': isTamil ? 'கேள்வி' : 'Question',
+                    'title': isTamil
+                        ? 'COD - கேள்விகளும் பதில்களும்'
+                        : 'COD - Question and Answers',
+                    'lang': widget.lang,
+                  },
+                );
+                context.push(uri.toString());
+              },
+              child: Text(
+                isTamil ? 'COD செய்திகள்' : 'COD Sermons',
+                style: const TextStyle(fontWeight: FontWeight.w600),
               ),
             ),
           ),
@@ -371,33 +416,125 @@ class _CodQuestionsScreenState extends ConsumerState<CodQuestionsScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 child: Row(
                   children: [
-                    ChoiceChip(
-                      key: const ValueKey('cat_all'),
-                      label: Text(isTamil ? 'அனைத்தும்' : 'All'),
-                      selected: _category == null,
-                      onSelected: (_) {
-                        setState(() => _category = null);
-                      },
+                    Material(
+                      color: Colors.transparent,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: _category == null
+                              ? cs.primary
+                              : Colors.transparent,
+                          border: Border.all(
+                            color: _category == null
+                                ? cs.primary
+                                : cs.outlineVariant,
+                            width: 2,
+                          ),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(20),
+                          onTap: () {
+                            setState(() => _category = null);
+                          },
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 8,
+                            ),
+                            child: Text(
+                              isTamil ? 'அனைத்தும்' : 'All',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                color: _category == null
+                                    ? Colors.white
+                                    : cs.onSurface,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
                     ),
                     const SizedBox(width: 8),
                     for (final cat in visibleCategories) ...[
-                      ChoiceChip(
+                      Material(
                         key: ValueKey('cat_$cat'),
-                        label: Text(_categoryLabel(cat, isTamil)),
-                        selected: _category == cat,
-                        onSelected: (_) {
-                          setState(() => _category = cat);
-                        },
+                        color: Colors.transparent,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            color: _category == cat
+                                ? cs.secondary
+                                : Colors.transparent,
+                            border: Border.all(
+                              color: _category == cat
+                                  ? cs.secondary
+                                  : cs.outlineVariant,
+                              width: 2,
+                            ),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(20),
+                            onTap: () {
+                              setState(() => _category = cat);
+                            },
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 14,
+                                vertical: 8,
+                              ),
+                              child: Text(
+                                _categoryLabel(cat, isTamil),
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  color: _category == cat
+                                      ? Colors.white
+                                      : cs.onSurface,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
                       ),
                       const SizedBox(width: 8),
                     ],
-                    FilterChip(
-                      key: const ValueKey('filter_scriptures'),
-                      label: Text(isTamil ? 'வேதவாக்கியங்கள்' : 'Scriptures'),
-                      selected: _onlyScriptures,
-                      onSelected: (selected) {
-                        setState(() => _onlyScriptures = selected);
-                      },
+                    Material(
+                      color: Colors.transparent,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: _onlyScriptures
+                              ? cs.tertiary
+                              : Colors.transparent,
+                          border: Border.all(
+                            color: _onlyScriptures
+                                ? cs.tertiary
+                                : cs.outlineVariant,
+                            width: 2,
+                          ),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: InkWell(
+                          key: const ValueKey('filter_scriptures'),
+                          borderRadius: BorderRadius.circular(20),
+                          onTap: () {
+                            setState(() => _onlyScriptures = !_onlyScriptures);
+                          },
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 8,
+                            ),
+                            child: Text(
+                              isTamil ? 'வேதவாக்கியங்கள்' : 'Scriptures',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                color: _onlyScriptures
+                                    ? Colors.white
+                                    : cs.onSurface,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
                     ),
                   ],
                 ),
@@ -447,12 +584,21 @@ class _CodQuestionsScreenState extends ConsumerState<CodQuestionsScreen> {
                             },
                           ),
                         const Spacer(),
-                        TextButton(
+                        FilledButton(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: cs.errorContainer,
+                            foregroundColor: cs.onErrorContainer,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 12,
+                            ),
+                          ),
                           onPressed: () {
                             _showAllTopicsDialog(context, topics, isTamil, cs);
                           },
                           child: Text(
                             isTamil ? 'அனைத்து தலைப்புகள்' : 'Show all topics',
+                            style: const TextStyle(fontWeight: FontWeight.w600),
                           ),
                         ),
                       ],
@@ -463,12 +609,30 @@ class _CodQuestionsScreenState extends ConsumerState<CodQuestionsScreen> {
                     child: SizedBox(
                       height: 34,
                       child: TextField(
+                        controller: _topicStripSearchController,
                         decoration: InputDecoration(
                           prefixIcon: const Icon(Icons.search, size: 18),
                           prefixIconConstraints: const BoxConstraints(
                             minWidth: 34,
                           ),
                           hintText: 'search topic',
+                          suffixIcon:
+                              _topicStripSearchController.text.trim().isNotEmpty
+                              ? IconButton(
+                                  icon: const Icon(Icons.clear, size: 18),
+                                  tooltip: isTamil ? 'அழி' : 'Clear',
+                                  visualDensity: VisualDensity.compact,
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints(
+                                    minWidth: 32,
+                                    minHeight: 32,
+                                  ),
+                                  onPressed: () {
+                                    _topicStripSearchController.clear();
+                                    setState(() => _topicSearch = null);
+                                  },
+                                )
+                              : null,
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(10),
                           ),
@@ -514,39 +678,50 @@ class _CodQuestionsScreenState extends ConsumerState<CodQuestionsScreen> {
 
                           return Material(
                             key: ValueKey('list_topic_${topic.topicSlug}'),
-                            color: selected
-                                ? cs.secondaryContainer
-                                : cs.surfaceContainerHighest.withValues(
-                                    alpha: 0.45,
-                                  ),
+                            color: Colors.transparent,
                             borderRadius: BorderRadius.circular(12),
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(12),
-                              onTap: () {
-                                setState(() {
-                                  _topicSlug = selected
-                                      ? null
-                                      : topic.topicSlug;
-                                });
-                              },
-                              child: ConstrainedBox(
-                                constraints: const BoxConstraints(
-                                  maxWidth: 220,
+                            child: Container(
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(12),
+                                color: selected
+                                    ? cs.primaryContainer
+                                    : cs.surfaceContainerLowest,
+                                border: Border.all(
+                                  color: selected ? cs.primary : cs.outline,
+                                  width: selected ? 3 : 2,
                                 ),
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                    vertical: 10,
+                              ),
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(12),
+                                onTap: () {
+                                  setState(() {
+                                    _topicSlug = selected
+                                        ? null
+                                        : topic.topicSlug;
+                                  });
+                                },
+                                child: ConstrainedBox(
+                                  constraints: const BoxConstraints(
+                                    maxWidth: 220,
                                   ),
-                                  child: Text(
-                                    topic.topicTitle,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.w600,
-                                      color: selected
-                                          ? cs.onSecondaryContainer
-                                          : cs.onSurface,
+                                  child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                      vertical: 10,
+                                    ),
+                                    child: Text(
+                                      topic.topicTitle,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        fontWeight: selected
+                                            ? FontWeight.w700
+                                            : FontWeight.w500,
+                                        color: selected
+                                            ? cs.onPrimaryContainer
+                                            : cs.onSurface,
+                                        fontSize: selected ? 14 : 13,
+                                      ),
                                     ),
                                   ),
                                 ),
@@ -571,6 +746,7 @@ class _CodQuestionsScreenState extends ConsumerState<CodQuestionsScreen> {
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
             child: TextField(
+              controller: _questionSearchController,
               decoration: InputDecoration(
                 prefixIcon: const Icon(Icons.search),
                 hintText: isTamil
@@ -581,27 +757,46 @@ class _CodQuestionsScreenState extends ConsumerState<CodQuestionsScreen> {
                 ),
                 isDense: true,
                 suffixIconConstraints: const BoxConstraints(
-                  minHeight: 34,
-                  minWidth: 110,
+                  minHeight: 40,
+                  minWidth: 140,
                 ),
                 suffixIcon: Padding(
-                  padding: const EdgeInsets.only(right: 6),
-                  child: TextButton(
-                    onPressed: _openAdvancedSearch,
-                    style: TextButton.styleFrom(
-                      minimumSize: const Size(0, 30),
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                    ),
-                    child: Text(
-                      isTamil ? 'மேம்பட்ட தேடல்' : 'Advanced search',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.labelMedium?.copyWith(
-                        color: cs.primary,
-                        fontWeight: FontWeight.w600,
+                  padding: const EdgeInsets.only(right: 4),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (_search != null && _search!.trim().isNotEmpty)
+                        IconButton(
+                          icon: const Icon(Icons.close, size: 20),
+                          tooltip: isTamil ? 'அழி' : 'Clear',
+                          visualDensity: VisualDensity.compact,
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(
+                            minWidth: 36,
+                            minHeight: 36,
+                          ),
+                          onPressed: () {
+                            _questionSearchController.clear();
+                            setState(() => _search = null);
+                          },
+                        ),
+                      FilledButton(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: cs.tertiaryContainer,
+                          foregroundColor: cs.onTertiaryContainer,
+                          minimumSize: const Size(0, 30),
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                        ),
+                        onPressed: _openAdvancedSearch,
+                        child: Text(
+                          isTamil ? 'மேம்பட்ட தேடல்' : 'Advanced search',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontWeight: FontWeight.w600),
+                        ),
                       ),
-                    ),
+                    ],
                   ),
                 ),
               ),

@@ -42,6 +42,7 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
 
 flutter:
   uses-material-design: true
@@ -56,3 +57,23 @@ flutter:
         - asset: assets/fonts/NotoSerifTamil-Regular.ttf
         - asset: assets/fonts/NotoSerifTamil-Bold.ttf
           weight: 700
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: assets/icons/app_icon_1024.png
+  min_sdk_android: 21
+  adaptive_icon_foreground: assets/icons/app_icon_1024.png
+  adaptive_icon_background: "#FFFFFF"
+  web:
+    generate: true
+    image_path: assets/icons/app_icon_1024.png
+    background_color: "#FFFFFF"
+    theme_color: "#FFFFFF"
+  windows:
+    generate: true
+    image_path: assets/icons/app_icon_1024.png
+    icon_size: 256
+  macos:
+    generate: true
+    image_path: assets/icons/app_icon_1024.png

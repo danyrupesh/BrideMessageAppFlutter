@@ -195,7 +195,9 @@ class _SermonListScreenState extends ConsumerState<SermonListScreen> {
     if (widget.allowedIds != null && widget.allowedIds!.isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
-        ref.read(sermonListProvider.notifier).filterSermons(
+        ref
+            .read(sermonListProvider.notifier)
+            .filterSermons(
               year: null,
               query: '',
               titlePrefix: null,
@@ -357,6 +359,7 @@ class _SermonListScreenState extends ConsumerState<SermonListScreen> {
                 ),
               ),
               onChanged: (val) {
+                setState(() {});
                 _debounce?.cancel();
                 _debounce = Timer(const Duration(milliseconds: 400), () {
                   ref
@@ -399,14 +402,14 @@ class _SermonListScreenState extends ConsumerState<SermonListScreen> {
                           selected: state.selectedYear == y,
                           onSelected: (val) {
                             ref
-                            .read(sermonListProvider.notifier)
-                            .filterSermons(
-                              year: y,
-                              query: _searchController.text,
-                              titlePrefix: widget.titlePrefix,
-                            );
-                      },
-                    ),
+                                .read(sermonListProvider.notifier)
+                                .filterSermons(
+                                  year: y,
+                                  query: _searchController.text,
+                                  titlePrefix: widget.titlePrefix,
+                                );
+                          },
+                        ),
                       ),
                     ),
                   ],

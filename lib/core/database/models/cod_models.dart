@@ -62,6 +62,40 @@ class CodAnswerParagraph {
   }
 }
 
+/// One search hit row: a single [answers] paragraph that matched the query.
+class CodAnswerSearchHit {
+  final String questionId;
+  final int answerParagraphId;
+  final int orderIndex;
+  final String? paraLabel;
+  final String questionTitle;
+  final int? questionNumber;
+  /// Snippet with `<b>...</b>` around the matched span (for FTS-style highlight UI).
+  final String snippetHtml;
+
+  const CodAnswerSearchHit({
+    required this.questionId,
+    required this.answerParagraphId,
+    required this.orderIndex,
+    required this.paraLabel,
+    required this.questionTitle,
+    required this.questionNumber,
+    required this.snippetHtml,
+  });
+}
+
+/// How to combine tokens from the search query against answer text.
+enum CodSearchMatchMode {
+  /// Whole query as a single substring.
+  phrase,
+
+  /// Every token must appear (AND).
+  allWords,
+
+  /// Any token may appear (OR).
+  anyWord,
+}
+
 class CodTopic {
   final String topicSlug;
   final String topicTitle;

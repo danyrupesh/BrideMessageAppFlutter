@@ -51,8 +51,8 @@ class _ReaderSettingsSheetState extends ConsumerState<ReaderSettingsSheet> {
                 Text(
                   'Reader Settings',
                   style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
                 IconButton(
                   icon: const Icon(Icons.close),
@@ -64,188 +64,196 @@ class _ReaderSettingsSheetState extends ConsumerState<ReaderSettingsSheet> {
 
             Text('Text Size', style: Theme.of(context).textTheme.titleMedium),
             Row(
-            children: [
-              IconButton(
-                icon: const Icon(Icons.remove),
-                onPressed: () {
-                  final newSize = (typography.fontSize - 1).clamp(12.0, 36.0);
-                  ref
-                      .read(typographyProvider.notifier)
-                      .updateFontSize(newSize);
-                },
-              ),
-              Expanded(
-                child: Slider(
-                  value: typography.fontSize,
-                  min: 12.0,
-                  max: 36.0,
-                  divisions: 12,
-                  onChanged: (val) =>
-                      ref.read(typographyProvider.notifier).updateFontSize(val),
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.remove),
+                  onPressed: () {
+                    final newSize = (typography.fontSize - 1).clamp(12.0, 36.0);
+                    ref
+                        .read(typographyProvider.notifier)
+                        .updateFontSize(newSize);
+                  },
                 ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.add),
-                onPressed: () {
-                  final newSize = (typography.fontSize + 1).clamp(12.0, 36.0);
-                  ref
-                      .read(typographyProvider.notifier)
-                      .updateFontSize(newSize);
-                },
-              ),
-              const SizedBox(width: 8),
-              Text(
-                typography.fontSize.toStringAsFixed(0),
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 16),
-          Text('Line Height', style: Theme.of(context).textTheme.titleMedium),
-          Row(
-            children: [
-              IconButton(
-                icon: const Icon(Icons.remove),
-                onPressed: () {
-                  final newHeight =
-                      (typography.lineHeight - 0.1).clamp(1.0, 2.5);
-                  ref
-                      .read(typographyProvider.notifier)
-                      .updateLineHeight(newHeight);
-                },
-              ),
-              Expanded(
-                child: Slider(
-                  value: typography.lineHeight,
-                  min: 1.0,
-                  max: 2.5,
-                  divisions: 15,
-                  onChanged: (val) => ref
-                      .read(typographyProvider.notifier)
-                      .updateLineHeight(val),
-                ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.add),
-                onPressed: () {
-                  final newHeight =
-                      (typography.lineHeight + 0.1).clamp(1.0, 2.5);
-                  ref
-                      .read(typographyProvider.notifier)
-                      .updateLineHeight(newHeight);
-                },
-              ),
-              const SizedBox(width: 8),
-              Text(
-                typography.lineHeight.toStringAsFixed(1),
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 16),
-          Text('Title Size', style: Theme.of(context).textTheme.titleMedium),
-          Row(
-            children: [
-              IconButton(
-                icon: const Icon(Icons.remove),
-                onPressed: () {
-                  final newSize =
-                      (typography.titleFontSize - 1).clamp(10.0, 22.0);
-                  ref
-                      .read(typographyProvider.notifier)
-                      .updateTitleFontSize(newSize);
-                },
-              ),
-              Expanded(
-                child: Slider(
-                  value: typography.titleFontSize,
-                  min: 10.0,
-                  max: 22.0,
-                  divisions: 12,
-                  onChanged: (val) => ref
-                      .read(typographyProvider.notifier)
-                      .updateTitleFontSize(val),
-                ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.add),
-                onPressed: () {
-                  final newSize =
-                      (typography.titleFontSize + 1).clamp(10.0, 22.0);
-                  ref
-                      .read(typographyProvider.notifier)
-                      .updateTitleFontSize(newSize);
-                },
-              ),
-              const SizedBox(width: 8),
-              Text(
-                typography.titleFontSize.toStringAsFixed(0),
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-            ],
-          ),
-
-          const SizedBox(height: 24),
-          Text(
-            'Font Family',
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-          const SizedBox(height: 10),
-          InkWell(
-            borderRadius: BorderRadius.circular(12),
-            onTap: () => _openFontPicker(context, typography),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: Theme.of(context).colorScheme.outline.withOpacity(0.6),
-                ),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.font_download_outlined, size: 20),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      _fontLabel(typography),
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                            fontWeight: FontWeight.w600,
-                          ),
-                    ),
+                Expanded(
+                  child: Slider(
+                    value: typography.fontSize,
+                    min: 12.0,
+                    max: 36.0,
+                    divisions: 12,
+                    onChanged: (val) => ref
+                        .read(typographyProvider.notifier)
+                        .updateFontSize(val),
                   ),
-                  const Icon(Icons.arrow_drop_down),
-                ],
+                ),
+                IconButton(
+                  icon: const Icon(Icons.add),
+                  onPressed: () {
+                    final newSize = (typography.fontSize + 1).clamp(12.0, 36.0);
+                    ref
+                        .read(typographyProvider.notifier)
+                        .updateFontSize(newSize);
+                  },
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  typography.fontSize.toStringAsFixed(0),
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 16),
+            Text('Line Height', style: Theme.of(context).textTheme.titleMedium),
+            Row(
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.remove),
+                  onPressed: () {
+                    final newHeight = (typography.lineHeight - 0.1).clamp(
+                      1.0,
+                      2.5,
+                    );
+                    ref
+                        .read(typographyProvider.notifier)
+                        .updateLineHeight(newHeight);
+                  },
+                ),
+                Expanded(
+                  child: Slider(
+                    value: typography.lineHeight,
+                    min: 1.0,
+                    max: 2.5,
+                    divisions: 15,
+                    onChanged: (val) => ref
+                        .read(typographyProvider.notifier)
+                        .updateLineHeight(val),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.add),
+                  onPressed: () {
+                    final newHeight = (typography.lineHeight + 0.1).clamp(
+                      1.0,
+                      2.5,
+                    );
+                    ref
+                        .read(typographyProvider.notifier)
+                        .updateLineHeight(newHeight);
+                  },
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  typography.lineHeight.toStringAsFixed(1),
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 16),
+            Text('Title Size', style: Theme.of(context).textTheme.titleMedium),
+            Row(
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.remove),
+                  onPressed: () {
+                    final newSize = (typography.titleFontSize - 1).clamp(
+                      10.0,
+                      22.0,
+                    );
+                    ref
+                        .read(typographyProvider.notifier)
+                        .updateTitleFontSize(newSize);
+                  },
+                ),
+                Expanded(
+                  child: Slider(
+                    value: typography.titleFontSize,
+                    min: 10.0,
+                    max: 22.0,
+                    divisions: 12,
+                    onChanged: (val) => ref
+                        .read(typographyProvider.notifier)
+                        .updateTitleFontSize(val),
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.add),
+                  onPressed: () {
+                    final newSize = (typography.titleFontSize + 1).clamp(
+                      10.0,
+                      22.0,
+                    );
+                    ref
+                        .read(typographyProvider.notifier)
+                        .updateTitleFontSize(newSize);
+                  },
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  typography.titleFontSize.toStringAsFixed(0),
+                  style: Theme.of(context).textTheme.bodyMedium,
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 24),
+            Text('Font Family', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 10),
+            InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: () => _openFontPicker(context, typography),
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 12,
+                ),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.outline.withOpacity(0.6),
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.font_download_outlined, size: 20),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        _fontLabel(typography),
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    const Icon(Icons.arrow_drop_down),
+                  ],
+                ),
               ),
             ),
-          ),
 
-          const SizedBox(height: 24),
-          const Text(
-            'Theme',
-            style: TextStyle(fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 12),
-          _buildModeSelector(context, themeSettings),
+            const SizedBox(height: 24),
+            const Text('Theme', style: TextStyle(fontWeight: FontWeight.bold)),
+            const SizedBox(height: 12),
+            _buildModeSelector(context, themeSettings),
 
-          const SizedBox(height: 24),
-          SwitchListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Fullscreen Mode'),
-            subtitle: const Text(
-              'Hide top bar and bottom tabs for distraction-free reading',
+            const SizedBox(height: 24),
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Fullscreen Mode'),
+              subtitle: const Text(
+                'Hide top bar and bottom tabs for distraction-free reading',
+              ),
+              value: typography.isFullscreen,
+              onChanged: (_) =>
+                  ref.read(typographyProvider.notifier).toggleFullscreen(),
             ),
-            value: typography.isFullscreen,
-            onChanged: (_) =>
-                ref.read(typographyProvider.notifier).toggleFullscreen(),
-          ),
-          const SizedBox(height: 8),
-        ],
+            const SizedBox(height: 8),
+          ],
+        ),
       ),
-    ),
-  );
+    );
   }
 
   String _fontLabel(TypographySettings typography) {
@@ -267,65 +275,61 @@ class _ReaderSettingsSheetState extends ConsumerState<ReaderSettingsSheet> {
     }
     switch (defaultTargetPlatform) {
       case TargetPlatform.windows:
-      return const [
-        'Segoe UI',
-        'Calibri',
-        'Cambria',
-        'Georgia',
-        'Times New Roman',
-        'Verdana',
-        'Tahoma',
-        'Arial',
-        'Consolas',
-        'Courier New',
-      ];
+        return const [
+          'Segoe UI',
+          'Calibri',
+          'Cambria',
+          'Georgia',
+          'Times New Roman',
+          'Verdana',
+          'Tahoma',
+          'Arial',
+          'Consolas',
+          'Courier New',
+        ];
       case TargetPlatform.macOS:
-      return const [
-        'SF Pro Text',
-        'Helvetica Neue',
-        'Arial',
-        'Georgia',
-        'Times New Roman',
-        'Menlo',
-        'Monaco',
-      ];
+        return const [
+          'SF Pro Text',
+          'Helvetica Neue',
+          'Arial',
+          'Georgia',
+          'Times New Roman',
+          'Menlo',
+          'Monaco',
+        ];
       case TargetPlatform.linux:
-      return const [
-        'Ubuntu',
-        'Cantarell',
-        'DejaVu Sans',
-        'Liberation Sans',
-        'Noto Sans',
-        'Noto Serif',
-        'Noto Sans Tamil',
-        'Noto Serif Tamil',
-        'Monospace',
-      ];
+        return const [
+          'Ubuntu',
+          'Cantarell',
+          'DejaVu Sans',
+          'Liberation Sans',
+          'Noto Sans',
+          'Noto Serif',
+          'Noto Sans Tamil',
+          'Noto Serif Tamil',
+          'Monospace',
+        ];
       case TargetPlatform.android:
-      return const [
-        'Roboto',
-        'Noto Sans',
-        'Noto Serif',
-        'Noto Sans Tamil',
-        'Noto Serif Tamil',
-        'Droid Sans',
-        'Droid Serif',
-      ];
-      case TargetPlatform.iOS:
-      return const [
-        'SF Pro Text',
-        'Helvetica Neue',
-        'Arial',
-        'Georgia',
-        'Times New Roman',
-        'Courier New',
-      ];
-      case TargetPlatform.fuchsia:
         return const [
           'Roboto',
           'Noto Sans',
           'Noto Serif',
+          'Noto Sans Tamil',
+          'Noto Serif Tamil',
+          'Droid Sans',
+          'Droid Serif',
         ];
+      case TargetPlatform.iOS:
+        return const [
+          'SF Pro Text',
+          'Helvetica Neue',
+          'Arial',
+          'Georgia',
+          'Times New Roman',
+          'Courier New',
+        ];
+      case TargetPlatform.fuchsia:
+        return const ['Roboto', 'Noto Sans', 'Noto Serif'];
     }
   }
 
@@ -336,77 +340,93 @@ class _ReaderSettingsSheetState extends ConsumerState<ReaderSettingsSheet> {
     const systemLabel = 'System (Default)';
     const customToken = '__custom__';
     final fonts = _curatedFonts();
-    var query = '';
+    final fontSearchController = TextEditingController();
 
-    final selection = await showDialog<String>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setState) {
-          final filtered = fonts
-              .where(
-                (f) => f.toLowerCase().contains(query.toLowerCase().trim()),
-              )
-              .toList();
+    String? selection;
+    try {
+      selection = await showDialog<String>(
+        context: context,
+        builder: (ctx) => StatefulBuilder(
+          builder: (ctx, setState) {
+            final q = fontSearchController.text.toLowerCase().trim();
+            final filtered = fonts
+                .where((f) => f.toLowerCase().contains(q))
+                .toList();
 
-          return AlertDialog(
-            title: const Text('Choose font'),
-            content: SizedBox(
-              width: 480,
-              height: 420,
-              child: Column(
-                children: [
-                  TextField(
-                    decoration: const InputDecoration(
-                      hintText: 'Search fonts',
-                      prefixIcon: Icon(Icons.search),
-                      border: OutlineInputBorder(),
+            return AlertDialog(
+              title: const Text('Choose font'),
+              content: SizedBox(
+                width: 480,
+                height: 420,
+                child: Column(
+                  children: [
+                    TextField(
+                      controller: fontSearchController,
+                      decoration: InputDecoration(
+                        hintText: 'Search fonts',
+                        prefixIcon: const Icon(Icons.search),
+                        border: const OutlineInputBorder(),
+                        suffixIcon: fontSearchController.text.trim().isNotEmpty
+                            ? IconButton(
+                                icon: const Icon(Icons.clear),
+                                tooltip: 'Clear',
+                                onPressed: () {
+                                  fontSearchController.clear();
+                                  setState(() {});
+                                },
+                              )
+                            : null,
+                      ),
+                      onChanged: (_) => setState(() {}),
                     ),
-                    onChanged: (val) => setState(() => query = val),
-                  ),
-                  const SizedBox(height: 12),
-                  Expanded(
-                    child: ListView(
-                      children: [
-                        ListTile(
-                          title: const Text(systemLabel),
-                          subtitle: const Text('Use device default font'),
-                          trailing: typography.resolvedFontFamily == null
-                              ? const Icon(Icons.check)
-                              : null,
-                          onTap: () => Navigator.pop(ctx, systemLabel),
-                        ),
-                        ListTile(
-                          title: const Text('Custom...'),
-                          subtitle:
-                              const Text('Enter a system font family name'),
-                          onTap: () => Navigator.pop(ctx, customToken),
-                        ),
-                        const Divider(),
-                        ...filtered.map(
-                          (font) => ListTile(
-                            title: Text(font),
-                            trailing: typography.resolvedFontFamily == font
+                    const SizedBox(height: 12),
+                    Expanded(
+                      child: ListView(
+                        children: [
+                          ListTile(
+                            title: const Text(systemLabel),
+                            subtitle: const Text('Use device default font'),
+                            trailing: typography.resolvedFontFamily == null
                                 ? const Icon(Icons.check)
                                 : null,
-                            onTap: () => Navigator.pop(ctx, font),
+                            onTap: () => Navigator.pop(ctx, systemLabel),
                           ),
-                        ),
-                      ],
+                          ListTile(
+                            title: const Text('Custom...'),
+                            subtitle: const Text(
+                              'Enter a system font family name',
+                            ),
+                            onTap: () => Navigator.pop(ctx, customToken),
+                          ),
+                          const Divider(),
+                          ...filtered.map(
+                            (font) => ListTile(
+                              title: Text(font),
+                              trailing: typography.resolvedFontFamily == font
+                                  ? const Icon(Icons.check)
+                                  : null,
+                              onTap: () => Navigator.pop(ctx, font),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('Close'),
-              ),
-            ],
-          );
-        },
-      ),
-    );
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Close'),
+                ),
+              ],
+            );
+          },
+        ),
+      );
+    } finally {
+      fontSearchController.dispose();
+    }
 
     if (selection == null) return;
 
@@ -456,10 +476,7 @@ class _ReaderSettingsSheetState extends ConsumerState<ReaderSettingsSheet> {
     return result?.trim();
   }
 
-  Widget _buildModeSelector(
-    BuildContext context,
-    ThemeSettings settings,
-  ) {
+  Widget _buildModeSelector(BuildContext context, ThemeSettings settings) {
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: Row(

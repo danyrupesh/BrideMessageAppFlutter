@@ -2,8 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../providers/search_provider.dart';
-import '../../reader/models/reader_tab.dart';
-import '../../sermons/providers/sermon_flow_provider.dart';
 import '../../../core/database/models/sermon_search_result.dart';
 import '../../common/widgets/cards.dart';
 import '../../common/widgets/fts_highlight_text.dart';
@@ -39,31 +37,39 @@ class CodResultsTab extends ConsumerWidget {
       separatorBuilder: (_, __) => const Divider(height: 1),
       itemBuilder: (context, index) {
         final SermonSearchResult r = results[index];
+        final subParts = <String>[
+          if (r.paragraphLabel != null && r.paragraphLabel!.trim().isNotEmpty)
+            r.paragraphLabel!.trim(),
+          if (r.paragraphNumber != null) '¶${r.paragraphNumber}',
+        ];
         return SermonResultCard(
           id: r.sermonId,
+          leadingIdOverride: r.displayLeadingId,
           title: r.title,
           date: r.date,
           duration: null,
           location: r.location,
           metaRightBadge: r.year?.toString(),
-          subtitle: r.paragraphNumber != null ? '¶${r.paragraphNumber}' : null,
+          subtitle: subParts.isEmpty ? null : subParts.join(' · '),
           highlightQuery: state.query,
           snippet: r.snippet.trim().isNotEmpty
               ? FtsHighlightText(rawSnippet: r.snippet)
               : null,
           onTap: () {
-            ref.read(sermonFlowProvider.notifier).openSermonForLanguage(
-                  state.languageCode,
-                  ReaderTab(
-                    type: ReaderContentType.sermon,
-                    title: r.title,
-                    sermonId: r.sermonId,
-                    initialSearchQuery: state.query,
-                    initialFocusParagraph: r.paragraphNumber,
-                    openedFromSearch: true,
-                  ),
-                );
-            context.push('/sermon-reader');
+            final lang = state.languageCode;
+            final q = state.query.trim();
+            final qp = <String, String>{
+              'lang': lang,
+              if (r.codAnswerParagraphId != null)
+                'para': '${r.codAnswerParagraphId}',
+              if (q.isNotEmpty) 'q': q,
+            };
+            context.push(
+              Uri(
+                path: '/cod/detail/${Uri.encodeComponent(r.sermonId)}',
+                queryParameters: qp,
+              ).toString(),
+            );
           },
         );
       },

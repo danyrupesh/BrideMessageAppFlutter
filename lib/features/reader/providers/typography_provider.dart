@@ -43,21 +43,108 @@ class TypographySettings {
   }
 }
 
+/// Per-language defaults for body / title / line height (font + fullscreen are global).
+class _LangTypographyDefaults {
+  const _LangTypographyDefaults({
+    required this.fontSize,
+    required this.titleFontSize,
+    required this.lineHeight,
+  });
+
+  final double fontSize;
+  final double titleFontSize;
+  final double lineHeight;
+}
+
 class TypographyNotifier extends Notifier<TypographySettings> {
-  static const _fontSizeKey = 'reader_font_size';
-  static const _titleFontSizeKey = 'reader_title_font_size';
-  static const _lineHeightKey = 'reader_line_height';
+  static const _legacyFontSizeKey = 'reader_font_size';
+  static const _legacyTitleFontSizeKey = 'reader_title_font_size';
+  static const _legacyLineHeightKey = 'reader_line_height';
+
   static const _fontFamilyKey = 'reader_font_family';
   static const _fullscreenKey = 'reader_fullscreen';
+  static const _prefsMigratedKey = 'reader_typography_lang_split_v1';
+
+  static const _en = 'en';
+  static const _ta = 'ta';
+
+  static const _defaultsEn = _LangTypographyDefaults(
+    fontSize: 18.0,
+    titleFontSize: 13.0,
+    lineHeight: 2.0,
+  );
+
+  /// Tamil reader defaults (see product reference).
+  static const _defaultsTa = _LangTypographyDefaults(
+    fontSize: 18.0,
+    titleFontSize: 11.0,
+    lineHeight: 1.8,
+  );
+
+  String _contentLang = _en;
+  String? _loadedForLang;
+
+  int _loadGen = 0;
+
+  static String _fontSizeKey(String lang) => 'reader_font_size_$lang';
+  static String _titleFontSizeKey(String lang) => 'reader_title_font_size_$lang';
+  static String _lineHeightKey(String lang) => 'reader_line_height_$lang';
+
+  static String _normalizeLang(String? raw) =>
+      raw == _ta ? _ta : _en;
+
+  static _LangTypographyDefaults _defaultsFor(String lang) =>
+      lang == _ta ? _defaultsTa : _defaultsEn;
 
   @override
   TypographySettings build() {
-    _load();
-    return TypographySettings();
+    // Persisted values load when the active reader screen calls
+    // [setReaderContentLanguage] (Bible / sermon / COD).
+    return TypographySettings(
+      fontSize: _defaultsEn.fontSize,
+      titleFontSize: _defaultsEn.titleFontSize,
+      lineHeight: _defaultsEn.lineHeight,
+      fontFamily: TypographySettings.systemFontFamily,
+      isFullscreen: false,
+    );
   }
 
-  Future<void> _load() async {
+  /// Call from Bible / sermon / COD screens so size sliders map to the correct language bucket.
+  void setReaderContentLanguage(String rawLang) {
+    final next = _normalizeLang(rawLang);
+    if (next == _contentLang && _loadedForLang == next) return;
+    _contentLang = next;
+    _reloadTypographyForCurrentLang();
+  }
+
+  Future<void> _migrateLegacyPrefsIfNeeded(SharedPreferences prefs) async {
+    if (prefs.getBool(_prefsMigratedKey) == true) return;
+
+    Future<void> copyLegacyToEn(String legacyKey, String enKey) async {
+      final v = prefs.getDouble(legacyKey);
+      if (v != null && prefs.getDouble(enKey) == null) {
+        await prefs.setDouble(enKey, v);
+      }
+    }
+
+    await copyLegacyToEn(_legacyFontSizeKey, _fontSizeKey(_en));
+    await copyLegacyToEn(_legacyTitleFontSizeKey, _titleFontSizeKey(_en));
+    await copyLegacyToEn(_legacyLineHeightKey, _lineHeightKey(_en));
+
+    await prefs.setBool(_prefsMigratedKey, true);
+  }
+
+  Future<void> _reloadTypographyForCurrentLang() async {
+    final gen = ++_loadGen;
     final prefs = await SharedPreferences.getInstance();
+    if (gen != _loadGen) return;
+
+    await _migrateLegacyPrefsIfNeeded(prefs);
+    if (gen != _loadGen) return;
+
+    final lang = _contentLang;
+    final d = _defaultsFor(lang);
+
     final storedFamily = prefs.getString(_fontFamilyKey);
     final normalizedFamily = (storedFamily == null ||
             storedFamily.trim().isEmpty ||
@@ -65,32 +152,37 @@ class TypographyNotifier extends Notifier<TypographySettings> {
             storedFamily == 'Default')
         ? TypographySettings.systemFontFamily
         : storedFamily;
+
     state = TypographySettings(
-      fontSize: prefs.getDouble(_fontSizeKey) ?? 18.0,
-      titleFontSize: prefs.getDouble(_titleFontSizeKey) ?? 13.0,
-      lineHeight: prefs.getDouble(_lineHeightKey) ?? 2.0,
+      fontSize: prefs.getDouble(_fontSizeKey(lang)) ?? d.fontSize,
+      titleFontSize: prefs.getDouble(_titleFontSizeKey(lang)) ?? d.titleFontSize,
+      lineHeight: prefs.getDouble(_lineHeightKey(lang)) ?? d.lineHeight,
       fontFamily: normalizedFamily,
       isFullscreen: prefs.getBool(_fullscreenKey) ?? false,
     );
+    _loadedForLang = lang;
     _applySystemUi(state.isFullscreen);
   }
 
   void updateFontSize(double size) {
     state = state.copyWith(fontSize: size);
+    final lang = _contentLang;
     SharedPreferences.getInstance()
-        .then((prefs) => prefs.setDouble(_fontSizeKey, size));
+        .then((prefs) => prefs.setDouble(_fontSizeKey(lang), size));
   }
 
   void updateTitleFontSize(double size) {
     state = state.copyWith(titleFontSize: size);
+    final lang = _contentLang;
     SharedPreferences.getInstance()
-        .then((prefs) => prefs.setDouble(_titleFontSizeKey, size));
+        .then((prefs) => prefs.setDouble(_titleFontSizeKey(lang), size));
   }
 
   void updateLineHeight(double height) {
     state = state.copyWith(lineHeight: height);
+    final lang = _contentLang;
     SharedPreferences.getInstance()
-        .then((prefs) => prefs.setDouble(_lineHeightKey, height));
+        .then((prefs) => prefs.setDouble(_lineHeightKey(lang), height));
   }
 
   void updateFontFamily(String family) {

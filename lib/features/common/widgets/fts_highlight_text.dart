@@ -59,3 +59,52 @@ class FtsHighlightText extends StatelessWidget {
   }
 }
 
+/// Highlights a plain-text [query] inside [text] (e.g. COD answer body).
+class PlainQueryHighlightText {
+  const PlainQueryHighlightText._();
+
+  static List<InlineSpan> buildHighlightSpans(
+    String text,
+    String? query, {
+    required TextStyle baseStyle,
+    Color highlightBackground = const Color(0xFFFFF59D),
+  }) {
+    final hq = query?.trim();
+    if (hq == null || hq.isEmpty) {
+      return [TextSpan(text: text, style: baseStyle)];
+    }
+    try {
+      final pattern = RegExp(RegExp.escape(hq), caseSensitive: false);
+      final spans = <InlineSpan>[];
+      var start = 0;
+      for (final m in pattern.allMatches(text)) {
+        if (m.start > start) {
+          spans.add(
+            TextSpan(
+              text: text.substring(start, m.start),
+              style: baseStyle,
+            ),
+          );
+        }
+        final matched = m.group(0) ?? '';
+        spans.add(
+          TextSpan(
+            text: matched,
+            style: baseStyle.copyWith(
+              backgroundColor: highlightBackground,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        );
+        start = m.end;
+      }
+      if (start < text.length) {
+        spans.add(TextSpan(text: text.substring(start), style: baseStyle));
+      }
+      return spans.isEmpty ? [TextSpan(text: text, style: baseStyle)] : spans;
+    } catch (_) {
+      return [TextSpan(text: text, style: baseStyle)];
+    }
+  }
+}
+

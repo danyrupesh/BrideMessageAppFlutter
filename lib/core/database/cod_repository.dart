@@ -6,6 +6,7 @@ import 'package:sqlite3/sqlite3.dart' hide Database;
 import 'database_manager.dart';
 import 'fts_query_builder.dart';
 import 'models/cod_models.dart';
+import '../utils/tamil_normalizer.dart';
 
 class CodRepository {
   final DatabaseManager _dbManager;
@@ -459,5 +460,163 @@ class CodRepository {
         .where((v) => v != null && v.isNotEmpty)
         .cast<String>()
         .toList();
+  }
+
+  // ── Common Search: answer-body hits (reliable for Tamil; one row per paragraph)
+
+  static String _escapeSqlLike(String input) {
+    return input
+        .replaceAll(r'\', r'\\')
+        .replaceAll('%', r'\%')
+        .replaceAll('_', r'\_');
+  }
+
+  static String _sqlLikeContains(String token) =>
+      '%${_escapeSqlLike(token)}%';
+
+  /// Searches [answers.plain_text] and returns up to [limit] matching paragraphs.
+  Future<List<CodAnswerSearchHit>> searchAnswerParagraphHits({
+    required String query,
+    int limit = 50,
+    CodSearchMatchMode matchMode = CodSearchMatchMode.allWords,
+  }) async {
+    final raw = query.trim();
+    if (raw.isEmpty) return [];
+
+    final List<String> tokens;
+    switch (matchMode) {
+      case CodSearchMatchMode.phrase:
+        tokens = [raw];
+        break;
+      case CodSearchMatchMode.allWords:
+      case CodSearchMatchMode.anyWord:
+        tokens = raw.split(RegExp(r'\s+')).where((t) => t.isNotEmpty).toList();
+        if (tokens.isEmpty) return [];
+        break;
+    }
+
+    final joiner = matchMode == CodSearchMatchMode.anyWord && tokens.length > 1
+        ? ' OR '
+        : ' AND ';
+    final likeClause = tokens
+        .map(
+          (_) => "COALESCE(a.plain_text, '') LIKE ? ESCAPE '\\'",
+        )
+        .join(joiner);
+
+    final args = <Object?>[
+      for (final t in tokens) _sqlLikeContains(t),
+      limit,
+    ];
+
+    final db = await _openDb();
+    final rows = await db.rawQuery(
+      '''
+      SELECT
+        a.id AS answer_id,
+        a.question_id,
+        a.order_index,
+        a.para_label,
+        a.plain_text,
+        q.title AS qtitle,
+        q.number AS qnumber
+      FROM answers a
+      JOIN questions q ON q.id = a.question_id
+      WHERE $likeClause
+      ORDER BY COALESCE(q.number, 999999) ASC, a.order_index ASC, a.id ASC
+      LIMIT ?
+      ''',
+      args,
+    );
+
+    return rows.map((row) {
+      final plain = row['plain_text'] as String? ?? '';
+      return CodAnswerSearchHit(
+        questionId: row['question_id'] as String,
+        answerParagraphId: row['answer_id'] as int,
+        orderIndex: row['order_index'] as int,
+        paraLabel: row['para_label'] as String?,
+        questionTitle: row['qtitle'] as String? ?? '',
+        questionNumber: row['qnumber'] as int?,
+        snippetHtml: _buildCodAnswerSnippetHtml(plain, raw, matchMode),
+      );
+    }).toList();
+  }
+
+  static String _ellipsizeForHtml(String s, int max) {
+    if (s.length <= max) return s;
+    return '${s.substring(0, max)}…';
+  }
+
+  static int _indexOfQuery(String haystack, String needle) {
+    if (needle.isEmpty) return -1;
+    var i = haystack.indexOf(needle);
+    if (i >= 0) return i;
+    i = haystack.toLowerCase().indexOf(needle.toLowerCase());
+    if (i >= 0) return i;
+    final nh = normalizeTamil(haystack);
+    final nn = normalizeTamil(needle);
+    final j = nh.indexOf(nn);
+    if (j < 0) return -1;
+    if (nh.length == haystack.length) return j;
+    return haystack.indexOf(needle);
+  }
+
+  static (int start, int len)? _matchHighlightRange(
+    String text,
+    String query,
+    CodSearchMatchMode mode,
+  ) {
+    if (query.isEmpty) return null;
+    switch (mode) {
+      case CodSearchMatchMode.phrase:
+        final i = _indexOfQuery(text, query);
+        if (i < 0) return null;
+        return (i, query.length);
+      case CodSearchMatchMode.allWords:
+      case CodSearchMatchMode.anyWord:
+        final words =
+            query.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+        if (words.isEmpty) return null;
+        int? bestStart;
+        var bestLen = 0;
+        for (final w in words) {
+          final i = _indexOfQuery(text, w);
+          if (i >= 0 && (bestStart == null || i < bestStart)) {
+            bestStart = i;
+            bestLen = w.length;
+          }
+        }
+        if (bestStart == null) return null;
+        return (bestStart, bestLen);
+    }
+  }
+
+  static String _buildCodAnswerSnippetHtml(
+    String plainText,
+    String originalQuery,
+    CodSearchMatchMode mode,
+  ) {
+    final text = plainText.replaceAll(RegExp(r'\s+'), ' ').trim();
+    if (text.isEmpty) return '';
+
+    final range = _matchHighlightRange(text, originalQuery.trim(), mode);
+    if (range == null) {
+      return _ellipsizeForHtml(text, 240);
+    }
+    final start = range.$1;
+    final len = range.$2;
+    const r = 88;
+    final a = (start - r).clamp(0, text.length);
+    final b = (start + len + r).clamp(0, text.length);
+    final chunk = text.substring(a, b);
+    final rel = start - a;
+    if (rel + len > chunk.length) {
+      return _ellipsizeForHtml(text, 240);
+    }
+    final before = chunk.substring(0, rel);
+    final mid = chunk.substring(rel, rel + len);
+    final after = chunk.substring(rel + len);
+    return '${a > 0 ? '…' : ''}$before<b>$mid</b>$after${b < text.length ? '…' : ''}';
   }
 }

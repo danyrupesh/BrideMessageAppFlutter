@@ -686,6 +686,11 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     final readerState = ref.watch(readerProvider);
     final typographyState = ref.watch(typographyProvider);
     final activeTab = readerState.activeTab;
+    final bibleReadLang =
+        activeTab?.bibleLang ?? ref.watch(selectedBibleLangProvider) ?? 'en';
+    ref
+        .read(typographyProvider.notifier)
+        .setReaderContentLanguage(bibleReadLang);
     final isFullscreen = typographyState.isFullscreen;
 
     // Clear search state only when the active tab changes and the new tab

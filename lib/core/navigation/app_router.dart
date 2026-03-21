@@ -207,7 +207,16 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         builder: (context, state) {
           final lang = state.uri.queryParameters['lang'] ?? 'en';
           final id = state.pathParameters['id']!;
-          return CodAnswerScreen(lang: lang, id: id);
+          final paraRaw = state.uri.queryParameters['para'];
+          final paraId = int.tryParse(paraRaw ?? '');
+          final qRaw = state.uri.queryParameters['q']?.trim();
+          return CodAnswerScreen(
+            lang: lang,
+            id: id,
+            scrollToAnswerParagraphId: paraId,
+            highlightQuery:
+                (qRaw != null && qRaw.isNotEmpty) ? qRaw : null,
+          );
         },
       ),
     ],

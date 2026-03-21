@@ -75,8 +75,7 @@ class _QuickNavigationSheetState extends ConsumerState<QuickNavigationSheet>
   @override
   void initState() {
     super.initState();
-    _sheetLang =
-        widget.initialLang ?? ref.read(selectedBibleLangProvider);
+    _sheetLang = widget.initialLang ?? ref.read(selectedBibleLangProvider);
     _tabController = TabController(length: 2, vsync: this);
     // Clamp provided initial testament index into [0,1]; default to OT.
     final initialIndex = (widget.initialTestamentIndex ?? 0).clamp(0, 1);
@@ -139,7 +138,9 @@ class _QuickNavigationSheetState extends ConsumerState<QuickNavigationSheet>
         : screenWidth >= 900
         ? 860.0
         : double.infinity;
-    final height = isWide ? min(screenHeight * 0.85, 720.0) : screenHeight * 0.9;
+    final height = isWide
+        ? min(screenHeight * 0.85, 720.0)
+        : screenHeight * 0.9;
 
     final content = Container(
       height: height,
@@ -176,10 +177,7 @@ class _QuickNavigationSheetState extends ConsumerState<QuickNavigationSheet>
 
     return isWide
         ? Center(child: wrapped)
-        : Align(
-            alignment: Alignment.bottomCenter,
-            child: wrapped,
-          );
+        : Align(alignment: Alignment.bottomCenter, child: wrapped);
   }
 
   int _gridColumnsForWidth({
@@ -301,8 +299,7 @@ class _QuickNavigationSheetState extends ConsumerState<QuickNavigationSheet>
   }
 
   Widget _buildTabBar(ThemeData theme) {
-    final isTamil =
-        ref.watch(selectedBibleLangProvider) == 'ta';
+    final isTamil = ref.watch(selectedBibleLangProvider) == 'ta';
     return TabBar(
       controller: _tabController,
       labelColor: theme.colorScheme.primary,
@@ -323,6 +320,16 @@ class _QuickNavigationSheetState extends ConsumerState<QuickNavigationSheet>
         decoration: InputDecoration(
           hintText: 'Search books',
           prefixIcon: const Icon(Icons.search, size: 20),
+          suffixIcon: _searchController.text.isNotEmpty
+              ? IconButton(
+                  icon: const Icon(Icons.clear, size: 20),
+                  tooltip: 'Clear',
+                  onPressed: () {
+                    _searchController.clear();
+                    setState(() {});
+                  },
+                )
+              : null,
           isDense: true,
           contentPadding: const EdgeInsets.symmetric(
             vertical: 8,
@@ -766,9 +773,7 @@ class _BookTile extends StatelessWidget {
     // meaningful prefixes like "லேவி", "2 தீமோ".
     if (isTamil) {
       // Explicit overrides for a few important books if needed.
-      const overrides = <String, String>{
-        'லேவியராகமம்': 'லேவி',
-      };
+      const overrides = <String, String>{'லேவியராகமம்': 'லேவி'};
       if (overrides.containsKey(trimmed)) {
         return overrides[trimmed]!;
       }

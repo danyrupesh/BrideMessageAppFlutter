@@ -5,13 +5,14 @@ import '../../../core/database/bible_repository.dart';
 import '../../../core/database/database_manager.dart';
 import '../../../core/database/models/bible_search_result.dart';
 import '../../../core/database/sermon_repository.dart';
-import '../../../core/database/models/sermon_models.dart';
 import '../../../core/database/models/sermon_search_result.dart';
+import '../../../core/database/models/cod_models.dart'
+    show CodAnswerSearchHit, CodSearchMatchMode;
+import '../../cod/providers/cod_provider.dart';
 import '../../../core/database/hymn_repository.dart';
 import '../../../core/database/models/hymn_models.dart';
 import '../../../core/database/metadata/installed_content_provider.dart';
 import '../../../core/database/metadata/installed_database_model.dart';
-import '../../../core/utils/tamil_normalizer.dart';
 import 'search_history_provider.dart';
 
 // ─── Enums ────────────────────────────────────────────────────────────────────
@@ -290,47 +291,18 @@ class SearchNotifier extends Notifier<SearchState> {
       }
 
       if (state.activeTab == SearchTab.cod) {
-        final repo = await ref.read(sermonRepoForLangProvider(lang).future);
-        if (repo != null) {
-          final prefix = _codTitlePrefix(lang);
-          final matches = await repo.searchSermons(
-            query: query,
-            limit: 80,
-            offset: 0,
-            exactMatch: isExact,
-            anyWord: isAny,
-            prefixOnly: isPrefix,
-            accurateMatch: state.matchMode == MatchMode.accurate,
-            sortOrder: state.sortOrder.name,
-            titlePrefix: prefix,
-          );
-          var filtered =
-              matches.where((m) => _isCodTitle(m.title, lang)).toList();
-          if (filtered.isEmpty) {
-            final fallback = await repo.searchSermons(
-              query: query,
-              limit: 80,
-              offset: 0,
-              exactMatch: isExact,
-              anyWord: isAny,
-              prefixOnly: isPrefix,
-              accurateMatch: state.matchMode == MatchMode.accurate,
-              sortOrder: state.sortOrder.name,
-            );
-            filtered = fallback.where((m) => _isCodTitle(m.title, lang)).toList();
-          }
-          if (state.query == query) {
-            state = state.copyWith(
-              isLoading: false,
-              codResults: filtered.length > 50
-                  ? filtered.sublist(0, 50)
-                  : filtered,
-            );
-            ref.read(searchHistoryProvider.notifier).addQuery(query);
-          }
-          return;
+        final repo = ref.read(codRepositoryProvider(lang));
+        final hits = await repo.searchAnswerParagraphHits(
+          query: query,
+          limit: 50,
+          matchMode: _codSearchMatchMode(state.searchType),
+        );
+        final mapped =
+            hits.map((h) => _codAnswerHitToSermonResult(h, lang)).toList();
+        if (state.query == query) {
+          state = state.copyWith(isLoading: false, codResults: mapped);
+          ref.read(searchHistoryProvider.notifier).addQuery(query);
         }
-        if (state.query == query) state = state.copyWith(isLoading: false);
         return;
       }
 
@@ -365,44 +337,39 @@ class SearchNotifier extends Notifier<SearchState> {
     }
   }
 
-  String _codTitlePrefix(String lang) {
-    return lang == 'ta' ? 'கேள்வி' : 'Question';
-  }
-
-  bool _isCodTitle(String title, String lang) {
-    final prefix = _codTitlePrefix(lang);
-    if (lang == 'ta') {
-      final normalizedTitle = normalizeTamil(title).trim();
-      final normalizedPrefix = normalizeTamil(prefix).trim();
-      return normalizedTitle.startsWith(normalizedPrefix);
+  CodSearchMatchMode _codSearchMatchMode(SearchType t) {
+    switch (t) {
+      case SearchType.exact:
+        return CodSearchMatchMode.phrase;
+      case SearchType.any:
+        return CodSearchMatchMode.anyWord;
+      case SearchType.all:
+      case SearchType.prefix:
+        return CodSearchMatchMode.allWords;
     }
-    return title.toLowerCase().startsWith(prefix.toLowerCase());
   }
 
-  bool _titleContainsQuery(String title, String query, String lang) {
-    if (query.isEmpty) return true;
-    if (lang == 'ta') {
-      final normalizedTitle = normalizeTamil(title).trim();
-      final normalizedQuery = normalizeTamil(query).trim();
-      return normalizedTitle.contains(normalizedQuery);
-    }
-    return title.toLowerCase().contains(query.toLowerCase());
-  }
-
-  SermonSearchResult _toSearchResult(SermonEntity sermon) {
+  SermonSearchResult _codAnswerHitToSermonResult(
+    CodAnswerSearchHit h,
+    String lang,
+  ) {
+    final qn = h.questionNumber;
     return SermonSearchResult(
-      sermonId: sermon.id,
-      title: sermon.title,
-      language: sermon.language,
-      date: sermon.date,
-      year: sermon.year,
-      location: sermon.location,
-      paragraphNumber: null,
-      paragraphLabel: null,
-      snippet: '',
+      sermonId: h.questionId,
+      title: h.questionTitle,
+      language: lang,
+      date: null,
+      year: null,
+      location: null,
+      paragraphNumber: h.orderIndex,
+      paragraphLabel: h.paraLabel,
+      snippet: h.snippetHtml,
       rank: null,
+      codAnswerParagraphId: h.answerParagraphId,
+      displayLeadingId: qn != null ? 'q$qn' : null,
     );
   }
+
 }
 
 final searchProvider = NotifierProvider<SearchNotifier, SearchState>(() {

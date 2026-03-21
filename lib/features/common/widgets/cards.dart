@@ -86,6 +86,8 @@ class SermonResultCard extends StatelessWidget {
   final String? metaRightBadge;
   final String? subtitle;
   final String? highlightQuery;
+  /// When set (e.g. COD `q38`), shown instead of [id] in the leading column.
+  final String? leadingIdOverride;
   final VoidCallback? onTap;
   final VoidCallback? onDoubleTap;
   final VoidCallback? onLongPress;
@@ -101,6 +103,7 @@ class SermonResultCard extends StatelessWidget {
     this.metaRightBadge,
     this.subtitle,
     this.highlightQuery,
+    this.leadingIdOverride,
     this.onTap,
     this.onDoubleTap,
     this.onLongPress,
@@ -132,7 +135,7 @@ class SermonResultCard extends StatelessWidget {
               Row(
                 children: [
                   Text(
-                    id,
+                    leadingIdOverride ?? id,
                     style: theme.textTheme.bodyMedium?.copyWith(
                       fontWeight: FontWeight.w600,
                       color: theme.colorScheme.primary,

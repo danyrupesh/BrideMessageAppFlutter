@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
@@ -658,6 +657,9 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     return count;
   }
 
+  /// Height of [_buildSermonNavRow] (padding + compact buttons); keep in sync with UI.
+  static const double _kSermonNavRowHeight = 44;
+
   double _estimatedOffsetForIndex(int index) {
     if (!_scrollController.hasClients || _verseKeys.isEmpty) return 0;
     final max = _scrollController.position.maxScrollExtent;
@@ -666,58 +668,57 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     return offset.clamp(0.0, max).toDouble();
   }
 
-  Future<void> _alignItemNearTop(
-    int index, {
-    double desiredTopPx = 120,
-  }) async {
+  /// Places the paragraph [index] just below the app bar + in-reader nav row,
+  /// using global coordinates (independent of font size / line height).
+  void _jumpAlignParagraphUnderBars(int index) {
     if (!_scrollController.hasClients ||
         index < 0 ||
         index >= _verseKeys.length) {
       return;
     }
+    if (!mounted) return;
     final ctx = _verseKeys[index].currentContext;
     if (ctx == null) return;
-    final scrollableState = Scrollable.of(ctx);
-    final targetRender = ctx.findRenderObject();
-    final viewportRender = scrollableState.context.findRenderObject();
-    if (targetRender is! RenderBox || viewportRender is! RenderBox) return;
+    final box = ctx.findRenderObject();
+    if (box is! RenderBox || !box.hasSize) return;
 
-    final current = _scrollController.offset;
-    final targetTopInViewport = targetRender.localToGlobal(
-      Offset.zero,
-      ancestor: viewportRender,
-    ).dy;
-    final delta = targetTopInViewport - desiredTopPx;
+    final media = MediaQuery.of(context);
+    final targetScreenY =
+        media.padding.top + kToolbarHeight + _kSermonNavRowHeight;
+    final topOffset = box.localToGlobal(Offset.zero).dy;
+    final delta = topOffset - targetScreenY;
     if (delta.abs() < 2) return;
 
-    final nextOffset = (current + delta).clamp(
+    final nextOffset = (_scrollController.offset + delta).clamp(
       0.0,
       _scrollController.position.maxScrollExtent,
     );
-    await _scrollController.animateTo(
-      nextOffset.toDouble(),
-      duration: const Duration(milliseconds: 160),
-      curve: Curves.easeOut,
-    );
+    _scrollController.jumpTo(nextOffset.toDouble());
   }
 
-  void _scrollToCurrentMatch({int retryCount = 0}) {
+  void _scrollToCurrentMatch({
+    int retryCount = 0,
+    bool instantScroll = false,
+  }) {
     if (_matchVerseIndices.isEmpty) return;
     final vi = _matchVerseIndices[_currentMatchIndex];
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
+      final ensureDuration = instantScroll
+          ? Duration.zero
+          : const Duration(milliseconds: 300);
       if (vi < _verseKeys.length) {
         final ctx = _verseKeys[vi].currentContext;
         if (ctx != null) {
           await Scrollable.ensureVisible(
             ctx,
-            duration: const Duration(milliseconds: 300),
+            duration: ensureDuration,
             curve: Curves.easeInOut,
             alignment: 0.12,
             alignmentPolicy: ScrollPositionAlignmentPolicy.explicit,
           );
           if (!mounted) return;
-          await _alignItemNearTop(vi);
+          _jumpAlignParagraphUnderBars(vi);
           return;
         }
       }
@@ -726,17 +727,24 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
         final current = _scrollController.offset;
         // Nudge toward target so item can build, then resolve via ensureVisible.
         if ((estimated - current).abs() > 8) {
-          await _scrollController.animateTo(
-            estimated,
-            duration: const Duration(milliseconds: 140),
-            curve: Curves.easeOut,
-          );
+          if (instantScroll) {
+            _scrollController.jumpTo(estimated);
+          } else {
+            await _scrollController.animateTo(
+              estimated,
+              duration: const Duration(milliseconds: 140),
+              curve: Curves.easeOut,
+            );
+          }
         }
       }
       if (retryCount >= 8) return;
       Future<void>.delayed(const Duration(milliseconds: 16), () {
         if (!mounted) return;
-        _scrollToCurrentMatch(retryCount: retryCount + 1);
+        _scrollToCurrentMatch(
+          retryCount: retryCount + 1,
+          instantScroll: instantScroll,
+        );
       });
     });
   }
@@ -780,38 +788,53 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     }
   }
 
-  void _scrollToParagraphIndex(int index, {int retryCount = 0}) {
+  void _scrollToParagraphIndex(
+    int index, {
+    int retryCount = 0,
+    bool instantScroll = false,
+  }) {
     if (index < 0 || _verseKeys.isEmpty || index >= _verseKeys.length) return;
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
+      final ensureDuration = instantScroll
+          ? Duration.zero
+          : const Duration(milliseconds: 300);
       final ctx = _verseKeys[index].currentContext;
       if (ctx != null) {
         await Scrollable.ensureVisible(
           ctx,
-          duration: const Duration(milliseconds: 300),
+          duration: ensureDuration,
           curve: Curves.easeInOut,
           alignment: 0.12,
           alignmentPolicy: ScrollPositionAlignmentPolicy.explicit,
         );
         if (!mounted) return;
-        await _alignItemNearTop(index);
+        _jumpAlignParagraphUnderBars(index);
         return;
       }
       if (_scrollController.hasClients) {
         final estimated = _estimatedOffsetForIndex(index);
         final current = _scrollController.offset;
         if ((estimated - current).abs() > 8) {
-          await _scrollController.animateTo(
-            estimated,
-            duration: const Duration(milliseconds: 140),
-            curve: Curves.easeOut,
-          );
+          if (instantScroll) {
+            _scrollController.jumpTo(estimated);
+          } else {
+            await _scrollController.animateTo(
+              estimated,
+              duration: const Duration(milliseconds: 140),
+              curve: Curves.easeOut,
+            );
+          }
         }
       }
       if (retryCount >= 8) return;
       Future<void>.delayed(const Duration(milliseconds: 16), () {
         if (!mounted) return;
-        _scrollToParagraphIndex(index, retryCount: retryCount + 1);
+        _scrollToParagraphIndex(
+          index,
+          retryCount: retryCount + 1,
+          instantScroll: instantScroll,
+        );
       });
     });
   }
@@ -838,7 +861,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
       if (exactMatchIndex != -1) {
         setState(() => _currentMatchIndex = exactMatchIndex);
         _initialSearchScrollTabId = tab.id;
-        _scrollToCurrentMatch();
+        _scrollToCurrentMatch(instantScroll: true);
         return;
       }
 
@@ -857,18 +880,18 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
         }
         setState(() => _currentMatchIndex = nearestMatchListIndex);
         _initialSearchScrollTabId = tab.id;
-        _scrollToCurrentMatch();
+        _scrollToCurrentMatch(instantScroll: true);
         return;
       }
 
       _initialSearchScrollTabId = tab.id;
-      _scrollToParagraphIndex(focusIndex);
+      _scrollToParagraphIndex(focusIndex, instantScroll: true);
       return;
     }
 
     if (_matchVerseIndices.isNotEmpty) {
       _initialSearchScrollTabId = tab.id;
-      _scrollToCurrentMatch();
+      _scrollToCurrentMatch(instantScroll: true);
     }
   }
 
@@ -1399,6 +1422,14 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     final flowState = ref.watch(sermonFlowProvider);
     final typographyState = ref.watch(typographyProvider);
     final activeTab = flowState.activeTab;
+    final sermonLang = ref.watch(selectedSermonLangProvider);
+    final bibleLangFallback = ref.watch(selectedBibleLangProvider);
+    final readerTypographyLang = activeTab?.type == ReaderContentType.bible
+        ? (activeTab?.bibleLang ?? bibleLangFallback)
+        : sermonLang;
+    ref
+        .read(typographyProvider.notifier)
+        .setReaderContentLanguage(readerTypographyLang);
     final isFullscreen = typographyState.isFullscreen;
      final openedFromSearch = activeTab?.openedFromSearch ?? false;
 
@@ -2361,26 +2392,27 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
               ),
               onPressed: () => _openAdjacentSermon(-1),
             ),
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _NavIconButton(
-                label: 'BM',
-                icon: Icons.view_week,
-                isActive: bmMode,
-                onPressed: () =>
-                    ref.read(sermonFlowProvider.notifier).setBmMode(true),
-              ),
-              const SizedBox(width: 8),
-              _NavIconButton(
-                label: 'M',
-                icon: Icons.import_contacts,
-                isActive: !bmMode,
-                onPressed: () =>
-                    ref.read(sermonFlowProvider.notifier).setBmMode(false),
-              ),
-            ],
-          ),
+          if (!_isSearching)
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _NavIconButton(
+                  label: 'BM',
+                  icon: Icons.view_week,
+                  isActive: bmMode,
+                  onPressed: () =>
+                      ref.read(sermonFlowProvider.notifier).setBmMode(true),
+                ),
+                const SizedBox(width: 8),
+                _NavIconButton(
+                  label: 'M',
+                  icon: Icons.import_contacts,
+                  isActive: !bmMode,
+                  onPressed: () =>
+                      ref.read(sermonFlowProvider.notifier).setBmMode(false),
+                ),
+              ],
+            ),
           if (!bmMode)
             TextButton.icon(
               icon: const Icon(Icons.chevron_right, size: 18),

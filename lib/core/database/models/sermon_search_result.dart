@@ -10,6 +10,12 @@ class SermonSearchResult {
   final String snippet;
   final double? rank;
 
+  /// COD: `answers.id` — deep-link scroll target on the answer screen.
+  final int? codAnswerParagraphId;
+
+  /// COD (and similar): short label for the list row (e.g. `q38`).
+  final String? displayLeadingId;
+
   SermonSearchResult({
     required this.sermonId,
     required this.title,
@@ -21,6 +27,8 @@ class SermonSearchResult {
     this.paragraphLabel,
     required this.snippet,
     this.rank,
+    this.codAnswerParagraphId,
+    this.displayLeadingId,
   });
 
   factory SermonSearchResult.fromMap(Map<String, dynamic> map) {
@@ -35,6 +43,8 @@ class SermonSearchResult {
       paragraphLabel: map['paragraph_label'] as String?,
       snippet: map['highlighted'] as String? ?? map['text'] as String,
       rank: map['rank'] != null ? (map['rank'] as num).toDouble() : null,
+      codAnswerParagraphId: map['cod_answer_paragraph_id'] as int?,
+      displayLeadingId: map['display_leading_id'] as String?,
     );
   }
 }
