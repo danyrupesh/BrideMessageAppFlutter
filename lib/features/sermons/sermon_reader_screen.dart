@@ -44,11 +44,7 @@ class _AppBarChip extends StatelessWidget {
   final IconData? icon;
   final VoidCallback onTap;
 
-  const _AppBarChip({
-    required this.label,
-    required this.onTap,
-    this.icon,
-  });
+  const _AppBarChip({required this.label, required this.onTap, this.icon});
 
   @override
   Widget build(BuildContext context) {
@@ -87,14 +83,11 @@ class _AppBarChip extends StatelessWidget {
 class SermonReaderScreen extends ConsumerStatefulWidget {
   const SermonReaderScreen({super.key});
 
-
   @override
   ConsumerState<SermonReaderScreen> createState() => _SermonReaderScreenState();
-
-
 }
+
 class SermonSelectionWidget extends StatefulWidget {
-  
   final TextSpan combinedSpan;
   final ScrollController scrollController;
 
@@ -133,7 +126,10 @@ class _SermonSelectionWidgetState extends State<SermonSelectionWidget> {
               elevation: 6,
               borderRadius: BorderRadius.circular(12),
               child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
                 decoration: BoxDecoration(
                   color: Colors.black,
                   borderRadius: BorderRadius.circular(12),
@@ -146,7 +142,10 @@ class _SermonSelectionWidgetState extends State<SermonSelectionWidget> {
                         Clipboard.setData(ClipboardData(text: selectedText!));
                         _removePopover();
                       },
-                      child: const Text("Copy", style: TextStyle(color: Colors.white)),
+                      child: const Text(
+                        "Copy",
+                        style: TextStyle(color: Colors.white),
+                      ),
                     ),
                     const SizedBox(width: 8),
                     TextButton(
@@ -154,7 +153,10 @@ class _SermonSelectionWidgetState extends State<SermonSelectionWidget> {
                         // TODO: integrate share
                         _removePopover();
                       },
-                      child: const Text("Share", style: TextStyle(color: Colors.white)),
+                      child: const Text(
+                        "Share",
+                        style: TextStyle(color: Colors.white),
+                      ),
                     ),
                   ],
                 ),
@@ -213,9 +215,7 @@ class _SermonSelectionWidgetState extends State<SermonSelectionWidget> {
           child: SingleChildScrollView(
             controller: widget.scrollController,
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: RichText(
-              text: widget.combinedSpan,
-            ),
+            child: RichText(text: widget.combinedSpan),
           ),
         ),
       ),
@@ -224,13 +224,16 @@ class _SermonSelectionWidgetState extends State<SermonSelectionWidget> {
 }
 
 class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
+  static const int _allSermonsPageSize = 30;
+
   // ── Scroll controller (preserves position across fullscreen toggle) ────────
   final ScrollController _scrollController = ScrollController();
 
   // ── In-page search ────────────────────────────────────────────────────────
   bool _isSearching = false;
   final TextEditingController _searchController = TextEditingController();
-  String? _lastSearchActivatedTabId; // Track which tab had search auto-activated
+  String?
+  _lastSearchActivatedTabId; // Track which tab had search auto-activated
   List<GlobalKey> _verseKeys = [];
   List<int> _matchVerseIndices = [];
   int _currentMatchIndex = 0;
@@ -249,6 +252,10 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
   SearchType _sermonSearchType = SearchType.all;
   List<SermonSearchResult> _allSermonResults = [];
   bool _allSermonSearchLoading = false;
+  bool _allSermonSearchLoadingMore = false;
+  bool _allSermonHasMore = false;
+  Timer? _allSermonSearchDebounce;
+  int _allSermonSearchRequestId = 0;
   String? _lastActiveTabId;
   String? _initialSearchScrollTabId;
 
@@ -277,7 +284,8 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     _searchKeyHandler = (event) {
       if (!_isSearching) return false;
       if (event is! KeyDownEvent) return false;
-      final isEnter = event.logicalKey == LogicalKeyboardKey.enter ||
+      final isEnter =
+          event.logicalKey == LogicalKeyboardKey.enter ||
           event.logicalKey == LogicalKeyboardKey.numpadEnter;
       if (!isEnter) return false;
       if (_searchAllSermons || _totalMatches == 0) return true;
@@ -298,6 +306,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     _bmBibleScrollController.dispose();
     _searchController.dispose();
     _searchFieldFocusNode.dispose();
+    _allSermonSearchDebounce?.cancel();
     HardwareKeyboard.instance.removeHandler(_searchKeyHandler);
     super.dispose();
   }
@@ -400,7 +409,9 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     if (!isBmMode) {
       ref.read(sermonFlowProvider.notifier).setBmMode(true);
     }
-    ref.read(sermonFlowProvider.notifier).upsertBmBibleTab(
+    ref
+        .read(sermonFlowProvider.notifier)
+        .upsertBmBibleTab(
           bibleTab: newTab,
           openInNewTab: result['newTab'] == true,
         );
@@ -444,10 +455,9 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     );
 
     if (isBm) {
-      ref.read(sermonFlowProvider.notifier).upsertBmBibleTab(
-            bibleTab: newTab,
-            openInNewTab: false,
-          );
+      ref
+          .read(sermonFlowProvider.notifier)
+          .upsertBmBibleTab(bibleTab: newTab, openInNewTab: false);
     } else if (tabIndex != null) {
       ref.read(sermonFlowProvider.notifier).replaceBibleTab(tabIndex, newTab);
     }
@@ -505,7 +515,9 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
       maxWidth: 720,
       builder: (ctx) => SermonQuickNavSheet(
         onSelected: (sermon) {
-          ref.read(sermonFlowProvider.notifier).replaceSermonTab(
+          ref
+              .read(sermonFlowProvider.notifier)
+              .replaceSermonTab(
                 tabIndex,
                 ReaderTab(
                   type: ReaderContentType.sermon,
@@ -530,34 +542,76 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
 
   // ── All-Sermons FTS search ────────────────────────────────────────────────
 
-  Future<void> _triggerAllSermonSearch() async {
+  Future<void> _triggerAllSermonSearch({bool append = false}) async {
+    final requestId = ++_allSermonSearchRequestId;
     final q = _searchController.text.trim();
     if (q.length < 2) {
       setState(() {
         _allSermonResults = [];
         _allSermonSearchLoading = false;
+        _allSermonSearchLoadingMore = false;
+        _allSermonHasMore = false;
       });
       return;
     }
-    setState(() => _allSermonSearchLoading = true);
+
+    if (append && !_allSermonHasMore) return;
+
+    setState(() {
+      if (append) {
+        _allSermonSearchLoadingMore = true;
+      } else {
+        _allSermonSearchLoading = true;
+      }
+    });
     try {
       final repo = await ref.read(sermonRepositoryProvider.future);
-      final results = await repo.searchSermons(
-        query: q,
-        limit: 50,
-        offset: 0,
-        exactMatch: _sermonSearchType == SearchType.exact,
-        anyWord: _sermonSearchType == SearchType.any,
-      );
+      final results = await repo
+          .searchSermons(
+            query: q,
+            limit: _allSermonsPageSize,
+            offset: append ? _allSermonResults.length : 0,
+            exactMatch: _sermonSearchType == SearchType.exact,
+            anyWord: _sermonSearchType == SearchType.any,
+          )
+          .timeout(const Duration(seconds: 12));
+      if (requestId != _allSermonSearchRequestId) return;
       if (mounted) {
         setState(() {
-          _allSermonResults = results;
+          _allSermonResults = append
+              ? <SermonSearchResult>[..._allSermonResults, ...results]
+              : results;
+          _allSermonHasMore = results.length == _allSermonsPageSize;
           _allSermonSearchLoading = false;
+          _allSermonSearchLoadingMore = false;
         });
       }
     } catch (_) {
-      if (mounted) setState(() => _allSermonSearchLoading = false);
+      if (requestId != _allSermonSearchRequestId) return;
+      if (mounted) {
+        setState(() {
+          _allSermonSearchLoading = false;
+          _allSermonSearchLoadingMore = false;
+        });
+      }
     }
+  }
+
+  void _scheduleAllSermonSearch({bool immediate = false}) {
+    _allSermonSearchDebounce?.cancel();
+    if (immediate) {
+      _triggerAllSermonSearch();
+      return;
+    }
+    _allSermonSearchDebounce = Timer(const Duration(milliseconds: 300), () {
+      if (!mounted) return;
+      _triggerAllSermonSearch();
+    });
+  }
+
+  void _loadMoreAllSermons() {
+    _allSermonSearchDebounce?.cancel();
+    _triggerAllSermonSearch(append: true);
   }
 
   void _openSermonFromResult(SermonSearchResult result) {
@@ -577,6 +631,8 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
       _searchController.clear();
       _clearMatches();
       _allSermonResults = [];
+      _allSermonHasMore = false;
+      _allSermonSearchLoadingMore = false;
       _currentParagraphs = [];
     });
   }
@@ -696,10 +752,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     _scrollController.jumpTo(nextOffset.toDouble());
   }
 
-  void _scrollToCurrentMatch({
-    int retryCount = 0,
-    bool instantScroll = false,
-  }) {
+  void _scrollToCurrentMatch({int retryCount = 0, bool instantScroll = false}) {
     if (_matchVerseIndices.isEmpty) return;
     final vi = _matchVerseIndices[_currentMatchIndex];
     WidgetsBinding.instance.addPostFrameCallback((_) async {
@@ -856,8 +909,9 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     }
 
     if (focusIndex != null) {
-      final exactMatchIndex =
-          _matchVerseIndices.indexWhere((idx) => idx == focusIndex);
+      final exactMatchIndex = _matchVerseIndices.indexWhere(
+        (idx) => idx == focusIndex,
+      );
       if (exactMatchIndex != -1) {
         setState(() => _currentMatchIndex = exactMatchIndex);
         _initialSearchScrollTabId = tab.id;
@@ -869,8 +923,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
         // Some DB snippets can report a nearby paragraph number; choose the
         // closest actual match so the highlighted result is visible immediately.
         var nearestMatchListIndex = 0;
-        var nearestDistance =
-            (_matchVerseIndices.first - focusIndex).abs();
+        var nearestDistance = (_matchVerseIndices.first - focusIndex).abs();
         for (var i = 1; i < _matchVerseIndices.length; i++) {
           final distance = (_matchVerseIndices[i] - focusIndex).abs();
           if (distance < nearestDistance) {
@@ -989,60 +1042,59 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     );
     final lang = ref.read(selectedSermonLangProvider);
     final sermonId = sermonTab.sermonId ?? '';
-    final deepLink = 'https://endtimebride.in/appshare/sermon?id=$sermonId&lang=$lang';
+    final deepLink =
+        'https://endtimebride.in/appshare/sermon?id=$sermonId&lang=$lang';
 
     SharePlus.instance.share(
-      ShareParams(text: '$fullText\n\n🔗 Open in Bride Message App:\n$deepLink'),
+      ShareParams(
+        text: '$fullText\n\n🔗 Open in Bride Message App:\n$deepLink',
+      ),
     );
     setState(() => _activeSelectionText = null);
   }
 
+  // ── PDF generation (Sermon) ──────────────────────────────────────────────
 
-// ── PDF generation (Sermon) ──────────────────────────────────────────────
+  Future<pw.Document> _buildSermonPdf() async {
+    final flowState = ref.read(sermonFlowProvider);
+    final activeTab = flowState.activeTab;
+    final lang = ref.read(selectedSermonLangProvider);
 
- Future<pw.Document> _buildSermonPdf() async {
-  final flowState = ref.read(sermonFlowProvider);
-  final activeTab = flowState.activeTab;
-  final lang = ref.read(selectedSermonLangProvider);
+    SermonEntity sermon;
 
-  SermonEntity sermon;
+    if (activeTab?.sermonId != null) {
+      try {
+        // Load sermon directly from the repository instead of via FutureProvider
+        final repo = await ref.read(sermonRepositoryProvider.future);
+        final loaded = await repo.getSermonById(activeTab!.sermonId!);
 
-  if (activeTab?.sermonId != null) {
-    try {
-      // Load sermon directly from the repository instead of via FutureProvider
-      final repo = await ref.read(sermonRepositoryProvider.future);
-      final loaded = await repo.getSermonById(activeTab!.sermonId!);
-
-      sermon = loaded ??
-          SermonEntity(
-            id: activeTab.sermonId!,
-            title: activeTab.title,
-            language: lang,
-          );
-    } catch (_) {
+        sermon =
+            loaded ??
+            SermonEntity(
+              id: activeTab.sermonId!,
+              title: activeTab.title,
+              language: lang,
+            );
+      } catch (_) {
+        sermon = SermonEntity(
+          id: activeTab!.sermonId!,
+          title: activeTab.title,
+          language: lang,
+        );
+      }
+    } else {
       sermon = SermonEntity(
-        id: activeTab!.sermonId!,
-        title: activeTab.title,
+        id: activeTab?.title ?? 'sermon',
+        title: activeTab?.title ?? 'Sermon',
         language: lang,
       );
     }
-  } else {
-    sermon = SermonEntity(
-      id: activeTab?.title ?? 'sermon',
-      title: activeTab?.title ?? 'Sermon',
-      language: lang,
-    );
+
+    return buildTamilSermonPdf(sermon: sermon, paragraphs: _currentParagraphs);
   }
 
-  return buildTamilSermonPdf(
-    sermon: sermon,
-    paragraphs: _currentParagraphs,
-  );
-}
-
   String _sanitizePdfName(String raw) {
-    final cleaned =
-        raw.replaceAll(RegExp(r'[<>:"/\\\\|?*]'), '-').trim();
+    final cleaned = raw.replaceAll(RegExp(r'[<>:"/\\\\|?*]'), '-').trim();
     return cleaned.isEmpty ? 'Document' : cleaned;
   }
 
@@ -1051,9 +1103,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     showDialog<void>(
       context: context,
       barrierDismissible: false,
-      builder: (ctx) => const Center(
-        child: CircularProgressIndicator(),
-      ),
+      builder: (ctx) => const Center(child: CircularProgressIndicator()),
     );
     try {
       await task();
@@ -1162,18 +1212,20 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
   }
 
   String _sanitizeTextName(String raw) {
-    final cleaned =
-        raw.replaceAll(RegExp(r'[<>:"/\\\\|?*]'), '-').trim();
+    final cleaned = raw.replaceAll(RegExp(r'[<>:"/\\\\|?*]'), '-').trim();
     return cleaned.isEmpty ? 'Document' : cleaned;
   }
 
   String _buildSermonText() {
     if (_currentParagraphs.isEmpty) return '';
-    return _currentParagraphs.map((p) {
-      final prefix =
-          (p.paragraphNumber != null) ? '${p.paragraphNumber} ' : '';
-      return '$prefix${p.text}';
-    }).join('\n\n');
+    return _currentParagraphs
+        .map((p) {
+          final prefix = (p.paragraphNumber != null)
+              ? '${p.paragraphNumber} '
+              : '';
+          return '$prefix${p.text}';
+        })
+        .join('\n\n');
   }
 
   Future<void> _downloadSermonText() async {
@@ -1394,8 +1446,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
               for (final idx in markers)
                 Positioned(
                   right: 0,
-                  top: ((idx / (itemCount - 1)) *
-                          (height - markerHeight))
+                  top: ((idx / (itemCount - 1)) * (height - markerHeight))
                       .clamp(0.0, height - markerHeight),
                   child: Container(
                     width: markerWidth,
@@ -1431,7 +1482,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
         .read(typographyProvider.notifier)
         .setReaderContentLanguage(readerTypographyLang);
     final isFullscreen = typographyState.isFullscreen;
-     final openedFromSearch = activeTab?.openedFromSearch ?? false;
+    final openedFromSearch = activeTab?.openedFromSearch ?? false;
 
     // Clear search state if tab changed and doesn't have initialSearchQuery
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1467,9 +1518,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
           actions: {
             _NextMatchIntent: CallbackAction<_NextMatchIntent>(
               onInvoke: (intent) {
-                if (_isSearching &&
-                    !_searchAllSermons &&
-                    _totalMatches > 0) {
+                if (_isSearching && !_searchAllSermons && _totalMatches > 0) {
                   _navigateToMatch(1);
                 }
                 return null;
@@ -1477,9 +1526,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
             ),
             _PrevMatchIntent: CallbackAction<_PrevMatchIntent>(
               onInvoke: (intent) {
-                if (_isSearching &&
-                    !_searchAllSermons &&
-                    _totalMatches > 0) {
+                if (_isSearching && !_searchAllSermons && _totalMatches > 0) {
                   _navigateToMatch(-1);
                 }
                 return null;
@@ -1497,17 +1544,17 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
                 appBar: isFullscreen
                     ? null
                     : (_isSearching
-                        ? _buildSearchAppBar(
-                            context,
-                            openedFromSearch: openedFromSearch,
-                          )
-                        : _buildDefaultAppBar(
-                            context,
-                            activeTab,
-                            flowState,
-                            typographyState,
-                            openedFromSearch: openedFromSearch,
-                          )),
+                          ? _buildSearchAppBar(
+                              context,
+                              openedFromSearch: openedFromSearch,
+                            )
+                          : _buildDefaultAppBar(
+                              context,
+                              activeTab,
+                              flowState,
+                              typographyState,
+                              openedFromSearch: openedFromSearch,
+                            )),
                 body: activeTab == null
                     ? const Center(
                         child: Text('No sermon loaded. Return to sermon list.'),
@@ -1521,21 +1568,21 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
                       ),
                 floatingActionButton:
                     (activeTab == null ||
-                            isFullscreen ||
-                            _isSearching ||
-                            _hasAnySelection)
-                        ? null
-                        : _buildSpeedDial(),
+                        isFullscreen ||
+                        _isSearching ||
+                        _hasAnySelection)
+                    ? null
+                    : _buildSpeedDial(),
                 floatingActionButtonLocation:
                     FloatingActionButtonLocation.endFloat,
                 bottomNavigationBar:
                     (!isFullscreen &&
-                            !_hideBottomTabs &&
-                            flowState.tabs.isNotEmpty &&
-                            !_isSearching &&
-                            !flowState.bmMode)
-                        ? _buildBottomTabBar(context, flowState)
-                        : null,
+                        !_hideBottomTabs &&
+                        flowState.tabs.isNotEmpty &&
+                        !_isSearching &&
+                        !flowState.bmMode)
+                    ? _buildBottomTabBar(context, flowState)
+                    : null,
               ),
             ),
           ),
@@ -1703,7 +1750,10 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
 
   // ── App bars ──────────────────────────────────────────────────────────────
 
-  AppBar _buildSearchAppBar(BuildContext context, {required bool openedFromSearch}) {
+  AppBar _buildSearchAppBar(
+    BuildContext context, {
+    required bool openedFromSearch,
+  }) {
     return AppBar(
       toolbarHeight: kToolbarHeight,
       leading: IconButton(
@@ -1722,6 +1772,8 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
             _searchController.clear();
             _clearMatches();
             _allSermonResults = [];
+            _allSermonHasMore = false;
+            _allSermonSearchLoadingMore = false;
             _lastSearchActivatedTabId = null;
           });
         },
@@ -1741,11 +1793,15 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
         onSubmitted: (_) {
           if (!_searchAllSermons && _totalMatches > 0) {
             _navigateToMatch(1);
+            return;
+          }
+          if (_searchAllSermons) {
+            _scheduleAllSermonSearch(immediate: true);
           }
         },
         onChanged: (val) {
           _computeMatches(val);
-          if (_searchAllSermons) _triggerAllSermonSearch();
+          if (_searchAllSermons) _scheduleAllSermonSearch();
         },
       ),
       actions: [
@@ -1755,7 +1811,14 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
             onPressed: () {
               _searchController.clear();
               _computeMatches('');
-              if (_searchAllSermons) _triggerAllSermonSearch();
+              if (_searchAllSermons) {
+                setState(() {
+                  _allSermonResults = [];
+                  _allSermonHasMore = false;
+                  _allSermonSearchLoading = false;
+                  _allSermonSearchLoadingMore = false;
+                });
+              }
             },
           ),
         // "This Sermon" mode: show match counter + up/down navigation.
@@ -1780,7 +1843,8 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
           ),
         ],
         // "All Sermons" mode: show loading indicator while searching.
-        if (_searchAllSermons && _allSermonSearchLoading)
+        if (_searchAllSermons &&
+            (_allSermonSearchLoading || _allSermonSearchLoadingMore))
           const Padding(
             padding: EdgeInsets.symmetric(horizontal: 12),
             child: SizedBox(
@@ -1815,6 +1879,8 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
               setState(() {
                 _searchAllSermons = false;
                 _allSermonResults = [];
+                _allSermonHasMore = false;
+                _allSermonSearchLoadingMore = false;
               });
               // Re-run in-page search with current query.
               if (_searchController.text.isNotEmpty) {
@@ -1827,8 +1893,12 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
             label: const Text('All Sermons'),
             selected: _searchAllSermons,
             onSelected: (_) {
-              setState(() => _searchAllSermons = true);
-              _triggerAllSermonSearch();
+              setState(() {
+                _searchAllSermons = true;
+                _allSermonResults = [];
+                _allSermonHasMore = false;
+              });
+              _scheduleAllSermonSearch(immediate: true);
             },
           ),
           const Spacer(),
@@ -1860,7 +1930,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
             selected: _sermonSearchType == SearchType.all,
             onSelected: (_) {
               setState(() => _sermonSearchType = SearchType.all);
-              _triggerAllSermonSearch();
+              _scheduleAllSermonSearch(immediate: true);
             },
           ),
           const SizedBox(width: 8),
@@ -1869,7 +1939,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
             selected: _sermonSearchType == SearchType.exact,
             onSelected: (_) {
               setState(() => _sermonSearchType = SearchType.exact);
-              _triggerAllSermonSearch();
+              _scheduleAllSermonSearch(immediate: true);
             },
           ),
           const SizedBox(width: 8),
@@ -1878,7 +1948,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
             selected: _sermonSearchType == SearchType.any,
             onSelected: (_) {
               setState(() => _sermonSearchType = SearchType.any);
-              _triggerAllSermonSearch();
+              _scheduleAllSermonSearch(immediate: true);
             },
           ),
         ],
@@ -1898,7 +1968,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     final isOnBibleTab = flowState.activeTab?.type == ReaderContentType.bible;
     final isSermonTab =
         flowState.activeTab?.type == ReaderContentType.sermon &&
-            activeTab?.sermonId != null;
+        activeTab?.sermonId != null;
 
     // Subtitle metadata for the sermon tab.
     Widget titleWidget;
@@ -1921,7 +1991,9 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
       // quickly update it so the UI and Bottom Tabs reflect the real title.
       if (sermon != null && activeTab.title == 'Loading...') {
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          ref.read(sermonFlowProvider.notifier).updateActiveTabTitle(sermon.title);
+          ref
+              .read(sermonFlowProvider.notifier)
+              .updateActiveTabTitle(sermon.title);
         });
       }
 
@@ -2118,7 +2190,9 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
                 itemCount: verses.length,
                 itemBuilder: (context, index) {
                   final verse = verses[index];
-                  final isSelected = _selectedVerseNumbers.contains(verse.verse);
+                  final isSelected = _selectedVerseNumbers.contains(
+                    verse.verse,
+                  );
                   final key = index < _verseKeys.length
                       ? _verseKeys[index]
                       : GlobalKey();
@@ -2292,10 +2366,29 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
       );
     }
 
+    final showFooter = _allSermonHasMore || _allSermonSearchLoadingMore;
+
     return ListView.builder(
-      itemCount: _allSermonResults.length,
+      itemCount: _allSermonResults.length + (showFooter ? 1 : 0),
       padding: const EdgeInsets.only(bottom: 16),
       itemBuilder: (context, i) {
+        if (i >= _allSermonResults.length) {
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+            child: Center(
+              child: _allSermonSearchLoadingMore
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : FilledButton.tonal(
+                      onPressed: _loadMoreAllSermons,
+                      child: const Text('Load more'),
+                    ),
+            ),
+          );
+        }
         final r = _allSermonResults[i];
         final metaParts = <String>[
           if (r.paragraphLabel != null && r.paragraphLabel!.isNotEmpty)
@@ -2379,8 +2472,9 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
       ),
       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
       child: Row(
-        mainAxisAlignment:
-            bmMode ? MainAxisAlignment.center : MainAxisAlignment.spaceBetween,
+        mainAxisAlignment: bmMode
+            ? MainAxisAlignment.center
+            : MainAxisAlignment.spaceBetween,
         children: [
           if (!bmMode)
             TextButton.icon(
@@ -2469,8 +2563,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
                       final actualIndex = visibleIndices[index];
                       final tab = state.tabs[actualIndex];
                       final isActive = actualIndex == state.activeTabIndex;
-                      final isSermonTab =
-                          tab.type == ReaderContentType.sermon;
+                      final isSermonTab = tab.type == ReaderContentType.sermon;
 
                       return GestureDetector(
                         onTap: () {
@@ -2639,7 +2732,8 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
                       final linkItem = isOnBibleTab
                           ? 'bible?book=${Uri.encodeComponent(activeTab?.book ?? '')}&chapter=${activeTab?.chapter ?? 1}&lang=$lang'
                           : 'sermon?id=${activeTab?.sermonId ?? ''}&lang=$lang';
-                      final deepLink = 'https://endtimebride.in/appshare/$linkItem';
+                      final deepLink =
+                          'https://endtimebride.in/appshare/$linkItem';
 
                       if (val == 'share_link') {
                         SharePlus.instance.share(
@@ -2651,7 +2745,9 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
                       } else {
                         Clipboard.setData(ClipboardData(text: deepLink));
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Link copied to clipboard')),
+                          const SnackBar(
+                            content: Text('Link copied to clipboard'),
+                          ),
                         );
                       }
                     }
@@ -2691,11 +2787,12 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     TypographySettings typography,
     ColorScheme cs,
   ) {
-    final baseStyle = Theme.of(context).textTheme.bodyLarge?.copyWith(
-              fontSize: typography.fontSize,
-              height: typography.lineHeight,
-              fontFamily: typography.resolvedFontFamily,
-            ) ??
+    final baseStyle =
+        Theme.of(context).textTheme.bodyLarge?.copyWith(
+          fontSize: typography.fontSize,
+          height: typography.lineHeight,
+          fontFamily: typography.resolvedFontFamily,
+        ) ??
         const TextStyle();
 
     final highlightStyle = baseStyle;
@@ -2745,8 +2842,9 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
         offset += 1;
       }
 
-      final prefixLength =
-          paragraph.paragraphNumber != null ? '${paragraph.paragraphNumber}¶ '.length : 0;
+      final prefixLength = paragraph.paragraphNumber != null
+          ? '${paragraph.paragraphNumber}¶ '.length
+          : 0;
       final paraLength = paragraph.text.length;
       paragraphRanges.add({
         'start': offset - prefixLength - paraLength,
@@ -2805,8 +2903,12 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
                             if (number == null) continue;
                             final intersects = start < rEnd && end > rStart;
                             if (!intersects) continue;
-                            first = (first == null || number < first!) ? number : first;
-                            last = (last == null || number > last!) ? number : last;
+                            first = (first == null || number < first!)
+                                ? number
+                                : first;
+                            last = (last == null || number > last!)
+                                ? number
+                                : last;
                           }
                           _selectionFirstParagraph = first;
                           _selectionLastParagraph = last;
@@ -2853,9 +2955,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
         decoration: BoxDecoration(
           color: theme.colorScheme.surface,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: cs.outlineVariant.withAlpha(140),
-          ),
+          border: Border.all(color: cs.outlineVariant.withAlpha(140)),
         ),
         child: Row(
           children: [
@@ -2900,32 +3000,29 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
         ? null
         : bmGroup.tabs[bmGroup.activeIndex.clamp(0, bmGroup.tabs.length - 1)];
 
-    final bibleHeader = _buildBmBibleHeader(
-      group: bmGroup,
-    );
-    final sermonHeader = _buildBmSermonHeader(
-      flowState: flowState,
-    );
+    final bibleHeader = _buildBmBibleHeader(group: bmGroup);
+    final sermonHeader = _buildBmSermonHeader(flowState: flowState);
 
     final biblePanel = _buildBmPanel(
       header: bibleHeader,
       child: _buildBmBibleContent(bibleTab, typography),
     );
 
-    final sermonPanel = _buildBmPanel(
-      header: sermonHeader,
-      child: sermonList,
-    );
+    final sermonPanel = _buildBmPanel(header: sermonHeader, child: sermonList);
 
     return LayoutBuilder(
       builder: (context, constraints) {
         final isWide = constraints.maxWidth >= _bmWideBreakpoint;
         if (isWide) {
           final availableWidth = constraints.maxWidth;
-          final usable =
-              (availableWidth - _bmSplitterWidth).clamp(0.0, availableWidth);
-          final leftWidth = (usable * _bmSplitRatio)
-              .clamp(usable * _bmSplitMin, usable * _bmSplitMax);
+          final usable = (availableWidth - _bmSplitterWidth).clamp(
+            0.0,
+            availableWidth,
+          );
+          final leftWidth = (usable * _bmSplitRatio).clamp(
+            usable * _bmSplitMin,
+            usable * _bmSplitMax,
+          );
           final rightWidth = (usable - leftWidth).clamp(
             usable * (1 - _bmSplitMax),
             usable * (1 - _bmSplitMin),
@@ -2938,11 +3035,12 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
                 child: GestureDetector(
                   behavior: HitTestBehavior.translucent,
                   onHorizontalDragUpdate: (details) {
-                    final delta =
-                        details.delta.dx / (usable == 0 ? 1 : usable);
+                    final delta = details.delta.dx / (usable == 0 ? 1 : usable);
                     setState(() {
-                      _bmSplitRatio =
-                          (_bmSplitRatio + delta).clamp(_bmSplitMin, _bmSplitMax);
+                      _bmSplitRatio = (_bmSplitRatio + delta).clamp(
+                        _bmSplitMin,
+                        _bmSplitMax,
+                      );
                     });
                   },
                   onHorizontalDragEnd: (_) => _persistBmSplitRatio(),
@@ -2983,10 +3081,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     );
   }
 
-  Widget _buildBmPanel({
-    required Widget header,
-    required Widget child,
-  }) {
+  Widget _buildBmPanel({required Widget header, required Widget child}) {
     final theme = Theme.of(context);
     return Container(
       decoration: BoxDecoration(
@@ -3015,9 +3110,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     );
   }
 
-  Widget _buildBmBibleHeader({
-    required BmBibleGroup? group,
-  }) {
+  Widget _buildBmBibleHeader({required BmBibleGroup? group}) {
     final theme = Theme.of(context);
     final typography = ref.watch(typographyProvider);
     final tabs = group?.tabs ?? const <ReaderTab>[];
@@ -3025,7 +3118,11 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
 
     return Row(
       children: [
-        Icon(Icons.menu_book_outlined, size: 16, color: theme.colorScheme.primary),
+        Icon(
+          Icons.menu_book_outlined,
+          size: 16,
+          color: theme.colorScheme.primary,
+        ),
         const SizedBox(width: 6),
         Text(
           'B',
@@ -3054,10 +3151,8 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
                   _buildBmBibleTabChip(
                     label: tabs[i].title,
                     isActive: i == activeIndex,
-                    onTap: () => _openQuickNavForBibleTab(
-                      bmIndex: i,
-                      isBm: true,
-                    ),
+                    onTap: () =>
+                        _openQuickNavForBibleTab(bmIndex: i, isBm: true),
                     onClose: () => ref
                         .read(sermonFlowProvider.notifier)
                         .closeBmBibleTab(i),
@@ -3076,9 +3171,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     );
   }
 
-  Widget _buildBmSermonHeader({
-    required SermonFlowState flowState,
-  }) {
+  Widget _buildBmSermonHeader({required SermonFlowState flowState}) {
     final theme = Theme.of(context);
     final typography = ref.watch(typographyProvider);
     final sermonIndices = <int>[];
@@ -3120,8 +3213,8 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
                     onClose: sermonIndices.length <= 1
                         ? null
                         : () => ref
-                            .read(sermonFlowProvider.notifier)
-                            .closeTab(index),
+                              .read(sermonFlowProvider.notifier)
+                              .closeTab(index),
                   ),
               ],
             ),
@@ -3160,8 +3253,9 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     final fg = isActive
         ? theme.colorScheme.onPrimaryContainer
         : theme.colorScheme.onSurface;
-    final borderColor =
-        isActive ? theme.colorScheme.primary : theme.colorScheme.outline;
+    final borderColor = isActive
+        ? theme.colorScheme.primary
+        : theme.colorScheme.outline;
     final chip = Container(
       margin: const EdgeInsets.only(right: 6),
       decoration: BoxDecoration(
@@ -3192,7 +3286,10 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
                   icon: Icon(Icons.close, size: 14, color: fg),
                   visualDensity: VisualDensity.compact,
                   padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(minWidth: 18, minHeight: 18),
+                  constraints: const BoxConstraints(
+                    minWidth: 18,
+                    minHeight: 18,
+                  ),
                   onPressed: onClose,
                 ),
               ],
@@ -3245,8 +3342,9 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     final fg = isActive
         ? theme.colorScheme.onPrimaryContainer
         : theme.colorScheme.onSurface;
-    final borderColor =
-        isActive ? theme.colorScheme.primary : theme.colorScheme.outline;
+    final borderColor = isActive
+        ? theme.colorScheme.primary
+        : theme.colorScheme.outline;
     return Container(
       margin: const EdgeInsets.only(right: 6),
       decoration: BoxDecoration(
@@ -3288,9 +3386,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     ReaderTab? bibleTab,
     TypographySettings typography,
   ) {
-    if (bibleTab == null ||
-        bibleTab.book == null ||
-        bibleTab.chapter == null) {
+    if (bibleTab == null || bibleTab.book == null || bibleTab.chapter == null) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(16),
@@ -3314,18 +3410,16 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     return asyncVerses.when(
       data: (verses) {
         if (verses.isEmpty) {
-          return const Center(
-            child: Text('No verses found in this chapter.'),
-          );
+          return const Center(child: Text('No verses found in this chapter.'));
         }
         final cs = Theme.of(context).colorScheme;
         final baseStyle =
             Theme.of(context).textTheme.bodyLarge?.copyWith(
-                  fontSize: typography.fontSize,
-                  height: typography.lineHeight,
-                  fontFamily: typography.resolvedFontFamily,
-                ) ??
-                const TextStyle();
+              fontSize: typography.fontSize,
+              height: typography.lineHeight,
+              fontFamily: typography.resolvedFontFamily,
+            ) ??
+            const TextStyle();
 
         return SelectionArea(
           child: ListView.builder(
@@ -3471,11 +3565,7 @@ class _NavIconButton extends StatelessWidget {
     final activeBg = theme.colorScheme.primaryContainer;
     final activeFg = theme.colorScheme.onPrimaryContainer;
     return OutlinedButton.icon(
-      icon: Icon(
-        icon,
-        size: 16,
-        color: isActive ? activeFg : null,
-      ),
+      icon: Icon(icon, size: 16, color: isActive ? activeFg : null),
       label: Text(
         label,
         style: TextStyle(

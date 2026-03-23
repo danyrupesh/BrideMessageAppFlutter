@@ -32,7 +32,10 @@ class CodRepository {
   Future<List<CodQuestion>> _searchQuestionsFts({
     required String search,
     String? category,
+    String? topicSlug,
     bool onlyWithScriptures = false,
+    int limit = 40,
+    int offset = 0,
   }) async {
     final matchPattern = FtsQueryBuilder.buildMatchQuery(search);
     final normalizedLike = search.trim().toLowerCase();
@@ -57,6 +60,11 @@ class CodRepository {
         args.add(category);
       }
 
+      if (topicSlug != null && topicSlug.isNotEmpty) {
+        where.add('t.topic_slug = ?');
+        args.add(topicSlug);
+      }
+
       if (onlyWithScriptures) {
         where.add('q.scriptures = 1');
       }
@@ -64,6 +72,10 @@ class CodRepository {
       final whereClause = where.isNotEmpty
           ? 'WHERE ${where.join(' AND ')}'
           : '';
+
+      args
+        ..add(limit)
+        ..add(offset);
 
       final sql =
           '''
@@ -111,6 +123,7 @@ class CodRepository {
           m.rank_priority ASC,
           COALESCE(q.number, 99999) ASC,
           q.title ASC
+        LIMIT ? OFFSET ?
       ''';
 
       final result = db.select(sql, args);
@@ -124,14 +137,20 @@ class CodRepository {
       return _searchQuestionsLike(
         search: search,
         category: category,
+        topicSlug: topicSlug,
         onlyWithScriptures: onlyWithScriptures,
+        limit: limit,
+        offset: offset,
       );
     } catch (_) {
       // Best-effort fallback for platforms where FTS5 is unavailable/limited.
       return _searchQuestionsLike(
         search: search,
         category: category,
+        topicSlug: topicSlug,
         onlyWithScriptures: onlyWithScriptures,
+        limit: limit,
+        offset: offset,
       );
     } finally {
       db.close();
@@ -141,7 +160,10 @@ class CodRepository {
   Future<List<CodQuestion>> _searchQuestionsLike({
     required String search,
     String? category,
+    String? topicSlug,
     bool onlyWithScriptures = false,
+    int limit = 40,
+    int offset = 0,
   }) async {
     final db = await _openDb();
     final normalized = search.trim();
@@ -170,6 +192,11 @@ class CodRepository {
     if (category != null && category.isNotEmpty) {
       where.add('c.slug = ?');
       whereArgs.add(category);
+    }
+
+    if (topicSlug != null && topicSlug.isNotEmpty) {
+      where.add('t.topic_slug = ?');
+      whereArgs.add(topicSlug);
     }
 
     if (onlyWithScriptures) {
@@ -202,6 +229,7 @@ class CodRepository {
         END,
         COALESCE(q.number, 99999) ASC,
         q.title ASC
+      LIMIT ? OFFSET ?
       ''',
       <Object?>[
         _seriesLabel,
@@ -210,6 +238,8 @@ class CodRepository {
         '%${normalized.toLowerCase()}%',
         '${normalized.toLowerCase()}%',
         '%${normalized.toLowerCase()}%',
+        limit,
+        offset,
       ],
     );
 
@@ -220,6 +250,8 @@ class CodRepository {
     String? category,
     String? search,
     bool? onlyWithScriptures,
+    int limit = 40,
+    int offset = 0,
   }) async {
     final normalizedSearch = search?.trim();
     if (normalizedSearch != null && normalizedSearch.isNotEmpty) {
@@ -227,6 +259,8 @@ class CodRepository {
         search: normalizedSearch,
         category: category,
         onlyWithScriptures: onlyWithScriptures == true,
+        limit: limit,
+        offset: offset,
       );
     }
 
@@ -242,6 +276,10 @@ class CodRepository {
     if (onlyWithScriptures == true) {
       where.add('q.scriptures = 1');
     }
+
+    whereArgs
+      ..add(limit)
+      ..add(offset);
 
     final whereClause = where.isNotEmpty ? 'WHERE ${where.join(' AND ')}' : '';
 
@@ -264,8 +302,9 @@ class CodRepository {
       ORDER BY
         COALESCE(q.number, 99999) ASC,
         q.title ASC
+      LIMIT ? OFFSET ?
       ''',
-      <Object?>[_seriesLabel, ...whereArgs],
+      <Object?>[_seriesLabel, ...whereArgs, limit, offset],
     );
 
     return rows.map((row) => CodQuestion.fromMap(row)).toList();
@@ -377,15 +416,19 @@ class CodRepository {
     String? category,
     String? search,
     bool? onlyWithScriptures,
+    int limit = 40,
+    int offset = 0,
   }) async {
     final normalizedSearch = search?.trim();
     if (normalizedSearch != null && normalizedSearch.isNotEmpty) {
-      final allMatches = await _searchQuestionsFts(
+      return _searchQuestionsFts(
         search: normalizedSearch,
         category: category,
+        topicSlug: topicSlug,
         onlyWithScriptures: onlyWithScriptures == true,
+        limit: limit,
+        offset: offset,
       );
-      return allMatches.where((q) => q.topicSlug == topicSlug).toList();
     }
 
     final db = await _openDb();
@@ -422,6 +465,7 @@ class CodRepository {
       ORDER BY
         COALESCE(q.number, 99999) ASC,
         q.title ASC
+      LIMIT ? OFFSET ?
       ''', args);
 
     if (rows.isNotEmpty) {
@@ -471,8 +515,7 @@ class CodRepository {
         .replaceAll('_', r'\_');
   }
 
-  static String _sqlLikeContains(String token) =>
-      '%${_escapeSqlLike(token)}%';
+  static String _sqlLikeContains(String token) => '%${_escapeSqlLike(token)}%';
 
   /// Searches [answers.plain_text] and returns up to [limit] matching paragraphs.
   Future<List<CodAnswerSearchHit>> searchAnswerParagraphHits({
@@ -499,19 +542,13 @@ class CodRepository {
         ? ' OR '
         : ' AND ';
     final likeClause = tokens
-        .map(
-          (_) => "COALESCE(a.plain_text, '') LIKE ? ESCAPE '\\'",
-        )
+        .map((_) => "COALESCE(a.plain_text, '') LIKE ? ESCAPE '\\'")
         .join(joiner);
 
-    final args = <Object?>[
-      for (final t in tokens) _sqlLikeContains(t),
-      limit,
-    ];
+    final args = <Object?>[for (final t in tokens) _sqlLikeContains(t), limit];
 
     final db = await _openDb();
-    final rows = await db.rawQuery(
-      '''
+    final rows = await db.rawQuery('''
       SELECT
         a.id AS answer_id,
         a.question_id,
@@ -525,9 +562,7 @@ class CodRepository {
       WHERE $likeClause
       ORDER BY COALESCE(q.number, 999999) ASC, a.order_index ASC, a.id ASC
       LIMIT ?
-      ''',
-      args,
-    );
+      ''', args);
 
     return rows.map((row) {
       final plain = row['plain_text'] as String? ?? '';
@@ -575,8 +610,10 @@ class CodRepository {
         return (i, query.length);
       case CodSearchMatchMode.allWords:
       case CodSearchMatchMode.anyWord:
-        final words =
-            query.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).toList();
+        final words = query
+            .split(RegExp(r'\s+'))
+            .where((w) => w.isNotEmpty)
+            .toList();
         if (words.isEmpty) return null;
         int? bestStart;
         var bestLen = 0;

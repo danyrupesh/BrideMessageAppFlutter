@@ -15,6 +15,8 @@ class CodQuestionsScreen extends ConsumerStatefulWidget {
 }
 
 class _CodQuestionsScreenState extends ConsumerState<CodQuestionsScreen> {
+  static const int _questionsPageSize = 40;
+
   late final TextEditingController _questionSearchController;
   late final TextEditingController _topicStripSearchController;
 
@@ -23,6 +25,7 @@ class _CodQuestionsScreenState extends ConsumerState<CodQuestionsScreen> {
   String? _category;
   String? _topicSlug;
   bool _onlyScriptures = false;
+  int _questionVisibleCount = _questionsPageSize;
 
   @override
   void initState() {
@@ -89,6 +92,10 @@ class _CodQuestionsScreenState extends ConsumerState<CodQuestionsScreen> {
       return _displayQuestionTitle(shortTitle);
     }
     return _displayQuestionTitle(question.title);
+  }
+
+  void _resetQuestionPagination() {
+    _questionVisibleCount = _questionsPageSize;
   }
 
   void _openAdvancedSearch() {
@@ -332,6 +339,7 @@ class _CodQuestionsScreenState extends ConsumerState<CodQuestionsScreen> {
 
     setState(() {
       _topicSlug = selectedSlug == _allTopicsToken ? null : selectedSlug;
+      _resetQuestionPagination();
     });
   }
 
@@ -346,6 +354,8 @@ class _CodQuestionsScreenState extends ConsumerState<CodQuestionsScreen> {
               category: _category,
               search: _search,
               onlyWithScriptures: _onlyScriptures ? true : null,
+              limit: _questionVisibleCount,
+              offset: 0,
             )),
           )
         : ref.watch(
@@ -355,6 +365,8 @@ class _CodQuestionsScreenState extends ConsumerState<CodQuestionsScreen> {
               category: _category,
               search: _search,
               onlyWithScriptures: _onlyScriptures ? true : null,
+              limit: _questionVisibleCount,
+              offset: 0,
             )),
           );
     final categoriesAsync = ref.watch(codCategoriesProvider(widget.lang));
@@ -434,7 +446,10 @@ class _CodQuestionsScreenState extends ConsumerState<CodQuestionsScreen> {
                         child: InkWell(
                           borderRadius: BorderRadius.circular(20),
                           onTap: () {
-                            setState(() => _category = null);
+                            setState(() {
+                              _category = null;
+                              _resetQuestionPagination();
+                            });
                           },
                           child: Padding(
                             padding: const EdgeInsets.symmetric(
@@ -475,7 +490,10 @@ class _CodQuestionsScreenState extends ConsumerState<CodQuestionsScreen> {
                           child: InkWell(
                             borderRadius: BorderRadius.circular(20),
                             onTap: () {
-                              setState(() => _category = cat);
+                              setState(() {
+                                _category = cat;
+                                _resetQuestionPagination();
+                              });
                             },
                             child: Padding(
                               padding: const EdgeInsets.symmetric(
@@ -516,7 +534,10 @@ class _CodQuestionsScreenState extends ConsumerState<CodQuestionsScreen> {
                           key: const ValueKey('filter_scriptures'),
                           borderRadius: BorderRadius.circular(20),
                           onTap: () {
-                            setState(() => _onlyScriptures = !_onlyScriptures);
+                            setState(() {
+                              _onlyScriptures = !_onlyScriptures;
+                              _resetQuestionPagination();
+                            });
                           },
                           child: Padding(
                             padding: const EdgeInsets.symmetric(
@@ -580,7 +601,10 @@ class _CodQuestionsScreenState extends ConsumerState<CodQuestionsScreen> {
                             avatar: const Icon(Icons.close, size: 16),
                             label: Text(isTamil ? 'நீக்கு' : 'Clear'),
                             onPressed: () {
-                              setState(() => _topicSlug = null);
+                              setState(() {
+                                _topicSlug = null;
+                                _resetQuestionPagination();
+                              });
                             },
                           ),
                         const Spacer(),
@@ -698,6 +722,7 @@ class _CodQuestionsScreenState extends ConsumerState<CodQuestionsScreen> {
                                     _topicSlug = selected
                                         ? null
                                         : topic.topicSlug;
+                                    _resetQuestionPagination();
                                   });
                                 },
                                 child: ConstrainedBox(
@@ -777,7 +802,10 @@ class _CodQuestionsScreenState extends ConsumerState<CodQuestionsScreen> {
                           ),
                           onPressed: () {
                             _questionSearchController.clear();
-                            setState(() => _search = null);
+                            setState(() {
+                              _search = null;
+                              _resetQuestionPagination();
+                            });
                           },
                         ),
                       FilledButton(
@@ -803,6 +831,7 @@ class _CodQuestionsScreenState extends ConsumerState<CodQuestionsScreen> {
               onChanged: (value) {
                 setState(() {
                   _search = value.trim().isEmpty ? null : value;
+                  _resetQuestionPagination();
                 });
               },
             ),
@@ -820,12 +849,28 @@ class _CodQuestionsScreenState extends ConsumerState<CodQuestionsScreen> {
                     ),
                   );
                 }
+
+                final hasMore = questions.length >= _questionVisibleCount;
+
                 return ListView.separated(
                   padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                  itemCount: questions.length,
+                  itemCount: questions.length + (hasMore ? 1 : 0),
                   separatorBuilder: (context, index) =>
                       const SizedBox(height: 8),
                   itemBuilder: (context, index) {
+                    if (index >= questions.length) {
+                      return Center(
+                        child: FilledButton.tonal(
+                          onPressed: () {
+                            setState(() {
+                              _questionVisibleCount += _questionsPageSize;
+                            });
+                          },
+                          child: Text(isTamil ? 'மேலும் ஏற்று' : 'Load more'),
+                        ),
+                      );
+                    }
+
                     final q = questions[index];
                     final questionNumber = q.number ?? (index + 1);
                     final category = q.category;

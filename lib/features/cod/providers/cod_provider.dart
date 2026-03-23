@@ -21,6 +21,8 @@ final codQuestionsProvider =
         String? category,
         String? search,
         bool? onlyWithScriptures,
+        int? limit,
+        int? offset,
       })
     >((ref, params) async {
       final repo = ref.read(codRepositoryProvider(params.lang));
@@ -28,6 +30,8 @@ final codQuestionsProvider =
         category: params.category,
         search: params.search,
         onlyWithScriptures: params.onlyWithScriptures,
+        limit: params.limit ?? 40,
+        offset: params.offset ?? 0,
       );
     });
 
@@ -48,6 +52,8 @@ final codQuestionsByTopicProvider =
         String? category,
         String? search,
         bool? onlyWithScriptures,
+        int? limit,
+        int? offset,
       })
     >((ref, params) async {
       final repo = ref.read(codRepositoryProvider(params.lang));
@@ -56,6 +62,8 @@ final codQuestionsByTopicProvider =
         category: params.category,
         search: params.search,
         onlyWithScriptures: params.onlyWithScriptures,
+        limit: params.limit ?? 40,
+        offset: params.offset ?? 0,
       );
     });
 
