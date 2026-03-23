@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'providers/search_history_provider.dart';
 import 'providers/search_provider.dart';
 import '../../core/database/metadata/installed_content_provider.dart';
+import '../../core/database/metadata/installed_database_model.dart';
 import 'package:path/path.dart' as p;
 import '../../core/database/database_manager.dart';
 import '../../features/onboarding/services/selective_database_importer.dart';
@@ -141,6 +142,35 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
   Widget build(BuildContext context) {
     final searchState = ref.watch(searchProvider);
     final history = ref.watch(searchHistoryProvider);
+    final bibleInstalledAsync = ref.watch(
+      defaultInstalledDbProvider((DbType.bible, searchState.languageCode)),
+    );
+    final sermonInstalledAsync = ref.watch(
+      defaultInstalledDbProvider((DbType.sermon, searchState.languageCode)),
+    );
+
+    final bibleFallback =
+        bibleInstalledAsync.hasError ||
+        bibleInstalledAsync.maybeWhen(
+          data: (v) => v == null,
+          orElse: () => false,
+        );
+    final sermonFallback =
+        sermonInstalledAsync.hasError ||
+        sermonInstalledAsync.maybeWhen(
+          data: (v) => v == null,
+          orElse: () => false,
+        );
+    final showFallbackNotice =
+        (searchState.activeTab == SearchTab.bible && bibleFallback) ||
+        (searchState.activeTab == SearchTab.sermon && sermonFallback) ||
+        (searchState.activeTab == SearchTab.all &&
+            (bibleFallback || sermonFallback));
+
+    final fallbackParts = <String>[];
+    if (bibleFallback) fallbackParts.add('Bible');
+    if (sermonFallback) fallbackParts.add('Sermon');
+    final fallbackLabel = fallbackParts.join(' + ');
 
     return Scaffold(
       appBar: AppBar(
@@ -215,6 +245,37 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
               ),
             ),
           const SearchFilters(),
+          if (showFallbackNotice)
+            Container(
+              width: double.infinity,
+              margin: const EdgeInsets.fromLTRB(16, 0, 16, 6),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: Theme.of(
+                  context,
+                ).colorScheme.tertiaryContainer.withAlpha(100),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: Theme.of(context).colorScheme.tertiary.withAlpha(140),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.info_outline,
+                    size: 16,
+                    color: Theme.of(context).colorScheme.onTertiaryContainer,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      '$fallbackLabel metadata missing. Using fallback database mapping.',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           Padding(
             padding: const EdgeInsets.symmetric(
               horizontal: 16.0,
@@ -302,15 +363,37 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
   }
 
   String _resultsLabel(SearchState state) {
+    String withLoaded(int loaded, int total, String label) {
+      if (total <= 0) return 'Found 0 $label';
+      if (loaded >= total) return 'Found $total $label';
+      return 'Found $total $label (showing $loaded)';
+    }
+
     switch (state.activeTab) {
       case SearchTab.bible:
-        return 'Found ${state.bibleResults.length} Bible verses';
+        return withLoaded(
+          state.bibleResults.length,
+          state.bibleTotalCount,
+          'Bible verses',
+        );
       case SearchTab.sermon:
-        return 'Found ${state.sermonResults.length} sermon occurrences';
+        return withLoaded(
+          state.sermonResults.length,
+          state.sermonTotalCount,
+          'sermon occurrences',
+        );
       case SearchTab.cod:
-        return 'Found ${state.codResults.length} COD occurrences';
+        return withLoaded(
+          state.codResults.length,
+          state.codTotalCount,
+          'COD occurrences',
+        );
       case SearchTab.songs:
-        return 'Found ${state.songResults.length} songs';
+        return withLoaded(
+          state.songResults.length,
+          state.songTotalCount,
+          'songs',
+        );
       case SearchTab.all:
         return 'Found ${state.bibleResults.length} Bible verses and ${state.sermonResults.length} sermon occurrences';
     }

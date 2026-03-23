@@ -20,6 +20,9 @@ import '../../features/reader/models/reader_tab.dart';
 import '../../features/sermons/providers/sermon_provider.dart';
 import '../../features/sermons/providers/sermon_flow_provider.dart';
 
+final GlobalKey<NavigatorState> appRootNavigatorKey =
+    GlobalKey<NavigatorState>();
+
 /// Routes based on real installed-database content rather than a persisted flag.
 /// Mirrors Android's MainActivity.checkAnyDatabasesInstalled() logic:
 ///   - hasContent == true  → start at /
@@ -29,6 +32,7 @@ import '../../features/sermons/providers/sermon_flow_provider.dart';
 /// the redirect passes; next cold start re-checks real content.
 final appRouterProvider = Provider<GoRouter>((ref) {
   return GoRouter(
+    navigatorKey: appRootNavigatorKey,
     initialLocation: '/',
     redirect: (BuildContext context, GoRouterState state) {
       final contentState = ref.read(hasInstalledContentProvider);
@@ -70,7 +74,11 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           final tab = state.uri.queryParameters['tab'];
           final fresh = state.uri.queryParameters['fresh'] == '1';
           final query = state.uri.queryParameters['q'];
-          return SearchScreen(initialTab: tab, fresh: fresh, initialQuery: query);
+          return SearchScreen(
+            initialTab: tab,
+            fresh: fresh,
+            initialQuery: query,
+          );
         },
       ),
       GoRoute(
@@ -117,7 +125,8 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: '/appshare/bible',
         builder: (context, state) {
           final book = state.uri.queryParameters['book'];
-          final chapter = int.tryParse(state.uri.queryParameters['chapter'] ?? '1') ?? 1;
+          final chapter =
+              int.tryParse(state.uri.queryParameters['chapter'] ?? '1') ?? 1;
           final lang = state.uri.queryParameters['lang'];
           final verse = int.tryParse(state.uri.queryParameters['verse'] ?? '');
 
@@ -129,13 +138,17 @@ final appRouterProvider = Provider<GoRouter>((ref) {
 
           if (book != null) {
             WidgetsBinding.instance.addPostFrameCallback((_) {
-              ref.read(readerProvider.notifier).openTab(ReaderTab(
-                    type: ReaderContentType.bible,
-                    title: "$book $chapter",
-                    book: book,
-                    chapter: chapter,
-                    verse: verse,
-                  ));
+              ref
+                  .read(readerProvider.notifier)
+                  .openTab(
+                    ReaderTab(
+                      type: ReaderContentType.bible,
+                      title: "$book $chapter",
+                      book: book,
+                      chapter: chapter,
+                      verse: verse,
+                    ),
+                  );
             });
           }
           return const ReaderScreen();
@@ -155,13 +168,17 @@ final appRouterProvider = Provider<GoRouter>((ref) {
 
           if (id != null) {
             WidgetsBinding.instance.addPostFrameCallback((_) {
-              // Note: We don't have the title here, but SermonReaderScreen 
+              // Note: We don't have the title here, but SermonReaderScreen
               // fetches metadata by ID if needed.
-              ref.read(sermonFlowProvider.notifier).addSermonTab(ReaderTab(
-                    type: ReaderContentType.sermon,
-                    title: 'Loading...', 
-                    sermonId: id,
-                  ));
+              ref
+                  .read(sermonFlowProvider.notifier)
+                  .addSermonTab(
+                    ReaderTab(
+                      type: ReaderContentType.sermon,
+                      title: 'Loading...',
+                      sermonId: id,
+                    ),
+                  );
             });
           }
           return const SermonReaderScreen();
@@ -175,10 +192,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         path: '/song-detail',
         builder: (context, state) {
           final extra = state.extra;
-          final hymnNoFromExtra =
-              extra is int ? extra : null;
-          final hymnNoFromQuery =
-              int.tryParse(state.uri.queryParameters['hymnNo'] ?? '');
+          final hymnNoFromExtra = extra is int ? extra : null;
+          final hymnNoFromQuery = int.tryParse(
+            state.uri.queryParameters['hymnNo'] ?? '',
+          );
           final hymnNo = hymnNoFromExtra ?? hymnNoFromQuery ?? 0;
           return SongDetailScreen(hymnNo: hymnNo);
         },
@@ -214,8 +231,7 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             lang: lang,
             id: id,
             scrollToAnswerParagraphId: paraId,
-            highlightQuery:
-                (qRaw != null && qRaw.isNotEmpty) ? qRaw : null,
+            highlightQuery: (qRaw != null && qRaw.isNotEmpty) ? qRaw : null,
           );
         },
       ),

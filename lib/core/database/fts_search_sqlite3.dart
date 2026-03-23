@@ -63,12 +63,14 @@ Future<List<BibleSearchResult>> searchBibleFts({
     } else {
       sql += ' ORDER BY v.book_index, v.chapter, v.verse LIMIT ? OFFSET ?';
     }
-    
+
     args.addAll([limit, offset]);
 
     final result = db.select(sql, args);
     final columnNames = result.columnNames;
-    return result.map((row) => BibleSearchResult.fromMap(_rowToMap(columnNames, row))).toList();
+    return result
+        .map((row) => BibleSearchResult.fromMap(_rowToMap(columnNames, row)))
+        .toList();
   } catch (e) {
     return [];
   } finally {
@@ -101,7 +103,7 @@ Future<int> countBibleFts({
             ' AND v.book IN (${List.filled(bookFilters.length, '?').join(',')})';
         args.addAll(bookFilters);
       }
-      
+
       if (scope == 'oldTest') {
         sql += ' AND v.book_index <= 39';
       } else if (scope == 'newTest') {
@@ -121,7 +123,7 @@ Future<int> countBibleFts({
         sql += ' AND v.book_index > 39';
       }
     }
-    
+
     final result = db.select(sql, args);
     if (result.isEmpty) return 0;
     final v = result.first.columnAt(0);
@@ -155,7 +157,8 @@ Future<List<SermonSearchResult>> searchSermonFts({
       return value is String && value == 'paragraph_number';
     });
 
-    var sql = '''
+    var sql =
+        '''
       SELECT 
         s.id AS sermon_id,
         s.title,
@@ -185,18 +188,55 @@ Future<List<SermonSearchResult>> searchSermonFts({
           ' ORDER BY rank, ${hasParagraphNumber ? 'COALESCE(p.paragraph_number, 0), ' : ''}p.id LIMIT ? OFFSET ?';
     } else {
       // chronological or other order if we add later
-      sql += ' ORDER BY '
+      sql +=
+          ' ORDER BY '
           'CASE WHEN s.date IS NOT NULL AND s.date != \'\' THEN 0 WHEN s.year IS NOT NULL THEN 1 ELSE 2 END, '
           'COALESCE(s.date, s.year || \'-12-31\') ASC, s.title ASC, '
           '${hasParagraphNumber ? 'COALESCE(p.paragraph_number, 0), ' : ''}p.id LIMIT ? OFFSET ?';
     }
-    
+
     args.addAll([limit, offset]);
     final result = db.select(sql, args);
     final columnNames = result.columnNames;
-    return result.map((row) => SermonSearchResult.fromMap(_rowToMap(columnNames, row))).toList();
+    return result
+        .map((row) => SermonSearchResult.fromMap(_rowToMap(columnNames, row)))
+        .toList();
   } catch (e) {
     return [];
+  } finally {
+    db.close();
+  }
+}
+
+/// Count Sermon FTS results using sqlite3.
+Future<int> countSermonFts({
+  required String dbPath,
+  required String languageCode,
+  required String matchPattern,
+  String? titlePrefix,
+}) async {
+  if (!await File(dbPath).exists()) return 0;
+  final db = sqlite3.open(dbPath, mode: OpenMode.readOnly);
+  try {
+    var sql = '''
+      SELECT COUNT(*)
+      FROM sermon_fts
+      JOIN sermon_paragraphs p ON sermon_fts.rowid = p.id
+      JOIN sermons s ON p.sermon_id = s.id
+      WHERE sermon_fts MATCH ?
+        AND s.language = ?
+    ''';
+    final args = <Object?>[matchPattern, languageCode];
+    if (titlePrefix != null && titlePrefix.isNotEmpty) {
+      sql += ' AND s.title LIKE ?';
+      args.add('$titlePrefix%');
+    }
+    final result = db.select(sql, args);
+    if (result.isEmpty) return 0;
+    final v = result.first.columnAt(0);
+    return (v is int) ? v : (v as num).toInt();
+  } catch (_) {
+    return 0;
   } finally {
     db.close();
   }

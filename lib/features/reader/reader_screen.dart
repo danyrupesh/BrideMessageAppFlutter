@@ -192,7 +192,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       return;
     }
 
-    final pattern = RegExp(query, caseSensitive: false);
+    final pattern = RegExp(RegExp.escape(query), caseSensitive: false);
     final indices = <int>[];
 
     for (var i = 0; i < _currentVerses.length; i++) {
@@ -1246,6 +1246,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
               child: FtsHighlightText(rawSnippet: snippet),
             ),
             onTap: () {
+              final query = _searchController.text.trim();
               final replacement = ReaderTab(
                 type: ReaderContentType.bible,
                 title: '${r.book} ${r.chapter}',
@@ -1253,6 +1254,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                 chapter: r.chapter,
                 verse: r.verse,
                 bibleLang: lang,
+                initialSearchQuery: query.isEmpty ? null : query,
               );
               final idx = ref.read(readerProvider).activeTabIndex;
               if (idx >= 0) {

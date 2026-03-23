@@ -15,15 +15,9 @@ class BmBibleGroup {
   final List<ReaderTab> tabs;
   final int activeIndex;
 
-  const BmBibleGroup({
-    required this.tabs,
-    required this.activeIndex,
-  });
+  const BmBibleGroup({required this.tabs, required this.activeIndex});
 
-  BmBibleGroup copyWith({
-    List<ReaderTab>? tabs,
-    int? activeIndex,
-  }) {
+  BmBibleGroup copyWith({List<ReaderTab>? tabs, int? activeIndex}) {
     return BmBibleGroup(
       tabs: tabs ?? this.tabs,
       activeIndex: activeIndex ?? this.activeIndex,
@@ -41,11 +35,11 @@ class BmBibleGroup {
     final tabsRaw = json['tabs'];
     final tabs = tabsRaw is List
         ? tabsRaw
-            .whereType<Map>()
-            .map((item) => Map<String, dynamic>.from(item))
-            .map(readerTabFromJson)
-            .whereType<ReaderTab>()
-            .toList(growable: false)
+              .whereType<Map>()
+              .map((item) => Map<String, dynamic>.from(item))
+              .map(readerTabFromJson)
+              .whereType<ReaderTab>()
+              .toList(growable: false)
         : <ReaderTab>[];
     var activeIndex = (json['activeIndex'] as num?)?.toInt() ?? 0;
     if (tabs.isEmpty) {
@@ -101,6 +95,8 @@ class SermonFlowState {
 class SermonFlowNotifier extends Notifier<SermonFlowState> {
   ReaderTab? _pendingOpenSermon;
   String? _pendingOpenLang;
+  bool _persistInFlight = false;
+  bool _persistQueued = false;
 
   @override
   SermonFlowState build() {
@@ -162,8 +158,11 @@ class SermonFlowNotifier extends Notifier<SermonFlowState> {
       0,
       restoredTabs.length - 1,
     );
-    final bmState =
-        _bmStateFromMeta(activeSession.meta, restoredTabs, safeIndex);
+    final bmState = _bmStateFromMeta(
+      activeSession.meta,
+      restoredTabs,
+      safeIndex,
+    );
     if (bmState.enabled &&
         restoredTabs[safeIndex].type != ReaderContentType.sermon) {
       final firstSermon = _firstSermonIndex(restoredTabs);
@@ -245,37 +244,31 @@ class SermonFlowNotifier extends Notifier<SermonFlowState> {
     return _BmState(enabled: enabled, group: group);
   }
 
-  Map<String, dynamic> _bmMetaFromState() {
-    return {
-      'enabled': state.bmMode,
-      'group': state.bmBibleGroup.toJson(),
-    };
+  Map<String, dynamic> _bmMetaFromState(SermonFlowState source) {
+    return {'enabled': source.bmMode, 'group': source.bmBibleGroup.toJson()};
   }
 
-  ReadingFlowPayloadV1 _currentPayload() {
+  ReadingFlowPayloadV1 _currentPayload(SermonFlowState source) {
     return ReadingFlowPayloadV1.fromReaderTabs(
       flowType: FlowType.sermon,
-      tabs: state.tabs,
-      activeTabIndex: state.activeTabIndex,
-      meta: {'bm': _bmMetaFromState()},
+      tabs: source.tabs,
+      activeTabIndex: source.activeTabIndex,
+      meta: {'bm': _bmMetaFromState(source)},
     );
   }
 
-  Future<void> _persistFlow() async {
+  Future<void> _persistFlowSnapshot(SermonFlowState snapshot) async {
     final repo = ref.read(readingStateRepositoryProvider);
-    if (state.tabs.isEmpty) {
+    if (snapshot.tabs.isEmpty) {
       await repo.deleteActiveSession(_sessionKey);
       ref.invalidate(recentReadsProvider);
       return;
     }
 
-    final payload = _currentPayload();
-    await repo.saveActiveSession(
-      sessionKey: _sessionKey,
-      payload: payload,
-    );
+    final payload = _currentPayload(snapshot);
+    await repo.saveActiveSession(sessionKey: _sessionKey, payload: payload);
 
-    final sermonAnchor = state.tabs.first;
+    final sermonAnchor = snapshot.tabs.first;
     final entryKey = sermonAnchor.sermonId != null
         ? 'sermon:${sermonAnchor.sermonId}'
         : 'sermon:tab:${sermonAnchor.id}';
@@ -287,6 +280,24 @@ class SermonFlowNotifier extends Notifier<SermonFlowState> {
       snapshot: payload,
     );
     ref.invalidate(recentReadsProvider);
+  }
+
+  Future<void> _persistFlow() async {
+    if (_persistInFlight) {
+      _persistQueued = true;
+      return;
+    }
+
+    _persistInFlight = true;
+    try {
+      do {
+        _persistQueued = false;
+        final snapshot = state;
+        await _persistFlowSnapshot(snapshot);
+      } while (_persistQueued);
+    } finally {
+      _persistInFlight = false;
+    }
   }
 
   /// Load a new sermon, clearing all previous Bible reference tabs.
@@ -374,10 +385,7 @@ class SermonFlowNotifier extends Notifier<SermonFlowState> {
       final firstSermon = _firstSermonIndex(newTabs);
       if (firstSermon != -1) newActive = firstSermon;
     }
-    state = state.copyWith(
-      tabs: newTabs,
-      activeTabIndex: newActive,
-    );
+    state = state.copyWith(tabs: newTabs, activeTabIndex: newActive);
     unawaited(_persistFlow());
   }
 
@@ -445,8 +453,9 @@ class SermonFlowNotifier extends Notifier<SermonFlowState> {
       final replaceIndex = activeIndex.clamp(0, tabs.length - 1);
       tabs[replaceIndex] = bibleTab;
     }
-    state =
-        state.copyWith(bmBibleGroup: BmBibleGroup(tabs: tabs, activeIndex: activeIndex));
+    state = state.copyWith(
+      bmBibleGroup: BmBibleGroup(tabs: tabs, activeIndex: activeIndex),
+    );
     unawaited(_persistFlow());
   }
 
@@ -470,24 +479,27 @@ class SermonFlowNotifier extends Notifier<SermonFlowState> {
     } else if (index == activeIndex) {
       activeIndex = activeIndex.clamp(0, tabs.length - 1);
     }
-    state =
-        state.copyWith(bmBibleGroup: BmBibleGroup(tabs: tabs, activeIndex: activeIndex));
+    state = state.copyWith(
+      bmBibleGroup: BmBibleGroup(tabs: tabs, activeIndex: activeIndex),
+    );
     unawaited(_persistFlow());
   }
 
   /// Update the title of the active tab (useful for replacing "Loading..." text).
   void updateActiveTabTitle(String newTitle) {
-    if (state.tabs.isEmpty || state.activeTabIndex < 0 || state.activeTabIndex >= state.tabs.length) {
+    if (state.tabs.isEmpty ||
+        state.activeTabIndex < 0 ||
+        state.activeTabIndex >= state.tabs.length) {
       return;
     }
-    
+
     final currentTab = state.tabs[state.activeTabIndex];
     if (currentTab.title == newTitle) return; // No change
-    
+
     final updatedTab = currentTab.copyWith(title: newTitle);
     final newTabs = List<ReaderTab>.from(state.tabs);
     newTabs[state.activeTabIndex] = updatedTab;
-    
+
     state = state.copyWith(tabs: newTabs);
     unawaited(_persistFlow());
   }
@@ -497,10 +509,7 @@ class _BmState {
   final bool enabled;
   final BmBibleGroup group;
 
-  const _BmState({
-    required this.enabled,
-    required this.group,
-  });
+  const _BmState({required this.enabled, required this.group});
 }
 
 // ─── Provider ─────────────────────────────────────────────────────────────────

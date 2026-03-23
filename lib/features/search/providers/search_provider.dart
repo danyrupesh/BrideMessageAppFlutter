@@ -32,10 +32,15 @@ enum SortOrder { bookOrder, relevance }
 class SearchState {
   final String query;
   final bool isLoading;
+  final bool isLoadingMore;
   final List<BibleSearchResult> bibleResults;
   final List<SermonSearchResult> sermonResults;
   final List<SermonSearchResult> codResults;
   final List<Hymn> songResults;
+  final int bibleTotalCount;
+  final int sermonTotalCount;
+  final int codTotalCount;
+  final int songTotalCount;
   final String? error;
   final SearchTab activeTab;
   final SearchType searchType;
@@ -48,10 +53,15 @@ class SearchState {
   SearchState({
     this.query = '',
     this.isLoading = false,
+    this.isLoadingMore = false,
     this.bibleResults = const [],
     this.sermonResults = const [],
     this.codResults = const [],
     this.songResults = const [],
+    this.bibleTotalCount = 0,
+    this.sermonTotalCount = 0,
+    this.codTotalCount = 0,
+    this.songTotalCount = 0,
     this.error,
     this.activeTab = SearchTab.bible,
     this.searchType = SearchType.all,
@@ -65,10 +75,15 @@ class SearchState {
   SearchState copyWith({
     String? query,
     bool? isLoading,
+    bool? isLoadingMore,
     List<BibleSearchResult>? bibleResults,
     List<SermonSearchResult>? sermonResults,
     List<SermonSearchResult>? codResults,
     List<Hymn>? songResults,
+    int? bibleTotalCount,
+    int? sermonTotalCount,
+    int? codTotalCount,
+    int? songTotalCount,
     String? error,
     SearchTab? activeTab,
     SearchType? searchType,
@@ -81,10 +96,15 @@ class SearchState {
     return SearchState(
       query: query ?? this.query,
       isLoading: isLoading ?? this.isLoading,
+      isLoadingMore: isLoadingMore ?? this.isLoadingMore,
       bibleResults: bibleResults ?? this.bibleResults,
       sermonResults: sermonResults ?? this.sermonResults,
       codResults: codResults ?? this.codResults,
       songResults: songResults ?? this.songResults,
+      bibleTotalCount: bibleTotalCount ?? this.bibleTotalCount,
+      sermonTotalCount: sermonTotalCount ?? this.sermonTotalCount,
+      codTotalCount: codTotalCount ?? this.codTotalCount,
+      songTotalCount: songTotalCount ?? this.songTotalCount,
       error: error,
       activeTab: activeTab ?? this.activeTab,
       searchType: searchType ?? this.searchType,
@@ -102,27 +122,41 @@ class SearchState {
 /// Bible repository resolved from installed-database metadata for a given language.
 final bibleRepoForLangProvider =
     FutureProvider.family<BibleRepository?, String>((ref, language) async {
-  final installed = await ref.watch(
-    defaultInstalledDbProvider((DbType.bible, language)).future,
-  );
-  if (installed == null) return null;
-  return BibleRepository(DatabaseManager(), installed.language, installed.code);
-});
+      InstalledDatabase? installed;
+      try {
+        installed = await ref.watch(
+          defaultInstalledDbProvider((DbType.bible, language)).future,
+        );
+      } catch (_) {
+        installed = null;
+      }
+      // Fallback keeps Common Search working when metadata is not yet synced.
+      final code = installed?.code ?? (language == 'ta' ? 'bsi' : 'kjv');
+      final langCode = installed?.language ?? language;
+      return BibleRepository(DatabaseManager(), langCode, code);
+    });
 
 /// Sermon repository resolved from installed-database metadata for a given language.
 final sermonRepoForLangProvider =
     FutureProvider.family<SermonRepository?, String>((ref, language) async {
-  final installed = await ref.watch(
-    defaultInstalledDbProvider((DbType.sermon, language)).future,
-  );
-  if (installed == null) return null;
-  return SermonRepository(
-      DatabaseManager(), installed.language, installed.code);
-});
+      InstalledDatabase? installed;
+      try {
+        installed = await ref.watch(
+          defaultInstalledDbProvider((DbType.sermon, language)).future,
+        );
+      } catch (_) {
+        installed = null;
+      }
+      final code = installed?.code ?? language;
+      final langCode = installed?.language ?? language;
+      return SermonRepository(DatabaseManager(), langCode, code);
+    });
 
 // ─── Search notifier ──────────────────────────────────────────────────────────
 
 class SearchNotifier extends Notifier<SearchState> {
+  static const int _pageSize = 50;
+
   @override
   SearchState build() => SearchState();
 
@@ -174,6 +208,29 @@ class SearchNotifier extends Notifier<SearchState> {
     );
   }
 
+  void loadMoreCurrentTab() {
+    if (state.query.length <= 2 || state.isLoading || state.isLoadingMore) {
+      return;
+    }
+    switch (state.activeTab) {
+      case SearchTab.bible:
+        if (state.bibleResults.length >= state.bibleTotalCount) return;
+        break;
+      case SearchTab.sermon:
+        if (state.sermonResults.length >= state.sermonTotalCount) return;
+        break;
+      case SearchTab.cod:
+        if (state.codResults.length >= state.codTotalCount) return;
+        break;
+      case SearchTab.songs:
+        if (state.songResults.length >= state.songTotalCount) return;
+        break;
+      case SearchTab.all:
+        return;
+    }
+    _executeSearch(state.query, append: true);
+  }
+
   void updateQuery(String value) {
     if (value == state.query) return;
     state = state.copyWith(query: value);
@@ -185,14 +242,23 @@ class SearchNotifier extends Notifier<SearchState> {
         sermonResults: [],
         codResults: [],
         songResults: [],
+        bibleTotalCount: 0,
+        sermonTotalCount: 0,
+        codTotalCount: 0,
+        songTotalCount: 0,
         isLoading: false,
+        isLoadingMore: false,
         error: null,
       );
     }
   }
 
-  Future<void> _executeSearch(String query) async {
-    state = state.copyWith(isLoading: true, error: null);
+  Future<void> _executeSearch(String query, {bool append = false}) async {
+    state = state.copyWith(
+      isLoading: append ? state.isLoading : true,
+      isLoadingMore: append,
+      error: null,
+    );
     try {
       final isExact = state.searchType == SearchType.exact;
       final isAny = state.searchType == SearchType.any;
@@ -218,8 +284,9 @@ class SearchNotifier extends Notifier<SearchState> {
           }
         }
 
-        final sermonRepo =
-            await ref.read(sermonRepoForLangProvider(lang).future);
+        final sermonRepo = await ref.read(
+          sermonRepoForLangProvider(lang).future,
+        );
         if (sermonRepo != null) {
           final sermonMatches = await sermonRepo.searchSermons(
             query: query,
@@ -246,80 +313,175 @@ class SearchNotifier extends Notifier<SearchState> {
       if (state.activeTab == SearchTab.bible) {
         final repo = await ref.read(bibleRepoForLangProvider(lang).future);
         if (repo != null) {
-          final matches = await repo.searchVerses(
-            query: query,
-            limit: 50,
-            offset: 0,
-            exactMatch: isExact,
-            anyWord: isAny,
-            prefixOnly: isPrefix,
-            accurateMatch: state.matchMode == MatchMode.accurate,
-            scope: state.bibleScope.name,
-            sortOrder: state.sortOrder.name,
-          );
+          final offset = append ? state.bibleResults.length : 0;
+          final payload = await Future.wait<dynamic>([
+            repo.searchVerses(
+              query: query,
+              limit: _pageSize,
+              offset: offset,
+              exactMatch: isExact,
+              anyWord: isAny,
+              prefixOnly: isPrefix,
+              accurateMatch: state.matchMode == MatchMode.accurate,
+              scope: state.bibleScope.name,
+              sortOrder: state.sortOrder.name,
+            ),
+            if (!append)
+              repo.countSearchResults(query, scope: state.bibleScope.name),
+          ]);
+          final matches = payload.first as List<BibleSearchResult>;
+          final total = append
+              ? state.bibleTotalCount
+              : ((payload.length > 1 ? payload[1] : 0) as int);
           if (state.query == query) {
-            state = state.copyWith(isLoading: false, bibleResults: matches);
-            ref.read(searchHistoryProvider.notifier).addQuery(query);
+            state = state.copyWith(
+              isLoading: false,
+              isLoadingMore: false,
+              bibleResults: append
+                  ? <BibleSearchResult>[...state.bibleResults, ...matches]
+                  : matches,
+              bibleTotalCount: total,
+            );
+            if (!append) {
+              ref.read(searchHistoryProvider.notifier).addQuery(query);
+            }
           }
           return;
         }
-        if (state.query == query) state = state.copyWith(isLoading: false);
+        if (state.query == query) {
+          state = state.copyWith(isLoading: false, isLoadingMore: false);
+        }
         return;
       }
 
       if (state.activeTab == SearchTab.sermon) {
         final repo = await ref.read(sermonRepoForLangProvider(lang).future);
         if (repo != null) {
-          final matches = await repo.searchSermons(
-            query: query,
-            limit: 50,
-            offset: 0,
-            exactMatch: isExact,
-            anyWord: isAny,
-            prefixOnly: isPrefix,
-            accurateMatch: state.matchMode == MatchMode.accurate,
-            sortOrder: state.sortOrder.name,
-          );
+          final offset = append ? state.sermonResults.length : 0;
+          final payload = await Future.wait<dynamic>([
+            repo.searchSermons(
+              query: query,
+              limit: _pageSize,
+              offset: offset,
+              exactMatch: isExact,
+              anyWord: isAny,
+              prefixOnly: isPrefix,
+              accurateMatch: state.matchMode == MatchMode.accurate,
+              sortOrder: state.sortOrder.name,
+            ),
+            if (!append)
+              repo.countSearchResults(
+                query: query,
+                exactMatch: isExact,
+                anyWord: isAny,
+                prefixOnly: isPrefix,
+              ),
+          ]);
+          final matches = payload.first as List<SermonSearchResult>;
+          final total = append
+              ? state.sermonTotalCount
+              : ((payload.length > 1 ? payload[1] : 0) as int);
           if (state.query == query) {
-            state = state.copyWith(isLoading: false, sermonResults: matches);
-            ref.read(searchHistoryProvider.notifier).addQuery(query);
+            state = state.copyWith(
+              isLoading: false,
+              isLoadingMore: false,
+              sermonResults: append
+                  ? <SermonSearchResult>[...state.sermonResults, ...matches]
+                  : matches,
+              sermonTotalCount: total,
+            );
+            if (!append) {
+              ref.read(searchHistoryProvider.notifier).addQuery(query);
+            }
           }
           return;
         }
-        if (state.query == query) state = state.copyWith(isLoading: false);
+        if (state.query == query) {
+          state = state.copyWith(isLoading: false, isLoadingMore: false);
+        }
         return;
       }
 
       if (state.activeTab == SearchTab.cod) {
         final repo = ref.read(codRepositoryProvider(lang));
-        final hits = await repo.searchAnswerParagraphHits(
-          query: query,
-          limit: 50,
-          matchMode: _codSearchMatchMode(state.searchType),
-        );
-        final mapped =
-            hits.map((h) => _codAnswerHitToSermonResult(h, lang)).toList();
+        final offset = append ? state.codResults.length : 0;
+        final countLimit = append ? _pageSize + offset : _pageSize;
+        final payload = await Future.wait<dynamic>([
+          repo.searchAnswerParagraphHits(
+            query: query,
+            limit: countLimit,
+            matchMode: _codSearchMatchMode(state.searchType),
+          ),
+          if (!append)
+            repo.countAnswerParagraphHits(
+              query: query,
+              matchMode: _codSearchMatchMode(state.searchType),
+            ),
+        ]);
+        final hits = (payload.first as List<CodAnswerSearchHit>)
+            .skip(offset)
+            .take(_pageSize)
+            .toList();
+        final mapped = hits
+            .map((h) => _codAnswerHitToSermonResult(h, lang))
+            .toList();
+        final total = append
+            ? state.codTotalCount
+            : ((payload.length > 1 ? payload[1] : 0) as int);
         if (state.query == query) {
-          state = state.copyWith(isLoading: false, codResults: mapped);
-          ref.read(searchHistoryProvider.notifier).addQuery(query);
+          state = state.copyWith(
+            isLoading: false,
+            isLoadingMore: false,
+            codResults: append
+                ? <SermonSearchResult>[...state.codResults, ...mapped]
+                : mapped,
+            codTotalCount: total,
+          );
+          if (!append) {
+            ref.read(searchHistoryProvider.notifier).addQuery(query);
+          }
         }
         return;
       }
 
       if (state.activeTab == SearchTab.songs) {
         final repo = ref.read(hymnRepositoryProvider);
-        final matches = await repo.searchSongsAdvanced(
-          query,
-          exactMatch: isExact,
-          anyWord: isAny,
-          prefixOnly: isPrefix,
-          searchLyrics: state.searchLyrics,
-          limit: 50,
-          offset: 0,
-        );
+        final offset = append ? state.songResults.length : 0;
+        final payload = await Future.wait<dynamic>([
+          repo.searchSongsAdvanced(
+            query,
+            exactMatch: isExact,
+            anyWord: isAny,
+            prefixOnly: isPrefix,
+            searchLyrics: state.searchLyrics,
+            limit: _pageSize,
+            offset: offset,
+          ),
+          if (!append)
+            repo.countSongsAdvanced(
+              query,
+              exactMatch: isExact,
+              anyWord: isAny,
+              prefixOnly: isPrefix,
+              searchLyrics: state.searchLyrics,
+            ),
+        ]);
+        final matches = payload.first as List<Hymn>;
+        final total = append
+            ? state.songTotalCount
+            : ((payload.length > 1 ? payload[1] : 0) as int);
         if (state.query == query) {
-          state = state.copyWith(isLoading: false, songResults: matches);
-          ref.read(searchHistoryProvider.notifier).addQuery(query);
+          state = state.copyWith(
+            isLoading: false,
+            isLoadingMore: false,
+            songResults: append
+                ? <Hymn>[...state.songResults, ...matches]
+                : matches,
+            songTotalCount: total,
+          );
+          if (!append) {
+            ref.read(searchHistoryProvider.notifier).addQuery(query);
+          }
         }
         return;
       }
@@ -332,7 +494,11 @@ class SearchNotifier extends Notifier<SearchState> {
           message =
               'Songs database is not installed. Please import the Only Believe songs database from the onboarding/import screen and try again.';
         }
-        state = state.copyWith(isLoading: false, error: message);
+        state = state.copyWith(
+          isLoading: false,
+          isLoadingMore: false,
+          error: message,
+        );
       }
     }
   }
@@ -369,7 +535,6 @@ class SearchNotifier extends Notifier<SearchState> {
       displayLeadingId: qn != null ? 'q$qn' : null,
     );
   }
-
 }
 
 final searchProvider = NotifierProvider<SearchNotifier, SearchState>(() {

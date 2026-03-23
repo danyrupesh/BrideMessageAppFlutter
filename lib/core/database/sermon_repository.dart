@@ -204,6 +204,36 @@ ORDER BY
     );
   }
 
+  Future<int> countSearchResults({
+    required String query,
+    bool exactMatch = false,
+    bool anyWord = false,
+    bool prefixOnly = false,
+    String? titlePrefix,
+  }) async {
+    final matchPattern = FtsQueryBuilder.buildMatchQuery(
+      query,
+      exactMatch: exactMatch,
+      anyWord: anyWord,
+      prefixOnly: prefixOnly,
+    );
+    final path = await _dbManager.getDatabasePath(dbFileName);
+    final ftsCount = await countSermonFts(
+      dbPath: path,
+      languageCode: languageCode,
+      matchPattern: matchPattern,
+      titlePrefix: titlePrefix,
+    );
+    if (ftsCount > 0) return ftsCount;
+    return _countSermonsFallback(
+      query: query,
+      exactMatch: exactMatch,
+      anyWord: anyWord,
+      prefixOnly: prefixOnly,
+      titlePrefix: titlePrefix,
+    );
+  }
+
   Future<List<SermonSearchResult>> _searchSermonsFallback({
     required String query,
     required int limit,
@@ -251,18 +281,22 @@ ORDER BY
 
     // Detect whether sermon_paragraphs has a paragraph_number column so we can
     // support databases that omit it without failing the entire search.
-    final pragmaRows =
-        await db.rawQuery('PRAGMA table_info(sermon_paragraphs)');
+    final pragmaRows = await db.rawQuery(
+      'PRAGMA table_info(sermon_paragraphs)',
+    );
     final hasParagraphNumber = pragmaRows.any(
       (row) => (row['name'] as String?) == 'paragraph_number',
     );
 
-    final paragraphSelect =
-        hasParagraphNumber ? 'p.paragraph_number,' : 'NULL AS paragraph_number,';
-    final paragraphOrder =
-        hasParagraphNumber ? 'COALESCE(p.paragraph_number, 0) ASC,' : '';
+    final paragraphSelect = hasParagraphNumber
+        ? 'p.paragraph_number,'
+        : 'NULL AS paragraph_number,';
+    final paragraphOrder = hasParagraphNumber
+        ? 'COALESCE(p.paragraph_number, 0) ASC,'
+        : '';
 
-    final sql = '''
+    final sql =
+        '''
       SELECT
         s.id AS sermon_id,
         s.title,
@@ -314,6 +348,59 @@ ORDER BY
         rank: null,
       );
     }).toList();
+  }
+
+  Future<int> _countSermonsFallback({
+    required String query,
+    required bool exactMatch,
+    required bool anyWord,
+    required bool prefixOnly,
+    String? titlePrefix,
+  }) async {
+    final normalizedQuery = query.replaceAll(RegExp(r'[^\w\s]'), ' ').trim();
+    if (normalizedQuery.isEmpty) return 0;
+
+    final db = await _dbManager.getDatabase(dbFileName);
+    final where = StringBuffer('s.language = ?');
+    final args = <dynamic>[languageCode];
+
+    final tokens = normalizedQuery
+        .split(RegExp(r'\s+'))
+        .where((token) => token.isNotEmpty)
+        .toList();
+
+    if (titlePrefix != null && titlePrefix.isNotEmpty) {
+      where.write(' AND s.title LIKE ?');
+      args.add('$titlePrefix%');
+    }
+
+    if (exactMatch || prefixOnly || tokens.length <= 1) {
+      where.write(' AND LOWER(p.text) LIKE ?');
+      final exactToken = exactMatch || tokens.isEmpty
+          ? normalizedQuery
+          : tokens.first;
+      args.add('%${exactToken.toLowerCase()}%');
+    } else {
+      final separator = anyWord ? ' OR ' : ' AND ';
+      final conditions = List.generate(
+        tokens.length,
+        (_) => 'LOWER(p.text) LIKE ?',
+      );
+      where.write(' AND (${conditions.join(separator)})');
+      for (final token in tokens) {
+        args.add('%${token.toLowerCase()}%');
+      }
+    }
+
+    final row = await db.rawQuery('''
+      SELECT COUNT(*) AS c
+      FROM sermon_paragraphs p
+      JOIN sermons s ON p.sermon_id = s.id
+      WHERE ${where.toString()}
+      ''', args);
+    if (row.isEmpty) return 0;
+    final value = row.first['c'];
+    return (value is int) ? value : (value as num?)?.toInt() ?? 0;
   }
 
   String _buildFallbackSnippet(

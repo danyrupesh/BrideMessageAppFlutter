@@ -7,6 +7,7 @@ import 'core/navigation/app_router.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/theme_provider.dart';
 import 'core/navigation/app_links_handler.dart';
+import 'core/update/startup_update_coordinator.dart';
 import 'package:protocol_handler/protocol_handler.dart';
 import 'package:windows_single_instance/windows_single_instance.dart';
 import 'dart:io';
@@ -90,6 +91,11 @@ class BrideMessageApp extends ConsumerWidget {
         primaryColor: themeSettings.primaryColor,
       ),
       routerConfig: router,
+      builder: (context, child) {
+        return StartupUpdateCoordinator(
+          child: child ?? const SizedBox.shrink(),
+        );
+      },
       debugShowCheckedModeBanner: false,
     );
   }

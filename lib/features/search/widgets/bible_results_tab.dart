@@ -115,7 +115,9 @@ class BibleResultsTab extends ConsumerWidget {
             verse: r.verse,
             snippet: FtsHighlightText(rawSnippet: r.highlighted ?? r.text),
             onTap: () {
-              ref.read(readerProvider.notifier).openTabForLanguage(
+              ref
+                  .read(readerProvider.notifier)
+                  .openTabForLanguage(
                     state.languageCode,
                     ReaderTab(
                       type: ReaderContentType.bible,
@@ -134,8 +136,27 @@ class BibleResultsTab extends ConsumerWidget {
       }
     });
 
-    return ListView(
-      children: children,
-    );
+    final hasMore = state.bibleResults.length < state.bibleTotalCount;
+    if (hasMore || state.isLoadingMore) {
+      children.add(
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
+          child: Center(
+            child: state.isLoadingMore
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : FilledButton.tonal(
+                    onPressed: notifier.loadMoreCurrentTab,
+                    child: const Text('Load more'),
+                  ),
+          ),
+        ),
+      );
+    }
+
+    return ListView(children: children);
   }
 }

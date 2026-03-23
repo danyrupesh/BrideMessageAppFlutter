@@ -12,6 +12,7 @@ class CodResultsTab extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(searchProvider);
+    final notifier = ref.read(searchProvider.notifier);
 
     if (state.isLoading) {
       return const Center(child: CircularProgressIndicator());
@@ -32,10 +33,30 @@ class CodResultsTab extends ConsumerWidget {
       return Center(child: Text('No COD results for "${state.query}"'));
     }
 
+    final hasMore = state.codResults.length < state.codTotalCount;
+    final showFooter = hasMore || state.isLoadingMore;
+
     return ListView.separated(
-      itemCount: results.length,
-      separatorBuilder: (_, __) => const Divider(height: 1),
+      itemCount: results.length + (showFooter ? 1 : 0),
+      separatorBuilder: (context, index) => const Divider(height: 1),
       itemBuilder: (context, index) {
+        if (index >= results.length) {
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 20),
+            child: Center(
+              child: state.isLoadingMore
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : FilledButton.tonal(
+                      onPressed: notifier.loadMoreCurrentTab,
+                      child: const Text('Load more'),
+                    ),
+            ),
+          );
+        }
         final SermonSearchResult r = results[index];
         final subParts = <String>[
           if (r.paragraphLabel != null && r.paragraphLabel!.trim().isNotEmpty)

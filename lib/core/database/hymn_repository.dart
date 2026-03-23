@@ -27,9 +27,7 @@ class HymnRepository {
 
   Future<List<Hymn>> getAllSongs() async {
     final db = await _openDb();
-    final rows = await db.rawQuery(
-      'SELECT * FROM Hymns ORDER BY HymnNo ASC',
-    );
+    final rows = await db.rawQuery('SELECT * FROM Hymns ORDER BY HymnNo ASC');
     final favorites = await _favoritesStore.loadFavorites();
     return rows
         .map(
@@ -49,10 +47,7 @@ class HymnRepository {
     );
     if (rows.isEmpty) return null;
     final favorites = await _favoritesStore.loadFavorites();
-    return Hymn.fromRow(
-      rows.first,
-      isFavorite: favorites.contains(hymnNo),
-    );
+    return Hymn.fromRow(rows.first, isFavorite: favorites.contains(hymnNo));
   }
 
   Future<Hymn?> getNextSong(int currentNo) async {
@@ -64,10 +59,7 @@ class HymnRepository {
     if (rows.isEmpty) return null;
     final hymnNo = rows.first['HymnNo'] as int;
     final favorites = await _favoritesStore.loadFavorites();
-    return Hymn.fromRow(
-      rows.first,
-      isFavorite: favorites.contains(hymnNo),
-    );
+    return Hymn.fromRow(rows.first, isFavorite: favorites.contains(hymnNo));
   }
 
   Future<Hymn?> getPreviousSong(int currentNo) async {
@@ -79,10 +71,7 @@ class HymnRepository {
     if (rows.isEmpty) return null;
     final hymnNo = rows.first['HymnNo'] as int;
     final favorites = await _favoritesStore.loadFavorites();
-    return Hymn.fromRow(
-      rows.first,
-      isFavorite: favorites.contains(hymnNo),
-    );
+    return Hymn.fromRow(rows.first, isFavorite: favorites.contains(hymnNo));
   }
 
   Future<List<Hymn>> searchSongs(
@@ -149,8 +138,7 @@ class HymnRepository {
 
     if (exactMatch) {
       final like = '%$cleaned%';
-      final conds =
-          fields.map((f) => '$f LIKE ?').toList(growable: false);
+      final conds = fields.map((f) => '$f LIKE ?').toList(growable: false);
       buffer.write(conds.join(' OR '));
       args.addAll(List.filled(conds.length, like));
     } else {
@@ -198,14 +186,74 @@ class HymnRepository {
         .toList();
   }
 
+  Future<int> countSongsAdvanced(
+    String query, {
+    required bool exactMatch,
+    required bool anyWord,
+    required bool prefixOnly,
+    required bool searchLyrics,
+  }) async {
+    final db = await _openDb();
+    final cleaned = query.trim().toLowerCase();
+    if (cleaned.isEmpty) return 0;
+
+    final fields = [
+      'LOWER(HymnTitle)',
+      'LOWER(FirstIndexSearch)',
+      if (searchLyrics) 'LOWER(HymnLyrics)',
+    ];
+
+    final buffer = StringBuffer('SELECT COUNT(*) AS c FROM Hymns WHERE ');
+    final args = <Object?>[];
+
+    if (exactMatch) {
+      final like = '%$cleaned%';
+      final conds = fields.map((f) => '$f LIKE ?').toList(growable: false);
+      buffer.write(conds.join(' OR '));
+      args.addAll(List.filled(conds.length, like));
+    } else {
+      final tokens = cleaned
+          .split(RegExp(r'\s+'))
+          .where((t) => t.isNotEmpty)
+          .toList();
+      if (tokens.isEmpty) return 0;
+
+      final joiner = anyWord ? ' OR ' : ' AND ';
+      final groupClauses = <String>[];
+      for (final token in tokens) {
+        final perField = <String>[];
+        if (prefixOnly) {
+          final like1 = '$token%';
+          final like2 = '% $token%';
+          for (final field in fields) {
+            perField.add('($field LIKE ? OR $field LIKE ?)');
+            args.add(like1);
+            args.add(like2);
+          }
+        } else {
+          final like = '%$token%';
+          for (final field in fields) {
+            perField.add('$field LIKE ?');
+            args.add(like);
+          }
+        }
+        groupClauses.add('(${perField.join(' OR ')})');
+      }
+      buffer.write(groupClauses.join(joiner));
+    }
+
+    final rows = await db.rawQuery(buffer.toString(), args);
+    if (rows.isEmpty) return 0;
+    final value = rows.first['c'];
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return 0;
+  }
+
   Future<void> toggleFavorite(int hymnNo) =>
       _favoritesStore.toggleFavorite(hymnNo);
 }
 
 final hymnRepositoryProvider = Provider<HymnRepository>((ref) {
-  return HymnRepository(
-    DatabaseManager(),
-    HymnFavoritesStore(),
-  );
+  return HymnRepository(DatabaseManager(), HymnFavoritesStore());
 });
-

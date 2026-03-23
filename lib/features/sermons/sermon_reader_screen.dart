@@ -385,6 +385,13 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
   Future<void> _openQuickNav() async {
     final flowState = ref.read(sermonFlowProvider);
     final isBmMode = flowState.bmMode;
+    final sermonLang = ref.read(selectedSermonLangProvider);
+    final activeBibleLang = flowState.activeTab?.type == ReaderContentType.bible
+        ? flowState.activeTab?.bibleLang
+        : null;
+    final initialLang = (activeBibleLang == 'ta' || activeBibleLang == 'en')
+        ? activeBibleLang!
+        : (sermonLang == 'ta' ? 'ta' : 'en');
     setState(() => _fabExpanded = false);
     final result = await showResponsiveBottomSheet<Map<String, dynamic>>(
       context: context,
@@ -392,7 +399,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
       useSafeArea: true,
       backgroundColor: Colors.transparent,
       maxWidth: 980,
-      builder: (_) => const QuickNavigationSheet(),
+      builder: (_) => QuickNavigationSheet(initialLang: initialLang),
     );
     if (result == null) return;
     final verse = result['verse'] as int?;
@@ -428,6 +435,24 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     int? bmIndex,
     required bool isBm,
   }) async {
+    final flowState = ref.read(sermonFlowProvider);
+    final sermonLang = ref.read(selectedSermonLangProvider);
+    String? preferredLang;
+    if (isBm && bmIndex != null) {
+      final bmTabs = flowState.bmBibleGroup.tabs;
+      if (bmIndex >= 0 && bmIndex < bmTabs.length) {
+        preferredLang = bmTabs[bmIndex].bibleLang;
+      }
+    } else if (!isBm && tabIndex != null) {
+      final tabs = flowState.tabs;
+      if (tabIndex >= 0 && tabIndex < tabs.length) {
+        preferredLang = tabs[tabIndex].bibleLang;
+      }
+    }
+    final initialLang = (preferredLang == 'ta' || preferredLang == 'en')
+        ? preferredLang!
+        : (sermonLang == 'ta' ? 'ta' : 'en');
+
     setState(() => _fabExpanded = false);
     if (isBm && bmIndex != null) {
       ref.read(sermonFlowProvider.notifier).setBmBibleActive(bmIndex);
@@ -440,7 +465,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
       useSafeArea: true,
       backgroundColor: Colors.transparent,
       maxWidth: 980,
-      builder: (_) => const QuickNavigationSheet(),
+      builder: (_) => QuickNavigationSheet(initialLang: initialLang),
     );
     if (result == null) return;
 
@@ -2567,6 +2592,11 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
 
                       return GestureDetector(
                         onTap: () {
+                          ref
+                              .read(sermonFlowProvider.notifier)
+                              .switchTab(actualIndex);
+                        },
+                        onDoubleTap: () {
                           if (tab.type == ReaderContentType.sermon) {
                             _openSermonQuickNavForTab(actualIndex);
                           } else {
@@ -2576,6 +2606,18 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
                             );
                           }
                         },
+                        onLongPress: _isDesktopPlatform
+                            ? null
+                            : () {
+                                if (tab.type == ReaderContentType.sermon) {
+                                  _openSermonQuickNavForTab(actualIndex);
+                                } else {
+                                  _openQuickNavForBibleTab(
+                                    tabIndex: actualIndex,
+                                    isBm: false,
+                                  );
+                                }
+                              },
                         child: Container(
                           margin: const EdgeInsets.symmetric(
                             horizontal: 4,
@@ -3066,15 +3108,94 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
             ],
           );
         }
+        final availableHeight = constraints.maxHeight;
+        const mobileSplitterTouchHeight = 28.0;
+        final usableHeight = (availableHeight - mobileSplitterTouchHeight)
+            .clamp(0.0, availableHeight);
+        final topHeight = (usableHeight * _bmSplitRatio).clamp(
+          usableHeight * _bmSplitMin,
+          usableHeight * _bmSplitMax,
+        );
+        final bottomHeight = (usableHeight - topHeight).clamp(
+          usableHeight * (1 - _bmSplitMax),
+          usableHeight * (1 - _bmSplitMin),
+        );
+
         return Column(
           children: [
-            Expanded(child: sermonPanel),
-            Divider(
-              height: 12,
-              thickness: 1,
-              color: theme.colorScheme.outlineVariant.withAlpha(120),
+            SizedBox(height: topHeight, child: sermonPanel),
+            MouseRegion(
+              cursor: SystemMouseCursors.resizeRow,
+              child: GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                onVerticalDragUpdate: (details) {
+                  final delta =
+                      details.delta.dy / (usableHeight == 0 ? 1 : usableHeight);
+                  setState(() {
+                    _bmSplitRatio = (_bmSplitRatio + delta).clamp(
+                      _bmSplitMin,
+                      _bmSplitMax,
+                    );
+                  });
+                },
+                onVerticalDragEnd: (_) => _persistBmSplitRatio(),
+                onDoubleTap: () {
+                  setState(() {
+                    _bmSplitRatio = _bmSplitDefault;
+                  });
+                  _persistBmSplitRatio();
+                },
+                child: SizedBox(
+                  height: mobileSplitterTouchHeight,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      Container(
+                        width: double.infinity,
+                        height: 1,
+                        color: theme.colorScheme.outlineVariant.withAlpha(130),
+                      ),
+                      Container(
+                        width: 52,
+                        height: 20,
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.surfaceContainerHighest,
+                          borderRadius: BorderRadius.circular(999),
+                          border: Border.all(
+                            color: theme.colorScheme.outlineVariant.withAlpha(
+                              170,
+                            ),
+                          ),
+                        ),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Container(
+                              width: 20,
+                              height: 2,
+                              decoration: BoxDecoration(
+                                color: theme.colorScheme.onSurfaceVariant,
+                                borderRadius: BorderRadius.circular(2),
+                              ),
+                            ),
+                            const SizedBox(height: 3),
+                            Container(
+                              width: 20,
+                              height: 2,
+                              decoration: BoxDecoration(
+                                color: theme.colorScheme.onSurfaceVariant,
+                                borderRadius: BorderRadius.circular(2),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             ),
-            Expanded(child: biblePanel),
+            SizedBox(height: bottomHeight, child: biblePanel),
           ],
         );
       },
@@ -3151,8 +3272,15 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
                   _buildBmBibleTabChip(
                     label: tabs[i].title,
                     isActive: i == activeIndex,
-                    onTap: () =>
+                    onTap: () => ref
+                        .read(sermonFlowProvider.notifier)
+                        .setBmBibleActive(i),
+                    onDoubleTap: () =>
                         _openQuickNavForBibleTab(bmIndex: i, isBm: true),
+                    onLongPress: _isDesktopPlatform
+                        ? null
+                        : () =>
+                              _openQuickNavForBibleTab(bmIndex: i, isBm: true),
                     onClose: () => ref
                         .read(sermonFlowProvider.notifier)
                         .closeBmBibleTab(i),
@@ -3204,9 +3332,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
                     fontSize: typography.titleFontSize,
                     onTap: () =>
                         ref.read(sermonFlowProvider.notifier).switchTab(index),
-                    onDoubleTap: _isDesktopPlatform
-                        ? () => _openSermonQuickNavForTab(index)
-                        : null,
+                    onDoubleTap: () => _openSermonQuickNavForTab(index),
                     onLongPress: _isDesktopPlatform
                         ? null
                         : () => _openSermonQuickNavForTab(index),
@@ -3306,16 +3432,18 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Sermon Tabs'),
+        title: const Text('Sermon & Bible Tabs'),
         content: const Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Single click / tap: open this sermon'),
+            Text('Single click / tap: open this tab content'),
             SizedBox(height: 6),
-            Text('Double-click (desktop): change/replace this sermon tab'),
+            Text('Double-click (desktop): open Quick Navigation for this tab'),
             SizedBox(height: 6),
-            Text('Long-press (mobile): change/replace this sermon tab'),
+            Text('Double-tap (mobile): open Quick Navigation for this tab'),
+            SizedBox(height: 6),
+            Text('Long-press (mobile): open Quick Navigation for this tab'),
           ],
         ),
         actions: [
@@ -3332,6 +3460,8 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     required String label,
     required bool isActive,
     required VoidCallback onTap,
+    VoidCallback? onDoubleTap,
+    VoidCallback? onLongPress,
     required VoidCallback onClose,
   }) {
     final theme = Theme.of(context);
@@ -3355,6 +3485,8 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
       child: InkWell(
         borderRadius: BorderRadius.circular(16),
         onTap: onTap,
+        onDoubleTap: onDoubleTap,
+        onLongPress: onLongPress,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           child: Row(

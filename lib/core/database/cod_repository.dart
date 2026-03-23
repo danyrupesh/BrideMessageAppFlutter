@@ -578,6 +578,44 @@ class CodRepository {
     }).toList();
   }
 
+  Future<int> countAnswerParagraphHits({
+    required String query,
+    CodSearchMatchMode matchMode = CodSearchMatchMode.allWords,
+  }) async {
+    final raw = query.trim();
+    if (raw.isEmpty) return 0;
+
+    final List<String> tokens;
+    switch (matchMode) {
+      case CodSearchMatchMode.phrase:
+        tokens = [raw];
+        break;
+      case CodSearchMatchMode.allWords:
+      case CodSearchMatchMode.anyWord:
+        tokens = raw.split(RegExp(r'\s+')).where((t) => t.isNotEmpty).toList();
+        if (tokens.isEmpty) return 0;
+        break;
+    }
+
+    final joiner = matchMode == CodSearchMatchMode.anyWord && tokens.length > 1
+        ? ' OR '
+        : ' AND ';
+    final likeClause = tokens
+        .map((_) => "COALESCE(a.plain_text, '') LIKE ? ESCAPE '\\'")
+        .join(joiner);
+
+    final args = <Object?>[for (final t in tokens) _sqlLikeContains(t)];
+    final db = await _openDb();
+    final rows = await db.rawQuery('''
+      SELECT COUNT(*) AS c
+      FROM answers a
+      WHERE $likeClause
+      ''', args);
+    if (rows.isEmpty) return 0;
+    final value = rows.first['c'];
+    return (value is int) ? value : (value as num?)?.toInt() ?? 0;
+  }
+
   static String _ellipsizeForHtml(String s, int max) {
     if (s.length <= max) return s;
     return '${s.substring(0, max)}…';

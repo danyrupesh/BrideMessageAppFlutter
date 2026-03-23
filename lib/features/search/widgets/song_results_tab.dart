@@ -12,6 +12,7 @@ class SongResultsTab extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(searchProvider);
+    final notifier = ref.read(searchProvider.notifier);
 
     if (state.isLoading) {
       return const Center(child: CircularProgressIndicator());
@@ -32,10 +33,30 @@ class SongResultsTab extends ConsumerWidget {
       return Center(child: Text('No songs found for "${state.query}"'));
     }
 
+    final hasMore = state.songResults.length < state.songTotalCount;
+    final showFooter = hasMore || state.isLoadingMore;
+
     return ListView.separated(
-      itemCount: results.length,
-      separatorBuilder: (_, __) => const Divider(height: 1),
+      itemCount: results.length + (showFooter ? 1 : 0),
+      separatorBuilder: (context, index) => const Divider(height: 1),
       itemBuilder: (context, index) {
+        if (index >= results.length) {
+          return Padding(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 20),
+            child: Center(
+              child: state.isLoadingMore
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : FilledButton.tonal(
+                      onPressed: notifier.loadMoreCurrentTab,
+                      child: const Text('Load more'),
+                    ),
+            ),
+          );
+        }
         final hymn = results[index];
         return SongListCard(
           number: hymn.hymnNo,
@@ -49,10 +70,7 @@ class SongResultsTab extends ConsumerWidget {
           isFavorite: hymn.isFavorite,
           highlightQuery: state.query,
           onTap: () {
-            context.push(
-              '/song-detail',
-              extra: hymn.hymnNo,
-            );
+            context.push('/song-detail', extra: hymn.hymnNo);
           },
           onToggleFavorite: null,
         );

@@ -125,6 +125,20 @@ class _QuickNavigationSheetState extends ConsumerState<QuickNavigationSheet>
     });
   }
 
+  void _setSheetLang(String lang) {
+    if (_sheetLang == lang) return;
+    ref.read(selectedBibleLangProvider.notifier).setLang(lang);
+    setState(() {
+      _sheetLang = lang;
+      _selectedBook = null;
+      _selectedChapter = null;
+      _searchController.clear();
+    });
+    if (_pageController.hasClients) {
+      _pageController.jumpToPage(0);
+    }
+  }
+
   // ── Build ─────────────────────────────────────────────────────────────────
 
   @override
@@ -154,6 +168,7 @@ class _QuickNavigationSheetState extends ConsumerState<QuickNavigationSheet>
         children: [
           _buildDragHandle(theme),
           _buildHeader(),
+          _buildLanguageSwitch(theme),
           Expanded(
             child: PageView(
               controller: _pageController,
@@ -299,7 +314,7 @@ class _QuickNavigationSheetState extends ConsumerState<QuickNavigationSheet>
   }
 
   Widget _buildTabBar(ThemeData theme) {
-    final isTamil = ref.watch(selectedBibleLangProvider) == 'ta';
+    final isTamil = _sheetLang == 'ta';
     return TabBar(
       controller: _tabController,
       labelColor: theme.colorScheme.primary,
@@ -647,8 +662,6 @@ class _QuickNavigationSheetState extends ConsumerState<QuickNavigationSheet>
   }
 
   Widget _buildHeader() {
-    final theme = Theme.of(context);
-
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
       child: Row(
@@ -666,6 +679,36 @@ class _QuickNavigationSheetState extends ConsumerState<QuickNavigationSheet>
           IconButton(
             icon: const Icon(Icons.close),
             onPressed: () => Navigator.pop(context),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLanguageSwitch(ThemeData theme) {
+    final isTamil = _sheetLang == 'ta';
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
+      child: Row(
+        children: [
+          ChoiceChip(
+            label: const Text('English'),
+            selected: !isTamil,
+            onSelected: (_) => _setSheetLang('en'),
+          ),
+          const SizedBox(width: 8),
+          ChoiceChip(
+            label: const Text('Tamil'),
+            selected: isTamil,
+            onSelected: (_) => _setSheetLang('ta'),
+          ),
+          const Spacer(),
+          Text(
+            isTamil ? 'தமிழ்' : 'EN',
+            style: theme.textTheme.labelMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ],
       ),
@@ -714,7 +757,7 @@ class _QuickNavigationSheetState extends ConsumerState<QuickNavigationSheet>
                         'book': _selectedBook!['name'],
                         'chapter': _selectedChapter,
                         'verse': null,
-                        'lang': ref.read(selectedBibleLangProvider),
+                        'lang': _sheetLang,
                         'newTab': _openInNewTab,
                       })
                     : null,
