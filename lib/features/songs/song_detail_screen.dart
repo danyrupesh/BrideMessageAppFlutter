@@ -12,10 +12,7 @@ import '../../core/widgets/responsive_bottom_sheet.dart';
 import 'providers/song_detail_provider.dart';
 
 class SongDetailScreen extends StatelessWidget {
-  const SongDetailScreen({
-    super.key,
-    required this.hymnNo,
-  });
+  const SongDetailScreen({super.key, required this.hymnNo});
 
   final int hymnNo;
 
@@ -63,7 +60,10 @@ class _SongDetailReaderState extends ConsumerState<_SongDetailReader> {
           overflow: TextOverflow.ellipsis,
         ),
         actions: [
-          if (state case SongDetailContent(:final hymn, :final lyricsLines)) ...[
+          if (state case SongDetailContent(
+            :final hymn,
+            :final lyricsLines,
+          )) ...[
             IconButton(
               tooltip: hymn.isFavorite ? 'Unfavorite' : 'Favorite',
               icon: Icon(
@@ -106,15 +106,25 @@ class _SongDetailReaderState extends ConsumerState<_SongDetailReader> {
                     ],
                   ),
                 ),
+                PopupMenuItem(
+                  value: 'add_note',
+                  child: Row(
+                    children: [
+                      Icon(Icons.note_add_outlined, size: 18),
+                      SizedBox(width: 12),
+                      Text('Add Note'),
+                    ],
+                  ),
+                ),
               ],
               onSelected: (value) async {
                 if (value == 'copy') {
                   final text = _shareTextFor(hymn);
                   await Clipboard.setData(ClipboardData(text: text));
                   if (!context.mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Copied')),
-                  );
+                  ScaffoldMessenger.of(
+                    context,
+                  ).showSnackBar(const SnackBar(content: Text('Copied')));
                 } else if (value == 'share') {
                   SharePlus.instance.share(
                     ShareParams(text: _shareTextFor(hymn)),
@@ -124,6 +134,50 @@ class _SongDetailReaderState extends ConsumerState<_SongDetailReader> {
                   await Printing.layoutPdf(
                     onLayout: (_) => doc.save(),
                     name: 'Hymn ${hymn.hymnNo} – ${hymn.title}',
+                  );
+                } else if (value == 'add_note') {
+                  final query = <String, String>{
+                    'type': 'song',
+                    'id': '${hymn.hymnNo}',
+                    'hymnNo': '${hymn.hymnNo}',
+                    'title': hymn.title,
+                  };
+                  if (!context.mounted) return;
+                  showModalBottomSheet<void>(
+                    context: context,
+                    builder: (sheetContext) => SafeArea(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          ListTile(
+                            leading: const Icon(Icons.note_add_outlined),
+                            title: const Text('Create New Note'),
+                            onTap: () {
+                              Navigator.of(sheetContext).pop();
+                              context.push(
+                                Uri(
+                                  path: '/notes/edit',
+                                  queryParameters: query,
+                                ).toString(),
+                              );
+                            },
+                          ),
+                          ListTile(
+                            leading: const Icon(Icons.link_outlined),
+                            title: const Text('Add to Existing Note'),
+                            onTap: () {
+                              Navigator.of(sheetContext).pop();
+                              context.push(
+                                Uri(
+                                  path: '/notes',
+                                  queryParameters: {...query, 'attach': '1'},
+                                ).toString(),
+                              );
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
                   );
                 }
               },
@@ -167,18 +221,18 @@ class _SongDetailReaderState extends ConsumerState<_SongDetailReader> {
             padding: const EdgeInsets.symmetric(horizontal: 12),
             child: switch (state) {
               SongDetailLoading() => const Center(
-                  child: CircularProgressIndicator(),
-                ),
+                child: CircularProgressIndicator(),
+              ),
               SongDetailError(:final message) => _ErrorView(
-                  message: message,
-                  palette: palette,
-                ),
+                message: message,
+                palette: palette,
+              ),
               SongDetailContent() => _ContentView(
-                  state: state,
-                  palette: palette,
-                  onPrev: notifier.navigateToPrevious,
-                  onNext: notifier.navigateToNext,
-                ),
+                state: state,
+                palette: palette,
+                onPrev: notifier.navigateToPrevious,
+                onNext: notifier.navigateToNext,
+              ),
             },
           ),
         ),
@@ -223,10 +277,7 @@ class _SongDetailReaderState extends ConsumerState<_SongDetailReader> {
 }
 
 class _ErrorView extends StatelessWidget {
-  const _ErrorView({
-    required this.message,
-    required this.palette,
-  });
+  const _ErrorView({required this.message, required this.palette});
 
   final String message;
   final _ReaderPalette palette;
@@ -238,9 +289,7 @@ class _ErrorView extends StatelessWidget {
       child: Text(
         message,
         textAlign: TextAlign.center,
-        style: theme.textTheme.bodyMedium?.copyWith(
-          color: palette.error,
-        ),
+        style: theme.textTheme.bodyMedium?.copyWith(color: palette.error),
       ),
     );
   }
@@ -381,55 +430,49 @@ class _LyricsLineView extends StatelessWidget {
     return switch (line) {
       LyricsSpacer() => const SizedBox(height: 14),
       LyricsSectionHeader(:final text) => Padding(
-          padding: const EdgeInsets.only(top: 14, bottom: 6),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Container(
-                width: 4,
-                height: 18,
-                decoration: BoxDecoration(
-                  color: palette.accent,
-                  borderRadius: BorderRadius.circular(999),
-                ),
+        padding: const EdgeInsets.only(top: 14, bottom: 6),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Container(
+              width: 4,
+              height: 18,
+              decoration: BoxDecoration(
+                color: palette.accent,
+                borderRadius: BorderRadius.circular(999),
               ),
-              const SizedBox(width: 10),
-              Text(
-                text.toUpperCase(),
-                style: theme.textTheme.labelLarge?.copyWith(
-                  color: palette.accent,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 1.0,
-                ),
+            ),
+            const SizedBox(width: 10),
+            Text(
+              text.toUpperCase(),
+              style: theme.textTheme.labelLarge?.copyWith(
+                color: palette.accent,
+                fontWeight: FontWeight.w800,
+                letterSpacing: 1.0,
               ),
-            ],
-          ),
+            ),
+          ],
         ),
+      ),
       LyricsChorusLine(:final text) => Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4),
-          child: Card(
-            color: palette.chorusBackground,
-            elevation: 0,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
-              side: BorderSide(color: palette.chorusBorder),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
-              child: Text(
-                text,
-                style: baseStyle,
-              ),
-            ),
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Card(
+          color: palette.chorusBackground,
+          elevation: 0,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+            side: BorderSide(color: palette.chorusBorder),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+            child: Text(text, style: baseStyle),
           ),
         ),
+      ),
       LyricsVerseLine(:final text) => Padding(
-          padding: const EdgeInsets.symmetric(vertical: 3),
-          child: Text(
-            text,
-            style: baseStyle,
-          ),
-        ),
+        padding: const EdgeInsets.symmetric(vertical: 3),
+        child: Text(text, style: baseStyle),
+      ),
     };
   }
 }
@@ -448,10 +491,7 @@ Future<pw.Document> _buildHymnPdf(Hymn hymn, List<LyricsLine> lines) async {
     fontWeight: pw.FontWeight.bold,
     color: PdfColors.black,
   );
-  final headerSmallStyle = pw.TextStyle(
-    fontSize: 10,
-    color: greyColor,
-  );
+  final headerSmallStyle = pw.TextStyle(fontSize: 10, color: greyColor);
   final keyStyle = pw.TextStyle(
     fontSize: 11,
     fontWeight: pw.FontWeight.bold,
@@ -462,10 +502,7 @@ Future<pw.Document> _buildHymnPdf(Hymn hymn, List<LyricsLine> lines) async {
     fontWeight: pw.FontWeight.bold,
     color: accentColor,
   );
-  final normalStyle = const pw.TextStyle(
-    fontSize: 12,
-    color: PdfColors.black,
-  );
+  final normalStyle = const pw.TextStyle(fontSize: 12, color: PdfColors.black);
   final footerStyle = pw.TextStyle(
     fontSize: 10,
     fontStyle: pw.FontStyle.italic,
@@ -507,11 +544,14 @@ Future<pw.Document> _buildHymnPdf(Hymn hymn, List<LyricsLine> lines) async {
                   pw.SizedBox(height: 10),
                   pw.Container(
                     padding: const pw.EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 4),
+                      horizontal: 12,
+                      vertical: 4,
+                    ),
                     decoration: pw.BoxDecoration(
                       color: PdfColors.grey100,
-                      borderRadius:
-                          const pw.BorderRadius.all(pw.Radius.circular(20)),
+                      borderRadius: const pw.BorderRadius.all(
+                        pw.Radius.circular(20),
+                      ),
                       border: pw.Border.all(color: PdfColors.grey300),
                     ),
                     child: pw.Text(
@@ -530,53 +570,56 @@ Future<pw.Document> _buildHymnPdf(Hymn hymn, List<LyricsLine> lines) async {
             return switch (line) {
               LyricsSpacer() => pw.SizedBox(height: 12),
               LyricsSectionHeader(:final text) => pw.Padding(
-                  padding: const pw.EdgeInsets.only(top: 14, bottom: 6),
-                  child: pw.Row(
-                    children: [
-                      pw.Container(
-                        width: 3,
-                        height: 12,
-                        decoration: const pw.BoxDecoration(
-                          color: accentColor,
-                          borderRadius:
-                              pw.BorderRadius.all(pw.Radius.circular(2)),
+                padding: const pw.EdgeInsets.only(top: 14, bottom: 6),
+                child: pw.Row(
+                  children: [
+                    pw.Container(
+                      width: 3,
+                      height: 12,
+                      decoration: const pw.BoxDecoration(
+                        color: accentColor,
+                        borderRadius: pw.BorderRadius.all(
+                          pw.Radius.circular(2),
                         ),
                       ),
-                      pw.SizedBox(width: 8),
-                      pw.Text(clean(text.toUpperCase()),
-                          style: sectionHeaderStyle),
-                    ],
-                  ),
-                ),
-              LyricsChorusLine(:final text) => pw.Padding(
-                  padding: const pw.EdgeInsets.symmetric(vertical: 2),
-                  child: pw.Container(
-                    width: double.infinity,
-                    padding: const pw.EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 6),
-                    decoration: pw.BoxDecoration(
-                      color: chorusBg,
-                      border: pw.Border.all(color: chorusBorder),
-                      borderRadius:
-                          const pw.BorderRadius.all(pw.Radius.circular(8)),
                     ),
-                    child: pw.Text(clean(text), style: normalStyle),
-                  ),
+                    pw.SizedBox(width: 8),
+                    pw.Text(
+                      clean(text.toUpperCase()),
+                      style: sectionHeaderStyle,
+                    ),
+                  ],
                 ),
-              LyricsVerseLine(:final text) => pw.Padding(
-                  padding: const pw.EdgeInsets.symmetric(vertical: 3),
+              ),
+              LyricsChorusLine(:final text) => pw.Padding(
+                padding: const pw.EdgeInsets.symmetric(vertical: 2),
+                child: pw.Container(
+                  width: double.infinity,
+                  padding: const pw.EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  decoration: pw.BoxDecoration(
+                    color: chorusBg,
+                    border: pw.Border.all(color: chorusBorder),
+                    borderRadius: const pw.BorderRadius.all(
+                      pw.Radius.circular(8),
+                    ),
+                  ),
                   child: pw.Text(clean(text), style: normalStyle),
                 ),
+              ),
+              LyricsVerseLine(:final text) => pw.Padding(
+                padding: const pw.EdgeInsets.symmetric(vertical: 3),
+                child: pw.Text(clean(text), style: normalStyle),
+              ),
             };
           }),
 
           pw.SizedBox(height: 32),
           pw.Divider(color: PdfColors.grey300),
           pw.SizedBox(height: 8),
-          pw.Text(
-            clean('— Only Believe Songs'),
-            style: footerStyle,
-          ),
+          pw.Text(clean('— Only Believe Songs'), style: footerStyle),
         ];
       },
     ),
@@ -820,7 +863,9 @@ class _ThemeChip extends StatelessWidget {
         label,
         style: t.textTheme.labelLarge?.copyWith(
           fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
-          color: isSelected ? palette.onChipSelected : palette.onSheetBackground,
+          color: isSelected
+              ? palette.onChipSelected
+              : palette.onSheetBackground,
         ),
       ),
       selected: isSelected,
@@ -830,9 +875,7 @@ class _ThemeChip extends StatelessWidget {
       side: BorderSide(
         color: isSelected ? palette.chipSelectedBorder : palette.chipBorder,
       ),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(999),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
     );
   }
 }

@@ -5,6 +5,7 @@ class SelectionActionBar extends StatelessWidget {
   final String? selectedText;
   final VoidCallback onCopy;
   final VoidCallback onShare;
+  final VoidCallback? onAddToNote;
   final VoidCallback onDismiss;
 
   const SelectionActionBar({
@@ -13,6 +14,7 @@ class SelectionActionBar extends StatelessWidget {
     required this.selectedText,
     required this.onCopy,
     required this.onShare,
+    this.onAddToNote,
     required this.onDismiss,
   });
 
@@ -66,6 +68,17 @@ class SelectionActionBar extends StatelessWidget {
                             child: const Text('Copy'),
                           ),
                           const SizedBox(width: 8),
+                          if (onAddToNote != null) ...[
+                            FilledButton.icon(
+                              onPressed: onAddToNote,
+                              icon: const Icon(Icons.note_add_outlined, size: 16),
+                              label: const Text('Add to Note'),
+                              style: FilledButton.styleFrom(
+                                padding: const EdgeInsets.symmetric(horizontal: 14),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                          ],
                           FilledButton(
                             onPressed: onShare,
                             style: FilledButton.styleFrom(

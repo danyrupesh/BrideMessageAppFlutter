@@ -5,6 +5,8 @@ import 'package:go_router/go_router.dart';
 import 'package:share_plus/share_plus.dart' show SharePlus, ShareParams;
 
 import '../../core/database/models/cod_models.dart';
+import '../../core/widgets/previous_notes_widget.dart';
+import '../notes/models/source_ref.dart';
 import '../common/widgets/fts_highlight_text.dart';
 import '../reader/providers/typography_provider.dart';
 import '../reader/widgets/reader_settings_sheet.dart';
@@ -127,7 +129,9 @@ class _CodAnswerScreenState extends ConsumerState<CodAnswerScreen> {
   void didUpdateWidget(CodAnswerScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.lang != widget.lang) {
-      ref.read(typographyProvider.notifier).setReaderContentLanguage(widget.lang);
+      ref
+          .read(typographyProvider.notifier)
+          .setReaderContentLanguage(widget.lang);
     }
     if (oldWidget.id != widget.id ||
         oldWidget.scrollToAnswerParagraphId !=
@@ -447,6 +451,54 @@ class _CodAnswerScreenState extends ConsumerState<CodAnswerScreen> {
             icon: const Icon(Icons.keyboard_arrow_down),
             onPressed: _totalMatches == 0 ? null : () => _navigateToMatch(1),
           ),
+          IconButton(
+            icon: const Icon(Icons.note_add_outlined),
+            tooltip: isTamil ? 'குறிப்பு சேர்' : 'Add note',
+            onPressed: () {
+              final query = <String, String>{
+                'type': 'cod',
+                'id': widget.id,
+                'codId': widget.id,
+                'lang': widget.lang,
+              };
+              showModalBottomSheet<void>(
+                context: context,
+                builder: (sheetContext) => SafeArea(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      ListTile(
+                        leading: const Icon(Icons.note_add_outlined),
+                        title: const Text('Create New Note'),
+                        onTap: () {
+                          Navigator.of(sheetContext).pop();
+                          context.push(
+                            Uri(
+                              path: '/notes/edit',
+                              queryParameters: query,
+                            ).toString(),
+                          );
+                        },
+                      ),
+                      ListTile(
+                        leading: const Icon(Icons.link_outlined),
+                        title: const Text('Add to Existing Note'),
+                        onTap: () {
+                          Navigator.of(sheetContext).pop();
+                          context.push(
+                            Uri(
+                              path: '/notes',
+                              queryParameters: {...query, 'attach': '1'},
+                            ).toString(),
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
           PopupMenuButton<String>(
             itemBuilder: (ctx) => [
               PopupMenuItem(
@@ -568,6 +620,54 @@ class _CodAnswerScreenState extends ConsumerState<CodAnswerScreen> {
               : null,
         ),
         IconButton(
+          icon: const Icon(Icons.note_add_outlined),
+          tooltip: isTamil ? 'குறிப்பு சேர்' : 'Add note',
+          onPressed: () {
+            final query = <String, String>{
+              'type': 'cod',
+              'id': widget.id,
+              'codId': widget.id,
+              'lang': widget.lang,
+            };
+            showModalBottomSheet<void>(
+              context: context,
+              builder: (sheetContext) => SafeArea(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ListTile(
+                      leading: const Icon(Icons.note_add_outlined),
+                      title: const Text('Create New Note'),
+                      onTap: () {
+                        Navigator.of(sheetContext).pop();
+                        context.push(
+                          Uri(
+                            path: '/notes/edit',
+                            queryParameters: query,
+                          ).toString(),
+                        );
+                      },
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.link_outlined),
+                      title: const Text('Add to Existing Note'),
+                      onTap: () {
+                        Navigator.of(sheetContext).pop();
+                        context.push(
+                          Uri(
+                            path: '/notes',
+                            queryParameters: {...query, 'attach': '1'},
+                          ).toString(),
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+        IconButton(
           icon: const Icon(Icons.home),
           tooltip: 'Home',
           onPressed: () => context.go('/'),
@@ -661,6 +761,7 @@ class _CodAnswerScreenState extends ConsumerState<CodAnswerScreen> {
                       ),
                     ),
                   const SizedBox(height: 12),
+                  PreviousNotesWidget(sourceType: NoteSourceType.cod, sourceId: widget.id),
                   if (fullAnswerText.isEmpty)
                     Text(
                       isTamil

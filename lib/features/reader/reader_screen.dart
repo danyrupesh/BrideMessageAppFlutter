@@ -46,7 +46,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   // ── In-page search ────────────────────────────────────────────────────────
   bool _isSearching = false;
   final TextEditingController _searchController = TextEditingController();
-  String? _lastSearchActivatedTabId; // Track which tab had search auto-activated
+  String?
+  _lastSearchActivatedTabId; // Track which tab had search auto-activated
   String? _lastActiveTabId;
 
   /// Flat list of verse indices (one entry per individual match occurrence).
@@ -74,7 +75,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     _searchKeyHandler = (event) {
       if (!_isSearching) return false;
       if (event is! KeyDownEvent) return false;
-      final isEnter = event.logicalKey == LogicalKeyboardKey.enter ||
+      final isEnter =
+          event.logicalKey == LogicalKeyboardKey.enter ||
           event.logicalKey == LogicalKeyboardKey.numpadEnter;
       if (!isEnter) return false;
       if (_totalMatches == 0) return true;
@@ -253,6 +255,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
         curve: Curves.easeOutCubic,
       );
     }
+
     if (_scrollController.hasClients) {
       doScroll();
     } else {
@@ -269,14 +272,14 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
     int? focusIndex;
     if (tab.verse != null) {
-      focusIndex =
-          _currentVerses.indexWhere((v) => v.verse == tab.verse);
+      focusIndex = _currentVerses.indexWhere((v) => v.verse == tab.verse);
       if (focusIndex < 0) focusIndex = null;
     }
 
     if (focusIndex != null) {
-      final matchIndex =
-          _matchVerseIndices.indexWhere((idx) => idx == focusIndex);
+      final matchIndex = _matchVerseIndices.indexWhere(
+        (idx) => idx == focusIndex,
+      );
       if (matchIndex != -1) {
         setState(() => _currentMatchIndex = matchIndex);
         _initialSearchScrollTabId = tab.id;
@@ -344,9 +347,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     final text = _buildSelectedVersesPayload(activeTab);
     if (text.isEmpty) return;
     Clipboard.setData(ClipboardData(text: text));
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Copied to clipboard')),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Copied to clipboard')));
     setState(() {
       _selectedVerseNumbers.clear();
       _activeSelectionText = null;
@@ -470,16 +473,15 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
             final rawLines = const LineSplitter().convert(rawText);
             for (final rawLine in rawLines) {
               if (rawLine.trim().isEmpty) continue;
-              
+
               widgets.add(
                 pw.Text(
                   rawLine,
                   style: pw.TextStyle(
                     font: bodyFont,
                     fontSize: typography.fontSize * 0.9,
-                    lineSpacing: (typography.lineHeight - 1) *
-                        typography.fontSize *
-                        0.5,
+                    lineSpacing:
+                        (typography.lineHeight - 1) * typography.fontSize * 0.5,
                   ),
                 ),
               );
@@ -496,8 +498,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   }
 
   String _sanitizePdfName(String raw) {
-    final cleaned =
-        raw.replaceAll(RegExp(r'[<>:"/\\\\|?*]'), '-').trim();
+    final cleaned = raw.replaceAll(RegExp(r'[<>:"/\\\\|?*]'), '-').trim();
     return cleaned.isEmpty ? 'Document' : cleaned;
   }
 
@@ -658,8 +659,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
               for (final idx in markers)
                 Positioned(
                   right: 0,
-                  top: ((idx / (itemCount - 1)) *
-                          (height - markerHeight))
+                  top: ((idx / (itemCount - 1)) * (height - markerHeight))
                       .clamp(0.0, height - markerHeight),
                   child: Container(
                     width: markerWidth,
@@ -747,68 +747,17 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
             body: activeTab == null
                 ? const Center(child: Text('No open tabs. Please open a book.'))
                 : isFullscreen
-                    ? Stack(
-                        children: [
-                          Column(
-                            children: [
-                              Expanded(
-                                child: _buildTabContent(
-                                  activeTab,
-                                  typographyState,
-                                ),
-                              ),
-                              SelectionActionBar(
-                                isVisible:
-                                    (_activeSelectionText?.trim().isNotEmpty ??
-                                        false),
-                                selectedText: _activeSelectionText,
-                                onCopy: () => _copySelectedVerses(),
-                                onShare: () => _shareSelectedVerses(),
-                                onDismiss: () {
-                                  setState(() => _activeSelectionText = null);
-                                },
-                              ),
-                            ],
-                          ),
-                          // Fullscreen exit overlay — always visible in top-right corner.
-                          Positioned(
-                            top: 12,
-                            right: 12,
-                            child: SafeArea(
-                              child: Material(
-                                color: Colors.black45,
-                                borderRadius: BorderRadius.circular(20),
-                                child: InkWell(
-                                  borderRadius: BorderRadius.circular(20),
-                                  onTap: () => ref
-                                      .read(typographyProvider.notifier)
-                                      .toggleFullscreen(),
-                                  child: const Padding(
-                                    padding: EdgeInsets.all(8),
-                                    child: Icon(
-                                      Icons.fullscreen_exit,
-                                      color: Colors.white,
-                                      size: 22,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      )
-                    : Column(
+                ? Stack(
+                    children: [
+                      Column(
                         children: [
                           Expanded(
-                            child: _buildTabContent(
-                              activeTab,
-                              typographyState,
-                            ),
+                            child: _buildTabContent(activeTab, typographyState),
                           ),
                           SelectionActionBar(
                             isVisible:
                                 (_activeSelectionText?.trim().isNotEmpty ??
-                                    false),
+                                false),
                             selectedText: _activeSelectionText,
                             onCopy: () => _copySelectedVerses(),
                             onShare: () => _shareSelectedVerses(),
@@ -818,22 +767,66 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                           ),
                         ],
                       ),
+                      // Fullscreen exit overlay — always visible in top-right corner.
+                      Positioned(
+                        top: 12,
+                        right: 12,
+                        child: SafeArea(
+                          child: Material(
+                            color: Colors.black45,
+                            borderRadius: BorderRadius.circular(20),
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(20),
+                              onTap: () => ref
+                                  .read(typographyProvider.notifier)
+                                  .toggleFullscreen(),
+                              child: const Padding(
+                                padding: EdgeInsets.all(8),
+                                child: Icon(
+                                  Icons.fullscreen_exit,
+                                  color: Colors.white,
+                                  size: 22,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  )
+                : Column(
+                    children: [
+                      Expanded(
+                        child: _buildTabContent(activeTab, typographyState),
+                      ),
+                      SelectionActionBar(
+                        isVisible:
+                            (_activeSelectionText?.trim().isNotEmpty ?? false),
+                        selectedText: _activeSelectionText,
+                        onCopy: () => _copySelectedVerses(),
+                        onShare: () => _shareSelectedVerses(),
+                        onDismiss: () {
+                          setState(() => _activeSelectionText = null);
+                        },
+                      ),
+                    ],
+                  ),
             // FAB opens Quick Navigation sheet.
             floatingActionButton:
                 (activeTab == null ||
-                        isFullscreen ||
-                        _isSearching ||
-                        _hasAnySelection)
-                    ? null
-                    : FloatingActionButton(
-                        onPressed: _openQuickNav,
-                        child: const Icon(Icons.menu_book_rounded),
-                      ),
+                    isFullscreen ||
+                    _isSearching ||
+                    _hasAnySelection)
+                ? null
+                : FloatingActionButton(
+                    onPressed: _openQuickNav,
+                    child: const Icon(Icons.menu_book_rounded),
+                  ),
             floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
             bottomNavigationBar:
                 (!isFullscreen && readerState.tabs.isNotEmpty && !_isSearching)
-                    ? _buildBottomTabBar(context, readerState, ref)
-                    : null,
+                ? _buildBottomTabBar(context, readerState, ref)
+                : null,
           ),
         ),
       ),
@@ -962,14 +955,15 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
               ),
               const SizedBox(width: 24),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 6.0, vertical: 2.0),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 6.0,
+                  vertical: 2.0,
+                ),
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(20),
-                  color: Theme.of(context)
-                      .colorScheme
-                      .surfaceVariant
-                      .withAlpha(80),
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.surfaceVariant.withAlpha(80),
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -1131,19 +1125,19 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                   itemCount: verses.length,
                   itemBuilder: (context, index) {
                     final verse = verses[index];
-                    final isSelected =
-                        _selectedVerseNumbers.contains(verse.verse);
+                    final isSelected = _selectedVerseNumbers.contains(
+                      verse.verse,
+                    );
                     final plainText = '${verse.verse} ${verse.text}';
 
                     // Compute which occurrence within this verse is the current match.
                     int? currentOccurrence;
                     if (_matchVerseIndices.isNotEmpty &&
                         _matchVerseIndices[_currentMatchIndex] == index) {
-                      currentOccurrence =
-                          _matchVerseIndices
-                              .sublist(0, _currentMatchIndex)
-                              .where((vi) => vi == index)
-                              .length;
+                      currentOccurrence = _matchVerseIndices
+                          .sublist(0, _currentMatchIndex)
+                          .where((vi) => vi == index)
+                          .length;
                     }
 
                     return GestureDetector(
@@ -1192,10 +1186,18 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                               }
                               return;
                             }
-                            final start = selection.start.clamp(0, plainText.length);
-                            final end = selection.end.clamp(0, plainText.length);
+                            final start = selection.start.clamp(
+                              0,
+                              plainText.length,
+                            );
+                            final end = selection.end.clamp(
+                              0,
+                              plainText.length,
+                            );
                             if (start >= end) return;
-                            final selected = plainText.substring(start, end).trim();
+                            final selected = plainText
+                                .substring(start, end)
+                                .trim();
                             if (selected.isEmpty) return;
                             setState(() {
                               _activeSelectionText = selected;
@@ -1236,10 +1238,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                const Icon(
-                  Icons.error_outline,
-                  size: 40,
-                ),
+                const Icon(Icons.error_outline, size: 40),
                 const SizedBox(height: 12),
                 Text(
                   'Error loading chapter',
@@ -1257,9 +1256,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                     onPressed: () {
                       Navigator.of(context).push(
                         MaterialPageRoute(
-                          builder: (_) => const OnboardingScreen(
-                            showImportDirectly: true,
-                          ),
+                          builder: (_) =>
+                              const OnboardingScreen(showImportDirectly: true),
                         ),
                       );
                     },
@@ -1414,6 +1412,15 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                         dense: true,
                       ),
                     ),
+                    const PopupMenuItem(
+                      value: 'add_note',
+                      child: ListTile(
+                        leading: Icon(Icons.note_add_outlined),
+                        title: Text('Add Note'),
+                        contentPadding: EdgeInsets.zero,
+                        dense: true,
+                      ),
+                    ),
                     const PopupMenuDivider(),
                     const PopupMenuItem(
                       value: 'close_others',
@@ -1422,13 +1429,14 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                   ],
                   onSelected: (val) {
                     if (val == 'share_link' || val == 'copy_link') {
-                      final lang = activeTab?.bibleLang ??
+                      final lang =
+                          activeTab?.bibleLang ??
                           ref.read(selectedBibleLangProvider);
                       final book = Uri.encodeComponent(activeTab?.book ?? '');
                       final chapter = activeTab?.chapter ?? 1;
                       final deepLink =
                           'https://endtimebride.in/appshare/bible?book=$book&chapter=$chapter&lang=$lang';
-                      
+
                       if (val == 'share_link') {
                         SharePlus.instance.share(
                           ShareParams(
@@ -1439,12 +1447,72 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                       } else {
                         Clipboard.setData(ClipboardData(text: deepLink));
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Link copied to clipboard')),
+                          const SnackBar(
+                            content: Text('Link copied to clipboard'),
+                          ),
                         );
                       }
                     }
                     if (val == 'download_pdf') _downloadBiblePdf();
                     if (val == 'print_pdf') _printBiblePdf();
+                    if (val == 'add_note') {
+                      final lang =
+                          (activeTab?.bibleLang ??
+                                  ref.read(selectedBibleLangProvider)) ??
+                              'en';
+                      final query = <String, String>{
+                        'type': 'bible',
+                        'id':
+                            '${activeTab?.book ?? 'Bible'}-${activeTab?.chapter ?? 1}',
+                        if ((activeTab?.title ?? '').trim().isNotEmpty)
+                          'title': activeTab!.title,
+                        if ((activeTab?.book ?? '').trim().isNotEmpty)
+                          'book': activeTab!.book!,
+                        'chapter': '${activeTab?.chapter ?? 1}',
+                        if (activeTab?.verse != null)
+                          'verse': '${activeTab!.verse}',
+                        'lang': lang,
+                      };
+                      showModalBottomSheet<void>(
+                        context: context,
+                        builder: (sheetContext) => SafeArea(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              ListTile(
+                                leading: const Icon(Icons.note_add_outlined),
+                                title: const Text('Create New Note'),
+                                onTap: () {
+                                  Navigator.of(sheetContext).pop();
+                                  context.push(
+                                    Uri(
+                                      path: '/notes/edit',
+                                      queryParameters: query,
+                                    ).toString(),
+                                  );
+                                },
+                              ),
+                              ListTile(
+                                leading: const Icon(Icons.link_outlined),
+                                title: const Text('Add to Existing Note'),
+                                onTap: () {
+                                  Navigator.of(sheetContext).pop();
+                                  context.push(
+                                    Uri(
+                                      path: '/notes',
+                                      queryParameters: {
+                                        ...query,
+                                        'attach': '1',
+                                      },
+                                    ).toString(),
+                                  );
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }
                     if (val == 'close_others') _closeOtherTabs();
                   },
                 ),

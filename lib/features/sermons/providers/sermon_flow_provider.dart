@@ -63,6 +63,7 @@ class SermonFlowState {
   final bool isInitialized;
   final bool bmMode;
   final BmBibleGroup bmBibleGroup;
+  final int? activeNoteId;
 
   const SermonFlowState({
     required this.tabs,
@@ -70,6 +71,7 @@ class SermonFlowState {
     required this.isInitialized,
     required this.bmMode,
     required this.bmBibleGroup,
+    this.activeNoteId,
   });
 
   /// The currently displayed tab, or null if no sermon is loaded.
@@ -85,6 +87,7 @@ class SermonFlowState {
     bool? isInitialized,
     bool? bmMode,
     BmBibleGroup? bmBibleGroup,
+    int? activeNoteId,
   }) {
     return SermonFlowState(
       tabs: tabs ?? this.tabs,
@@ -92,6 +95,7 @@ class SermonFlowState {
       isInitialized: isInitialized ?? this.isInitialized,
       bmMode: bmMode ?? this.bmMode,
       bmBibleGroup: bmBibleGroup ?? this.bmBibleGroup,
+      activeNoteId: activeNoteId ?? this.activeNoteId,
     );
   }
 }
@@ -174,12 +178,15 @@ class SermonFlowNotifier extends Notifier<SermonFlowState> {
       final firstSermon = _firstSermonIndex(restoredTabs);
       if (firstSermon != -1) safeIndex = firstSermon;
     }
+    final activeNoteId = activeSession.meta?['activeNoteId'] as int?;
+    
     state = SermonFlowState(
       tabs: restoredTabs,
       activeTabIndex: safeIndex,
       isInitialized: true,
       bmMode: bmState.enabled,
       bmBibleGroup: bmState.group,
+      activeNoteId: activeNoteId,
     );
     _applyPendingOpenSermon();
   }
@@ -257,7 +264,10 @@ class SermonFlowNotifier extends Notifier<SermonFlowState> {
       flowType: FlowType.sermon,
       tabs: state.tabs,
       activeTabIndex: state.activeTabIndex,
-      meta: {'bm': _bmMetaFromState()},
+      meta: {
+        'bm': _bmMetaFromState(),
+        if (state.activeNoteId != null) 'activeNoteId': state.activeNoteId,
+      },
     );
   }
 
@@ -407,12 +417,15 @@ class SermonFlowNotifier extends Notifier<SermonFlowState> {
       final firstSermon = _firstSermonIndex(restoredTabs);
       if (firstSermon != -1) safeIndex = firstSermon;
     }
+    final activeNoteId = payload.meta?['activeNoteId'] as int?;
+
     state = SermonFlowState(
       tabs: restoredTabs,
       activeTabIndex: safeIndex,
       isInitialized: true,
       bmMode: bmState.enabled,
       bmBibleGroup: bmState.group,
+      activeNoteId: activeNoteId,
     );
     unawaited(_persistFlow());
   }
@@ -490,6 +503,10 @@ class SermonFlowNotifier extends Notifier<SermonFlowState> {
     
     state = state.copyWith(tabs: newTabs);
     unawaited(_persistFlow());
+  }
+
+  void setActiveNoteId(int? noteId) {
+    state = state.copyWith(activeNoteId: noteId);
   }
 }
 
