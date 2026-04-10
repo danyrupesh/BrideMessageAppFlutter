@@ -8,7 +8,7 @@ platform :ios do
     sh("flutter pub get")
     sh("flutter build ios --release --no-codesign")
 
-    app_path = Dir[File.expand_path("../build/ios/**/Runner.app", __dir__)].find { |p| File.directory?(p) }
+    app_path = Dir[File.expand_path("../../build/ios/**/Runner.app", __dir__)].find { |p| File.directory?(p) }
     UI.user_error!("Runner.app not found under build/ios") if app_path.to_s.empty?
 
     output_dir = File.dirname(app_path)
@@ -74,7 +74,7 @@ platform :ios do
         in_house: false
       )
 
-      ipa_path = Dir[File.expand_path("../build/ios/ipa/*.ipa", __dir__)].first
+      ipa_path = Dir[File.expand_path("../../build/ios/ipa/*.ipa", __dir__)].first
       UI.user_error!("No IPA found in build/ios/ipa") if ipa_path.to_s.empty?
 
       upload_to_testflight(
