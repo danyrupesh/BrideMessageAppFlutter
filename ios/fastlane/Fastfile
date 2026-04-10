@@ -7,7 +7,12 @@ platform :ios do
   lane :build_no_sign do
     sh("flutter pub get")
     sh("flutter build ios --release --no-codesign")
-    sh("cd ../build/ios/iphoneos && zip -r MessageApp-Runner.app.zip Runner.app")
+
+    app_path = Dir[File.expand_path("../build/ios/**/Runner.app", __dir__)].find { |p| File.directory?(p) }
+    UI.user_error!("Runner.app not found under build/ios") if app_path.to_s.empty?
+
+    output_dir = File.dirname(app_path)
+    sh("cd '#{output_dir}' && zip -r MessageApp-Runner.app.zip Runner.app")
   end
 
   desc "Build signed IPA for TestFlight/App Store using CI secrets"

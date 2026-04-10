@@ -88,7 +88,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ios-build-MessageApp
-          path: build/ios/iphoneos/MessageApp-Runner.app.zip
+          path: build/ios/**/MessageApp-Runner.app.zip
 
       - name: Upload Signed IPA Artifact
         if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.signed == 'true' }}
