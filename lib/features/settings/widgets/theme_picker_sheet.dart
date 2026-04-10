@@ -112,6 +112,24 @@ class ThemePickerSheet extends ConsumerWidget {
                 .read(themeProvider.notifier)
                 .updateMode(ThemeModePreference.sepia),
           ),
+          const SizedBox(width: 12),
+          _ModeOption(
+            icon: Icons.eco,
+            label: 'Green',
+            isSelected: settings.mode == ThemeModePreference.green,
+            onTap: () => ref
+                .read(themeProvider.notifier)
+                .updateMode(ThemeModePreference.green),
+          ),
+          const SizedBox(width: 12),
+          _ModeOption(
+            icon: Icons.water_drop,
+            label: 'Blue',
+            isSelected: settings.mode == ThemeModePreference.blue,
+            onTap: () => ref
+                .read(themeProvider.notifier)
+                .updateMode(ThemeModePreference.blue),
+          ),
         ],
       ),
     );

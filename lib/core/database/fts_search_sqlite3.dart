@@ -24,6 +24,8 @@ Future<List<BibleSearchResult>> searchBibleFts({
   required int limit,
   required int offset,
   List<String>? bookFilters,
+  int? chapterFrom,
+  int? chapterTo,
   String scope = 'both',
   String sortOrder = 'bookOrder',
 }) async {
@@ -50,6 +52,19 @@ Future<List<BibleSearchResult>> searchBibleFts({
       final placeholders = List.filled(bookFilters.length, '?').join(',');
       sql += ' AND v.book IN ($placeholders)';
       args.addAll(bookFilters);
+    }
+
+    if (chapterFrom != null && chapterTo != null) {
+      final from = chapterFrom <= chapterTo ? chapterFrom : chapterTo;
+      final to = chapterFrom <= chapterTo ? chapterTo : chapterFrom;
+      sql += ' AND v.chapter BETWEEN ? AND ?';
+      args.addAll([from, to]);
+    } else if (chapterFrom != null) {
+      sql += ' AND v.chapter = ?';
+      args.add(chapterFrom);
+    } else if (chapterTo != null) {
+      sql += ' AND v.chapter = ?';
+      args.add(chapterTo);
     }
 
     if (scope == 'oldTest') {
@@ -83,6 +98,8 @@ Future<int> countBibleFts({
   required String dbPath,
   required String matchPattern,
   List<String>? bookFilters,
+  int? chapterFrom,
+  int? chapterTo,
   String scope = 'both',
 }) async {
   if (!await File(dbPath).exists()) return 0;
@@ -102,6 +119,19 @@ Future<int> countBibleFts({
         sql +=
             ' AND v.book IN (${List.filled(bookFilters.length, '?').join(',')})';
         args.addAll(bookFilters);
+      }
+
+      if (chapterFrom != null && chapterTo != null) {
+        final from = chapterFrom <= chapterTo ? chapterFrom : chapterTo;
+        final to = chapterFrom <= chapterTo ? chapterTo : chapterFrom;
+        sql += ' AND v.chapter BETWEEN ? AND ?';
+        args.addAll([from, to]);
+      } else if (chapterFrom != null) {
+        sql += ' AND v.chapter = ?';
+        args.add(chapterFrom);
+      } else if (chapterTo != null) {
+        sql += ' AND v.chapter = ?';
+        args.add(chapterTo);
       }
 
       if (scope == 'oldTest') {
@@ -237,6 +267,26 @@ Future<int> countSermonFts({
     return (v is int) ? v : (v as num).toInt();
   } catch (_) {
     return 0;
+  } finally {
+    db.close();
+  }
+}
+
+/// Returns true when sermon_fts row count is synchronized with sermon_paragraphs.
+Future<bool> isSermonFtsHealthy({required String dbPath}) async {
+  if (!await File(dbPath).exists()) return false;
+  final db = sqlite3.open(dbPath, mode: OpenMode.readOnly);
+  try {
+    final paraRows = db.select('SELECT COUNT(*) FROM sermon_paragraphs');
+    final ftsRows = db.select('SELECT COUNT(*) FROM sermon_fts');
+    if (paraRows.isEmpty || ftsRows.isEmpty) return false;
+    final paraCount = paraRows.first.columnAt(0);
+    final ftsCount = ftsRows.first.columnAt(0);
+    final p = (paraCount is int) ? paraCount : (paraCount as num).toInt();
+    final f = (ftsCount is int) ? ftsCount : (ftsCount as num).toInt();
+    return p == f;
+  } catch (_) {
+    return false;
   } finally {
     db.close();
   }

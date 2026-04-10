@@ -15,11 +15,10 @@ import 'dart:io';
 void main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
   await SqlitePlatformBootstrap.ensureInitialized();
-  
+
   if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
     await protocolHandler.register('bridemessage');
   }
-
 
   // Initialise metadata registry so the first DB check is fast.
   await InstalledDatabaseRegistry().hasAnyContent();
@@ -36,7 +35,10 @@ void main(List<String> args) async {
       "bride_message_app_single_instance",
       onSecondWindow: (args) {
         if (args.isNotEmpty) {
-          final uriString = args.firstWhere((a) => a.startsWith('bridemessage:'), orElse: () => '');
+          final uriString = args.firstWhere(
+            (a) => a.startsWith('bridemessage:'),
+            orElse: () => '',
+          );
           if (uriString.isNotEmpty) {
             final uri = Uri.tryParse(uriString);
             if (uri != null) {
@@ -48,10 +50,12 @@ void main(List<String> args) async {
     );
   }
 
-  runApp(UncontrolledProviderScope(
-    container: container,
-    child: const BrideMessageApp(),
-  ));
+  runApp(
+    UncontrolledProviderScope(
+      container: container,
+      child: const BrideMessageApp(),
+    ),
+  );
 }
 
 class BrideMessageApp extends ConsumerWidget {
@@ -69,6 +73,8 @@ class BrideMessageApp extends ConsumerWidget {
       switch (pref) {
         case ThemeModePreference.light:
         case ThemeModePreference.sepia:
+        case ThemeModePreference.green:
+        case ThemeModePreference.blue:
           return ThemeMode.light;
         case ThemeModePreference.dark:
           return ThemeMode.dark;
@@ -81,9 +87,7 @@ class BrideMessageApp extends ConsumerWidget {
       title: 'Bride Message App',
       themeMode: getThemeMode(themeSettings.mode),
       theme: AppTheme.getThemeData(
-        preference: themeSettings.mode == ThemeModePreference.sepia
-            ? ThemeModePreference.sepia
-            : ThemeModePreference.light,
+        preference: themeSettings.mode,
         primaryColor: themeSettings.primaryColor,
       ),
       darkTheme: AppTheme.getThemeData(

@@ -31,7 +31,7 @@ class InstalledDatabaseRegistry {
     final path = p.join(dbDir.path, 'app_metadata.db');
     _db = await openDatabase(
       path,
-      version: 1,
+      version: 2,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE installed_databases (
@@ -42,9 +42,17 @@ class InstalledDatabaseRegistry {
             language TEXT NOT NULL,
             installed_date INTEGER NOT NULL,
             file_size INTEGER NOT NULL,
+            record_count INTEGER,
             is_default INTEGER NOT NULL DEFAULT 0
           )
         ''');
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await db.execute(
+            'ALTER TABLE installed_databases ADD COLUMN record_count INTEGER',
+          );
+        }
       },
     );
   }

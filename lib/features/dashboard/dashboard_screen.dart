@@ -107,12 +107,12 @@ class DashboardScreen extends ConsumerWidget {
         final sermonItem = _latestItemFor(items, FlowType.sermon);
         return LayoutBuilder(
           builder: (context, constraints) {
-          final width = constraints.maxWidth;
-          final isWide = width >= 700;
-          // Give mobile cards a bit more vertical room so long
-          // titles/subtitles (especially Tamil) don't overflow.
-          final cardHeight = isWide ? 160.0 : 210.0;
-          final gap = isWide ? 16.0 : 12.0;
+            final width = constraints.maxWidth;
+            final isWide = width >= 700;
+            // Give mobile cards a bit more vertical room so long
+            // titles/subtitles (especially Tamil) don't overflow.
+            final cardHeight = isWide ? 160.0 : 210.0;
+            final gap = isWide ? 16.0 : 12.0;
 
             final children = [
               Expanded(
@@ -120,8 +120,7 @@ class DashboardScreen extends ConsumerWidget {
                   context: context,
                   ref: ref,
                   title: bibleItem?.title ?? 'Bible Reading',
-                  subtitle:
-                      bibleItem?.subtitle ?? 'Resume your Bible reading.',
+                  subtitle: bibleItem?.subtitle ?? 'Resume your Bible reading.',
                   label: 'CONTINUE BIBLE',
                   icon: Icons.menu_book,
                   flowType: FlowType.bible,
@@ -135,8 +134,7 @@ class DashboardScreen extends ConsumerWidget {
                   context: context,
                   ref: ref,
                   title: sermonItem?.title ?? 'Sermon Reading',
-                  subtitle:
-                      sermonItem?.subtitle ?? 'Resume your last sermon.',
+                  subtitle: sermonItem?.subtitle ?? 'Resume your last sermon.',
                   label: 'CONTINUE SERMON',
                   icon: Icons.headphones,
                   flowType: FlowType.sermon,
@@ -159,7 +157,8 @@ class DashboardScreen extends ConsumerWidget {
                           context: context,
                           ref: ref,
                           title: bibleItem?.title ?? 'Bible Reading',
-                          subtitle: bibleItem?.subtitle ??
+                          subtitle:
+                              bibleItem?.subtitle ??
                               'Resume your Bible reading.',
                           label: 'CONTINUE BIBLE',
                           icon: Icons.menu_book,
@@ -175,7 +174,8 @@ class DashboardScreen extends ConsumerWidget {
                           context: context,
                           ref: ref,
                           title: sermonItem?.title ?? 'Sermon Reading',
-                          subtitle: sermonItem?.subtitle ??
+                          subtitle:
+                              sermonItem?.subtitle ??
                               'Resume your last sermon.',
                           label: 'CONTINUE SERMON',
                           icon: Icons.headphones,
@@ -262,11 +262,7 @@ class DashboardScreen extends ConsumerWidget {
           children: [
             Row(
               children: [
-                Icon(
-                  icon,
-                  color: theme.colorScheme.onPrimary,
-                  size: 20,
-                ),
+                Icon(icon, color: theme.colorScheme.onPrimary, size: 20),
                 const SizedBox(width: 8),
                 Text(
                   label,
@@ -412,7 +408,7 @@ class DashboardScreen extends ConsumerWidget {
         color: const Color(0xFF4BA7A0),
         onTap: () => context.push('/songs'),
       ),
-          _ModuleCardData(
+      _ModuleCardData(
         icon: Icons.article_outlined,
         title: 'Question and Answers',
         subtitle: 'COD English',
@@ -507,8 +503,9 @@ class DashboardScreen extends ConsumerWidget {
     WidgetRef ref,
     List<RecentReadItem> recentItems,
   ) {
-    final sermonFlows =
-        recentItems.where((item) => item.flowType == FlowType.sermon).toList();
+    final sermonFlows = recentItems
+        .where((item) => item.flowType == FlowType.sermon)
+        .toList();
     if (sermonFlows.isEmpty) {
       return const SizedBox(
         height: 80,
@@ -533,8 +530,9 @@ class DashboardScreen extends ConsumerWidget {
             (t) => t?.type == ReaderContentType.sermon,
             orElse: () => tabs.isNotEmpty ? tabs.first : null,
           );
-          final title =
-              (firstSermon?.title ?? '').isNotEmpty ? firstSermon!.title : item.title;
+          final title = (firstSermon?.title ?? '').isNotEmpty
+              ? firstSermon!.title
+              : item.title;
           const subtitle = 'Sermon';
           const icon = Icons.headphones;
 
@@ -663,20 +661,28 @@ class _ModuleCard extends StatelessWidget {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final color = data.color;
+    final screenWidth = MediaQuery.sizeOf(context).width;
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth;
         final scale = (width / 220).clamp(0.85, 1.15);
+        final largeScreenBoost = screenWidth >= 1400
+            ? 1.22
+            : screenWidth >= 1100
+            ? 1.12
+            : 1.0;
         final iconSize = 28 * scale;
         final badgePadding = 14 * scale;
-        final titleSize = 15 * scale;
-        final subtitleSize = 12.5 * scale;
+        final titleSize = 15 * scale * largeScreenBoost;
+        final subtitleSize = 12.5 * scale * largeScreenBoost;
         final cardPaddingH = 16 * scale;
         final cardPaddingV = 12 * scale;
 
         return Card(
           elevation: 0,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
           clipBehavior: Clip.antiAlias,
           color: isDark
               ? color.withValues(alpha: 0.1)

@@ -9,6 +9,11 @@ class SermonRepository {
   final String languageCode;
   final String version;
 
+  static final RegExp _fallbackQuerySanitizer = RegExp(
+    r'[^\p{L}\p{M}\p{N}_\s]',
+    unicode: true,
+  );
+
   SermonRepository(this._dbManager, this.languageCode, this.version);
 
   String get dbFileName => 'sermons_$version.db';
@@ -181,6 +186,20 @@ ORDER BY
       prefixOnly: prefixOnly,
     );
     final path = await _dbManager.getDatabasePath(dbFileName);
+    final ftsHealthy = await isSermonFtsHealthy(dbPath: path);
+    if (!ftsHealthy) {
+      return _searchSermonsFallback(
+        query: query,
+        limit: limit,
+        offset: offset,
+        exactMatch: exactMatch,
+        anyWord: anyWord,
+        prefixOnly: prefixOnly,
+        sortOrder: sortOrder,
+        titlePrefix: titlePrefix,
+      );
+    }
+
     final ftsResults = await searchSermonFts(
       dbPath: path,
       languageCode: languageCode,
@@ -218,6 +237,17 @@ ORDER BY
       prefixOnly: prefixOnly,
     );
     final path = await _dbManager.getDatabasePath(dbFileName);
+    final ftsHealthy = await isSermonFtsHealthy(dbPath: path);
+    if (!ftsHealthy) {
+      return _countSermonsFallback(
+        query: query,
+        exactMatch: exactMatch,
+        anyWord: anyWord,
+        prefixOnly: prefixOnly,
+        titlePrefix: titlePrefix,
+      );
+    }
+
     final ftsCount = await countSermonFts(
       dbPath: path,
       languageCode: languageCode,
@@ -244,7 +274,9 @@ ORDER BY
     String sortOrder = 'relevance',
     String? titlePrefix,
   }) async {
-    final normalizedQuery = query.replaceAll(RegExp(r'[^\w\s]'), ' ').trim();
+    final normalizedQuery = query
+        .replaceAll(_fallbackQuerySanitizer, ' ')
+        .trim();
     if (normalizedQuery.isEmpty) return const [];
 
     final db = await _dbManager.getDatabase(dbFileName);
@@ -357,7 +389,9 @@ ORDER BY
     required bool prefixOnly,
     String? titlePrefix,
   }) async {
-    final normalizedQuery = query.replaceAll(RegExp(r'[^\w\s]'), ' ').trim();
+    final normalizedQuery = query
+        .replaceAll(_fallbackQuerySanitizer, ' ')
+        .trim();
     if (normalizedQuery.isEmpty) return 0;
 
     final db = await _dbManager.getDatabase(dbFileName);

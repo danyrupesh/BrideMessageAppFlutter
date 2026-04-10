@@ -46,6 +46,8 @@ class BibleRepository {
     required int limit,
     required int offset,
     List<String>? bookFilters,
+    int? chapterFrom,
+    int? chapterTo,
     bool exactMatch = false,
     bool anyWord = false,
     bool prefixOnly = false,
@@ -67,6 +69,8 @@ class BibleRepository {
       limit: limit,
       offset: offset,
       bookFilters: bookFilters,
+      chapterFrom: chapterFrom,
+      chapterTo: chapterTo,
       scope: scope,
       sortOrder: sortOrder,
     );
@@ -99,6 +103,8 @@ class BibleRepository {
   Future<int> countSearchResults(
     String query, {
     List<String>? bookFilters,
+    int? chapterFrom,
+    int? chapterTo,
     String scope = 'both',
   }) async {
     final matchPattern = FtsQueryBuilder.buildMatchQuery(query);
@@ -107,6 +113,8 @@ class BibleRepository {
       dbPath: path,
       matchPattern: matchPattern,
       bookFilters: bookFilters,
+      chapterFrom: chapterFrom,
+      chapterTo: chapterTo,
       scope: scope,
     );
   }

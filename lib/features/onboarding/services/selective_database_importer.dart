@@ -25,8 +25,11 @@ class _ValidationResult {
   final bool isValid;
   final String message;
   final _BibleFormat format;
-  const _ValidationResult(this.isValid, this.message,
-      [this.format = _BibleFormat.invalid]);
+  const _ValidationResult(
+    this.isValid,
+    this.message, [
+    this.format = _BibleFormat.invalid,
+  ]);
 }
 
 // ─── Importer ────────────────────────────────────────────────────────────────
@@ -72,15 +75,17 @@ class SelectiveDatabaseImporter {
       if (setAsDefault) {
         await _registry.clearDefaultForLanguage(DbType.bible, language);
       }
-      await _registry.upsert(InstalledDatabase(
-        type: DbType.bible,
-        code: versionCode,
-        displayName: displayName,
-        language: language,
-        installedDate: DateTime.now().millisecondsSinceEpoch,
-        fileSize: File(targetPath).lengthSync(),
-        isDefault: setAsDefault,
-      ));
+      await _registry.upsert(
+        InstalledDatabase(
+          type: DbType.bible,
+          code: versionCode,
+          displayName: displayName,
+          language: language,
+          installedDate: DateTime.now().millisecondsSinceEpoch,
+          fileSize: File(targetPath).lengthSync(),
+          isDefault: setAsDefault,
+        ),
+      );
 
       onProgress(1.0, 'Import complete!');
       return ImportResult.success('$displayName installed successfully.');
@@ -103,7 +108,8 @@ class SelectiveDatabaseImporter {
       onProgress(0.1, 'Validating Sermon database...');
       if (!_validateSermon(sourceFile.path)) {
         return ImportResult.failure(
-            'Invalid Sermon database: missing sermons or sermon_paragraphs table.');
+          'Invalid Sermon database: missing sermons or sermon_paragraphs table.',
+        );
       }
 
       onProgress(0.3, 'Installing $displayName...');
@@ -114,6 +120,8 @@ class SelectiveDatabaseImporter {
       await _dbManager.deleteDatabaseFiles('sermons_$languageCode.db');
       await sourceFile.copy(targetPath);
 
+      final sermonCount = _countSermons(targetPath);
+
       onProgress(0.7, 'Building search index...');
       _ensureFts(targetPath, DbType.sermon);
 
@@ -121,15 +129,18 @@ class SelectiveDatabaseImporter {
       if (setAsDefault) {
         await _registry.clearDefaultForLanguage(DbType.sermon, languageCode);
       }
-      await _registry.upsert(InstalledDatabase(
-        type: DbType.sermon,
-        code: languageCode,
-        displayName: displayName,
-        language: languageCode,
-        installedDate: DateTime.now().millisecondsSinceEpoch,
-        fileSize: File(targetPath).lengthSync(),
-        isDefault: setAsDefault,
-      ));
+      await _registry.upsert(
+        InstalledDatabase(
+          type: DbType.sermon,
+          code: languageCode,
+          displayName: displayName,
+          language: languageCode,
+          installedDate: DateTime.now().millisecondsSinceEpoch,
+          fileSize: File(targetPath).lengthSync(),
+          recordCount: sermonCount,
+          isDefault: setAsDefault,
+        ),
+      );
 
       onProgress(1.0, 'Import complete!');
       return ImportResult.success('$displayName installed successfully.');
@@ -197,8 +208,9 @@ class SelectiveDatabaseImporter {
       final bytes = await zipFile.readAsBytes();
       final archive = ZipDecoder().decodeBytes(bytes);
 
-      final dbEntries =
-          archive.where((f) => f.isFile && f.name.endsWith('.db')).toList();
+      final dbEntries = archive
+          .where((f) => f.isFile && f.name.endsWith('.db'))
+          .toList();
       if (dbEntries.isEmpty) {
         return ImportResult.failure('No .db files found in archive.');
       }
@@ -233,8 +245,8 @@ class SelectiveDatabaseImporter {
               displayName: 'KJV Bible',
               language: 'en',
               setAsDefault: true,
-              onProgress: (p, m) => onProgress(
-                  baseProgress + p * (0.85 / dbEntries.length), m),
+              onProgress: (p, m) =>
+                  onProgress(baseProgress + p * (0.85 / dbEntries.length), m),
             );
           } else if (fileName.contains('bible') &&
               (fileName.contains('_ta') || fileName.contains('bsi'))) {
@@ -245,30 +257,28 @@ class SelectiveDatabaseImporter {
               displayName: 'BSI Tamil Bible',
               language: 'ta',
               setAsDefault: true,
-              onProgress: (p, m) => onProgress(
-                  baseProgress + p * (0.85 / dbEntries.length), m),
+              onProgress: (p, m) =>
+                  onProgress(baseProgress + p * (0.85 / dbEntries.length), m),
             );
-          } else if (fileName.contains('sermon') &&
-              fileName.contains('_en')) {
+          } else if (fileName.contains('sermon') && fileName.contains('_en')) {
             onProgress(baseProgress, 'Importing English Sermons...');
             result = await importSermons(
               sourceFile: tempFile,
               languageCode: 'en',
               displayName: 'English Sermons',
               setAsDefault: true,
-              onProgress: (p, m) => onProgress(
-                  baseProgress + p * (0.85 / dbEntries.length), m),
+              onProgress: (p, m) =>
+                  onProgress(baseProgress + p * (0.85 / dbEntries.length), m),
             );
-          } else if (fileName.contains('sermon') &&
-              fileName.contains('_ta')) {
+          } else if (fileName.contains('sermon') && fileName.contains('_ta')) {
             onProgress(baseProgress, 'Importing Tamil Sermons...');
             result = await importSermons(
               sourceFile: tempFile,
               languageCode: 'ta',
               displayName: 'Tamil Sermons',
               setAsDefault: true,
-              onProgress: (p, m) => onProgress(
-                  baseProgress + p * (0.85 / dbEntries.length), m),
+              onProgress: (p, m) =>
+                  onProgress(baseProgress + p * (0.85 / dbEntries.length), m),
             );
           } else if (fileName.contains('cod_tamil')) {
             onProgress(baseProgress, 'Importing Tamil COD...');
@@ -276,10 +286,8 @@ class SelectiveDatabaseImporter {
               sourceFile: tempFile,
               targetDbFileName: 'cod_tamil.db',
               displayName: 'COD Tamil',
-              onProgress: (p, m) => onProgress(
-                baseProgress + p * (0.85 / dbEntries.length),
-                m,
-              ),
+              onProgress: (p, m) =>
+                  onProgress(baseProgress + p * (0.85 / dbEntries.length), m),
             );
           } else if (fileName.contains('cod_english')) {
             onProgress(baseProgress, 'Importing English COD...');
@@ -287,10 +295,8 @@ class SelectiveDatabaseImporter {
               sourceFile: tempFile,
               targetDbFileName: 'cod_english.db',
               displayName: 'COD English',
-              onProgress: (p, m) => onProgress(
-                baseProgress + p * (0.85 / dbEntries.length),
-                m,
-              ),
+              onProgress: (p, m) =>
+                  onProgress(baseProgress + p * (0.85 / dbEntries.length), m),
             );
           } else {
             debugPrint('Skipping unknown DB: ${entry.name}');
@@ -314,14 +320,17 @@ class SelectiveDatabaseImporter {
 
       if (imported == 0) {
         return ImportResult.failure(
-            'No databases installed.\n${results.join("\n")}');
+          'No databases installed.\n${results.join("\n")}',
+        );
       }
       if (failed == 0) {
         return ImportResult.success(
-            'Successfully installed $imported database(s).\n${results.join("\n")}');
+          'Successfully installed $imported database(s).\n${results.join("\n")}',
+        );
       }
       return ImportResult.success(
-          'Installed $imported, failed $failed.\n${results.join("\n")}');
+        'Installed $imported, failed $failed.\n${results.join("\n")}',
+      );
     } catch (e, st) {
       debugPrint('importAllFromZip error: $e\n$st');
       return ImportResult.failure('Import failed: $e');
@@ -351,7 +360,9 @@ class SelectiveDatabaseImporter {
           return const _ValidationResult(true, 'OK', _BibleFormat.oldFormat);
         }
         return const _ValidationResult(
-            false, 'Not a valid Bible database (missing bible_verses / words).');
+          false,
+          'Not a valid Bible database (missing bible_verses / words).',
+        );
       } finally {
         db.close();
       }
@@ -375,6 +386,21 @@ class SelectiveDatabaseImporter {
       }
     } catch (_) {
       return false;
+    }
+  }
+
+  int _countSermons(String dbPath) {
+    try {
+      final db = sql.sqlite3.open(dbPath, mode: sql.OpenMode.readOnly);
+      try {
+        final rows = db.select('SELECT COUNT(*) AS c FROM sermons');
+        if (rows.isEmpty) return 0;
+        return (rows.first['c'] as int?) ?? 0;
+      } finally {
+        db.close();
+      }
+    } catch (_) {
+      return 0;
     }
   }
 
@@ -468,7 +494,9 @@ class SelectiveDatabaseImporter {
         }
 
         // Warm/optimize FTS for faster queries.
-        db.execute("INSERT INTO questions_fts(questions_fts) VALUES('optimize')");
+        db.execute(
+          "INSERT INTO questions_fts(questions_fts) VALUES('optimize')",
+        );
         db.execute("INSERT INTO answers_fts(answers_fts) VALUES('optimize')");
         db.execute('PRAGMA optimize');
       } finally {
@@ -525,12 +553,21 @@ class SelectiveDatabaseImporter {
     // Check if populated
     final check = db.select('SELECT COUNT(*) FROM bible_fts');
     final count = check.isEmpty ? 0 : (check.first.columnAt(0) as int? ?? 0);
-    if (count == 0) {
-      debugPrint('bible_fts empty — rebuilding from bible_verses...');
-      db.execute(
-        'INSERT INTO bible_fts(rowid, language, book, text) '
-        'SELECT id, language, book, text FROM bible_verses',
-      );
+    final baseCheck = db.select('SELECT COUNT(*) FROM bible_verses');
+    final baseCount = baseCheck.isEmpty
+        ? 0
+        : (baseCheck.first.columnAt(0) as int? ?? 0);
+    if (count != baseCount) {
+      debugPrint('bible_fts out of sync ($count/$baseCount) — rebuilding...');
+      try {
+        db.execute("INSERT INTO bible_fts(bible_fts) VALUES('rebuild')");
+      } catch (_) {
+        db.execute('DELETE FROM bible_fts;');
+        db.execute(
+          'INSERT INTO bible_fts(rowid, language, book, text) '
+          'SELECT id, language, book, text FROM bible_verses',
+        );
+      }
     }
   }
 
@@ -547,12 +584,21 @@ class SelectiveDatabaseImporter {
 
     final check = db.select('SELECT COUNT(*) FROM sermon_fts');
     final count = check.isEmpty ? 0 : (check.first.columnAt(0) as int? ?? 0);
-    if (count == 0) {
-      debugPrint('sermon_fts empty — rebuilding from sermon_paragraphs...');
-      db.execute(
-        'INSERT INTO sermon_fts(rowid, text) '
-        'SELECT id, text FROM sermon_paragraphs',
-      );
+    final paraCheck = db.select('SELECT COUNT(*) FROM sermon_paragraphs');
+    final paraCount = paraCheck.isEmpty
+        ? 0
+        : (paraCheck.first.columnAt(0) as int? ?? 0);
+    if (count != paraCount) {
+      debugPrint('sermon_fts out of sync ($count/$paraCount) — rebuilding...');
+      try {
+        db.execute("INSERT INTO sermon_fts(sermon_fts) VALUES('rebuild')");
+      } catch (_) {
+        db.execute('DELETE FROM sermon_fts;');
+        db.execute(
+          'INSERT INTO sermon_fts(rowid, text) '
+          'SELECT id, text FROM sermon_paragraphs',
+        );
+      }
     }
   }
 

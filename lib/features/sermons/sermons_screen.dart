@@ -248,6 +248,8 @@ class _SermonListScreenState extends ConsumerState<SermonListScreen> {
     final state = ref.watch(sermonListProvider);
     final yearsAsync = ref.watch(availableYearsProvider);
     final flowState = ref.watch(sermonFlowProvider);
+    final lang = ref.watch(selectedSermonLangProvider);
+    final totalCountAsync = ref.watch(sermonStoredCountByLangProvider(lang));
     final theme = Theme.of(context);
 
     if (widget.autoResume && !_autoResumeChecked && flowState.isInitialized) {
@@ -427,7 +429,17 @@ class _SermonListScreenState extends ConsumerState<SermonListScreen> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  '${state.sermons.length} sermons',
+                  totalCountAsync.when(
+                    data: (total) {
+                      if (state.selectedYear == null &&
+                          state.searchQuery.trim().isEmpty) {
+                        return '$total sermons';
+                      }
+                      return '${state.sermons.length} shown · $total total sermons';
+                    },
+                    loading: () => '${state.sermons.length} sermons',
+                    error: (err, st) => '${state.sermons.length} sermons',
+                  ),
                   style: theme.textTheme.bodyMedium?.copyWith(
                     color: theme.colorScheme.onSurfaceVariant,
                   ),

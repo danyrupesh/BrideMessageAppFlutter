@@ -21,8 +21,7 @@ final selectedSermonLangProvider =
 
 /// Resolves the Sermon repository based on the selected language.
 /// Falls back to language code as db code if no metadata found.
-final sermonRepositoryProvider =
-    FutureProvider<SermonRepository>((ref) async {
+final sermonRepositoryProvider = FutureProvider<SermonRepository>((ref) async {
   final lang = ref.watch(selectedSermonLangProvider);
   final installed = await ref.watch(
     defaultInstalledDbProvider((DbType.sermon, lang)).future,
@@ -36,16 +35,33 @@ final sermonRepositoryProvider =
 /// Used by the dashboard to open English or Tamil Sermons directly.
 final sermonRepositoryByLangProvider =
     FutureProvider.family<SermonRepository, String>((ref, lang) async {
+      final installed = await ref.watch(
+        defaultInstalledDbProvider((DbType.sermon, lang)).future,
+      );
+      final code = installed?.code ?? lang;
+      final language = installed?.language ?? lang;
+      return SermonRepository(DatabaseManager(), language, code);
+    });
+
+final sermonCountByLangProvider = FutureProvider.family<int, String>((
+  ref,
+  lang,
+) async {
+  final repo = await ref.watch(sermonRepositoryByLangProvider(lang).future);
+  return repo.getSermonCount();
+});
+
+/// Prefer persisted metadata count captured right after import.
+/// Falls back to a live DB count when metadata is unavailable.
+final sermonStoredCountByLangProvider = FutureProvider.family<int, String>((
+  ref,
+  lang,
+) async {
   final installed = await ref.watch(
     defaultInstalledDbProvider((DbType.sermon, lang)).future,
   );
-  final code = installed?.code ?? lang;
-  final language = installed?.language ?? lang;
-  return SermonRepository(DatabaseManager(), language, code);
-});
-
-final sermonCountByLangProvider =
-    FutureProvider.family<int, String>((ref, lang) async {
+  final cached = installed?.recordCount;
+  if (cached != null && cached > 0) return cached;
   final repo = await ref.watch(sermonRepositoryByLangProvider(lang).future);
   return repo.getSermonCount();
 });
@@ -106,8 +122,9 @@ class SermonListState {
     return SermonListState(
       sermons: sermons ?? this.sermons,
       isLoading: isLoading ?? this.isLoading,
-      selectedYear:
-          identical(selectedYear, _unset) ? this.selectedYear : selectedYear as int?,
+      selectedYear: identical(selectedYear, _unset)
+          ? this.selectedYear
+          : selectedYear as int?,
       searchQuery: searchQuery ?? this.searchQuery,
       titlePrefix: identical(titlePrefix, _unset)
           ? this.titlePrefix
@@ -117,8 +134,9 @@ class SermonListState {
       sortBy: sortBy ?? this.sortBy,
       yearFrom: yearFrom ?? this.yearFrom,
       yearTo: yearTo ?? this.yearTo,
-      allowedIds:
-          identical(allowedIds, _unset) ? this.allowedIds : allowedIds as List<String>?,
+      allowedIds: identical(allowedIds, _unset)
+          ? this.allowedIds
+          : allowedIds as List<String>?,
     );
   }
 }
@@ -148,7 +166,8 @@ class SermonListNotifier extends Notifier<SermonListState> {
       if (repo == null) {
         state = state.copyWith(
           isLoading: false,
-          loadError: 'No Sermon database installed. Please import from Settings.',
+          loadError:
+              'No Sermon database installed. Please import from Settings.',
         );
         return;
       }
@@ -174,27 +193,27 @@ class SermonListNotifier extends Notifier<SermonListState> {
     if (state.isLoading) return;
     state = state.copyWith(isLoading: true);
     try {
-    final repo = await _getRepo();
-    if (repo == null) {
-      state = state.copyWith(isLoading: false);
-      return;
-    }
-    final useTitlePrefix =
-        state.titlePrefix != null && state.titlePrefix!.trim().isNotEmpty;
-    final titlePrefix = useTitlePrefix ? state.titlePrefix!.trim() : null;
-    final query = state.searchQuery.trim();
-    final results = await _getSermonsPageWithPrefixFallback(
-      repo: repo,
-      limit: 50,
-      offset: state.offset,
-      year: state.selectedYear,
-      query: useTitlePrefix ? query : state.searchQuery,
-      titlePrefix: titlePrefix,
-      sortBy: state.sortBy,
-      yearFrom: state.yearFrom,
-      yearTo: state.yearTo,
-      allowedIds: state.allowedIds,
-    );
+      final repo = await _getRepo();
+      if (repo == null) {
+        state = state.copyWith(isLoading: false);
+        return;
+      }
+      final useTitlePrefix =
+          state.titlePrefix != null && state.titlePrefix!.trim().isNotEmpty;
+      final titlePrefix = useTitlePrefix ? state.titlePrefix!.trim() : null;
+      final query = state.searchQuery.trim();
+      final results = await _getSermonsPageWithPrefixFallback(
+        repo: repo,
+        limit: 50,
+        offset: state.offset,
+        year: state.selectedYear,
+        query: useTitlePrefix ? query : state.searchQuery,
+        titlePrefix: titlePrefix,
+        sortBy: state.sortBy,
+        yearFrom: state.yearFrom,
+        yearTo: state.yearTo,
+        allowedIds: state.allowedIds,
+      );
       state = state.copyWith(
         sermons: [...state.sermons, ...results],
         isLoading: false,
@@ -216,12 +235,13 @@ class SermonListNotifier extends Notifier<SermonListState> {
     List<String>? allowedIds,
   }) async {
     final effectiveSortBy = sortBy ?? state.sortBy;
-    final normalizedPrefix =
-        titlePrefix != null ? titlePrefix.trim() : state.titlePrefix;
+    final normalizedPrefix = titlePrefix != null
+        ? titlePrefix.trim()
+        : state.titlePrefix;
     final effectivePrefix =
         (normalizedPrefix == null || normalizedPrefix.isEmpty)
-            ? null
-            : normalizedPrefix;
+        ? null
+        : normalizedPrefix;
 
     state = state.copyWith(
       isLoading: true,
@@ -264,7 +284,7 @@ class SermonListNotifier extends Notifier<SermonListState> {
         state = state.copyWith(isLoading: false);
         return;
       }
-    final useTitlePrefix =
+      final useTitlePrefix =
           effectivePrefix != null && effectivePrefix.isNotEmpty;
       final normalizedQuery = query.trim();
       final results = await _getSermonsPageWithPrefixFallback(
@@ -315,8 +335,7 @@ class SermonListNotifier extends Notifier<SermonListState> {
     required int? yearTo,
     List<String>? allowedIds,
   }) async {
-    final useTitlePrefix =
-        titlePrefix != null && titlePrefix.trim().isNotEmpty;
+    final useTitlePrefix = titlePrefix != null && titlePrefix.trim().isNotEmpty;
     final normalizedPrefix = useTitlePrefix ? titlePrefix!.trim() : null;
     final results = await repo.getSermonsPage(
       limit: limit,
@@ -350,25 +369,27 @@ class SermonListNotifier extends Notifier<SermonListState> {
 
 final sermonListProvider =
     NotifierProvider<SermonListNotifier, SermonListState>(() {
-  return SermonListNotifier();
-});
+      return SermonListNotifier();
+    });
 
 final sermonParagraphsProvider =
     FutureProvider.family<List<SermonParagraphEntity>, String>((
-  ref,
-  sermonId,
-) async {
-  final repoAsync = ref.watch(sermonRepositoryProvider);
-  return repoAsync.when(
-    data: (repo) => repo.getParagraphsForSermon(sermonId),
-    loading: () async => <SermonParagraphEntity>[],
-    error: (e, st) async => <SermonParagraphEntity>[],
-  );
-});
+      ref,
+      sermonId,
+    ) async {
+      final repoAsync = ref.watch(sermonRepositoryProvider);
+      return repoAsync.when(
+        data: (repo) => repo.getParagraphsForSermon(sermonId),
+        loading: () async => <SermonParagraphEntity>[],
+        error: (e, st) async => <SermonParagraphEntity>[],
+      );
+    });
 
 /// Load a single sermon by ID (used for AppBar subtitle metadata).
-final sermonByIdProvider =
-    FutureProvider.family<SermonEntity?, String>((ref, id) async {
+final sermonByIdProvider = FutureProvider.family<SermonEntity?, String>((
+  ref,
+  id,
+) async {
   final repo = await ref.watch(sermonRepositoryProvider.future);
   return repo.getSermonById(id);
 });
@@ -377,6 +398,6 @@ final sermonByIdProvider =
 /// the given sermon ID in chronological order.
 final adjacentSermonProvider =
     FutureProvider.family<SermonEntity?, (String, int)>((ref, args) async {
-  final repo = await ref.watch(sermonRepositoryProvider.future);
-  return repo.getAdjacentSermon(args.$1, args.$2);
-});
+      final repo = await ref.watch(sermonRepositoryProvider.future);
+      return repo.getAdjacentSermon(args.$1, args.$2);
+    });

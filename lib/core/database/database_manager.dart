@@ -13,6 +13,7 @@ class DatabaseManager {
 
   // Cache open databases (Key = db file name)
   final Map<String, Database> _databases = {};
+  final Map<String, Future<Database>> _openingDatabases = {};
 
   /// Get the full file path for a database file (for use with sqlite3 etc.)
   Future<String> getDatabasePath(String fileName) async {
@@ -36,6 +37,27 @@ class DatabaseManager {
       return _databases[fileName]!;
     }
 
+    final opening = _openingDatabases[fileName];
+    if (opening != null) {
+      return opening;
+    }
+
+    final openFuture = _openDatabaseInternal(fileName);
+    _openingDatabases[fileName] = openFuture;
+    try {
+      final db = await openFuture;
+      _databases[fileName] = db;
+      return db;
+    } finally {
+      _openingDatabases.remove(fileName);
+    }
+  }
+
+  Future<Database> _openDatabaseInternal(String fileName) async {
+    if (_databases.containsKey(fileName)) {
+      return _databases[fileName]!;
+    }
+
     final dbDir = await getDatabaseDirectoryPath();
     final path = p.join(dbDir.path, fileName);
 
@@ -46,10 +68,7 @@ class DatabaseManager {
     // Since these databases are massive and prepackaged, open them in ReadOnly mode
     // sqflite handles native execution asynchronously on a background thread,
     // guaranteeing smooth UI framing without needing manual Dart Isolates.
-    final db = await openDatabase(path, readOnly: true, singleInstance: true);
-
-    _databases[fileName] = db;
-    return db;
+    return openDatabase(path, readOnly: true, singleInstance: true);
   }
 
   /// Close and remove a cached database
@@ -76,8 +95,12 @@ class DatabaseManager {
       try {
         final version = await db.rawQuery('SELECT sqlite_version()');
         final opts = await db.rawQuery('PRAGMA compile_options');
-        debugPrint('SqliteDiagnostics: version=${version.isNotEmpty ? version.first.values.first : "?"}');
-        debugPrint('SqliteDiagnostics: compile_options=${opts.map((r) => r.values.first).toList()}');
+        debugPrint(
+          'SqliteDiagnostics: version=${version.isNotEmpty ? version.first.values.first : "?"}',
+        );
+        debugPrint(
+          'SqliteDiagnostics: compile_options=${opts.map((r) => r.values.first).toList()}',
+        );
       } finally {
         await db.close();
       }

@@ -11,6 +11,7 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/utils/desktop_file_saver.dart';
 import '../../core/widgets/responsive_bottom_sheet.dart';
 import '../../core/widgets/selection_action_bar.dart';
@@ -45,17 +46,38 @@ class ReaderScreen extends ConsumerStatefulWidget {
 
 class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   static const int _globalBiblePageSize = 50;
+  static const String _searchModePrefKey = 'reader_search_mode';
+  static const String _parallelSplitRatioPrefKey = 'reader_en_ta_split_ratio';
+  static const double _parallelWideBreakpoint = 900.0;
+  static const double _parallelSplitDefault = 0.5;
+  static const double _parallelSplitMin = 0.3;
+  static const double _parallelSplitMax = 0.7;
+  static const double _parallelSplitterWidth = 8.0;
 
   // ── Scroll controller (preserves position across fullscreen toggle) ────────
   final ScrollController _scrollController = ScrollController();
+  final ScrollController _parallelPrimaryScrollController = ScrollController();
+  final ScrollController _parallelSecondaryScrollController =
+      ScrollController();
   final FocusNode _searchFieldFocusNode = FocusNode();
   late final bool Function(KeyEvent) _searchKeyHandler;
+
+  String? _parallelSourceTabId;
+  ReaderTab? _parallelEnglishTab;
+  double _parallelSplitRatio = _parallelSplitDefault;
+  double _parallelPrimaryFontOffset = 0;
+  double _parallelSecondaryFontOffset = 0;
 
   // ── In-page search ────────────────────────────────────────────────────────
   bool _isSearching = false;
   final TextEditingController _searchController = TextEditingController();
   BibleSearchScope _searchScope = BibleSearchScope.chapter;
   BibleSearchMode _searchMode = BibleSearchMode.smart;
+  bool _showSearchOptions = true;
+  int? _bookRangeStartIndex;
+  int? _bookRangeEndIndex;
+  int? _chapterRangeStart;
+  int? _chapterRangeEnd;
   List<BibleSearchResult> _globalBibleResults = [];
   bool _globalSearchLoading = false;
   bool _globalSearchLoadingMore = false;
@@ -104,11 +126,15 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       return true;
     };
     HardwareKeyboard.instance.addHandler(_searchKeyHandler);
+    unawaited(_loadSearchPreferences());
+    unawaited(_loadParallelSplitRatio());
   }
 
   @override
   void dispose() {
     _scrollController.dispose();
+    _parallelPrimaryScrollController.dispose();
+    _parallelSecondaryScrollController.dispose();
     _searchController.dispose();
     _searchFieldFocusNode.dispose();
     _globalSearchDebounce?.cancel();
@@ -147,6 +173,355 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     _handleNavResult(result);
   }
 
+  Future<String> _mapBookNameForLanguage({
+    required String sourceBook,
+    required String sourceLang,
+    required String targetLang,
+  }) async {
+    if (sourceLang == targetLang) return sourceBook;
+
+    try {
+      final sourceBooks = await ref
+          .read(bibleBookListByLangProvider(sourceLang).future)
+          .timeout(const Duration(seconds: 8));
+      final targetBooks = await ref
+          .read(bibleBookListByLangProvider(targetLang).future)
+          .timeout(const Duration(seconds: 8));
+
+      if (sourceBooks.isEmpty || targetBooks.isEmpty) {
+        return sourceBook;
+      }
+
+      final normalizedSource = sourceBook.trim().toLowerCase();
+      final sourceMatch = sourceBooks.where((book) {
+        final name = (book['book'] as String? ?? '').trim().toLowerCase();
+        return name == normalizedSource;
+      }).toList();
+
+      if (sourceMatch.isEmpty) return sourceBook;
+
+      final sourceIndex = sourceMatch.first['book_index'] as int?;
+      if (sourceIndex == null) return sourceBook;
+
+      final targetMatch = targetBooks.where((book) {
+        return (book['book_index'] as int?) == sourceIndex;
+      }).toList();
+
+      if (targetMatch.isEmpty) return sourceBook;
+
+      final mapped = targetMatch.first['book'] as String?;
+      return (mapped == null || mapped.trim().isEmpty)
+          ? sourceBook
+          : mapped.trim();
+    } catch (_) {
+      return sourceBook;
+    }
+  }
+
+  Future<void> _openEnglishParallel(
+    ReaderTab? activeTab, {
+    String? sourceLangOverride,
+  }) async {
+    if (activeTab == null ||
+        activeTab.type != ReaderContentType.bible ||
+        activeTab.book == null ||
+        activeTab.chapter == null) {
+      return;
+    }
+
+    final sourceLang =
+        sourceLangOverride ??
+        (activeTab.bibleLang ?? ref.read(selectedBibleLangProvider)) ??
+        'en';
+    final mappedBook = await _mapBookNameForLanguage(
+      sourceBook: activeTab.book!,
+      sourceLang: sourceLang,
+      targetLang: 'en',
+    );
+
+    final englishTab = ReaderTab(
+      type: ReaderContentType.bible,
+      title: '$mappedBook ${activeTab.chapter}',
+      book: mappedBook,
+      chapter: activeTab.chapter,
+      verse: activeTab.verse,
+      bibleLang: 'en',
+    );
+
+    _resetGlobalSearchState(clearQuery: false);
+    if (!mounted) return;
+    setState(() {
+      _parallelSourceTabId = activeTab.id;
+      _parallelEnglishTab = englishTab;
+    });
+  }
+
+  Future<void> _switchToEnglishBible(
+    ReaderTab? activeTab, {
+    String? sourceLangOverride,
+  }) async {
+    if (activeTab == null ||
+        activeTab.type != ReaderContentType.bible ||
+        activeTab.book == null ||
+        activeTab.chapter == null) {
+      return;
+    }
+
+    final sourceLang =
+        sourceLangOverride ??
+        (activeTab.bibleLang ?? ref.read(selectedBibleLangProvider)) ??
+        'en';
+    final mappedBook = await _mapBookNameForLanguage(
+      sourceBook: activeTab.book!,
+      sourceLang: sourceLang,
+      targetLang: 'en',
+    );
+
+    final englishTab = activeTab.copyWith(
+      title: '$mappedBook ${activeTab.chapter}',
+      book: mappedBook,
+      chapter: activeTab.chapter,
+      verse: activeTab.verse,
+      bibleLang: 'en',
+      initialSearchQuery: null,
+      openedFromSearch: false,
+    );
+
+    _clearParallelMode();
+    ref.read(readerProvider.notifier).replaceCurrentTab(englishTab);
+  }
+
+  Future<void> _loadParallelSplitRatio() async {
+    final prefs = await SharedPreferences.getInstance();
+    final value = prefs.getDouble(_parallelSplitRatioPrefKey);
+    if (value == null || !mounted) return;
+    setState(() {
+      _parallelSplitRatio = value.clamp(_parallelSplitMin, _parallelSplitMax);
+    });
+  }
+
+  Future<void> _persistParallelSplitRatio() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(_parallelSplitRatioPrefKey, _parallelSplitRatio);
+  }
+
+  void _clearParallelMode() {
+    if (_parallelSourceTabId == null && _parallelEnglishTab == null) return;
+    if (!mounted) return;
+    setState(() {
+      _parallelSourceTabId = null;
+      _parallelEnglishTab = null;
+    });
+  }
+
+  bool _isParallelActiveFor(ReaderTab? activeTab) {
+    if (activeTab == null) return false;
+    if (_parallelSourceTabId == null || _parallelEnglishTab == null) {
+      return false;
+    }
+    if (_parallelSourceTabId != activeTab.id) return false;
+    if (activeTab.type != ReaderContentType.bible) return false;
+    if (activeTab.book == null || activeTab.chapter == null) return false;
+    return true;
+  }
+
+  double _parallelPaneFontSize(TypographySettings typography, bool isPrimary) {
+    final offset = isPrimary
+        ? _parallelPrimaryFontOffset
+        : _parallelSecondaryFontOffset;
+    return (typography.fontSize + offset).clamp(12.0, 56.0);
+  }
+
+  void _adjustParallelPaneFontSize({
+    required bool isPrimary,
+    required double delta,
+  }) {
+    setState(() {
+      if (isPrimary) {
+        _parallelPrimaryFontOffset = (_parallelPrimaryFontOffset + delta).clamp(
+          12.0 - ref.read(typographyProvider).fontSize,
+          56.0 - ref.read(typographyProvider).fontSize,
+        );
+      } else {
+        _parallelSecondaryFontOffset = (_parallelSecondaryFontOffset + delta)
+            .clamp(
+              12.0 - ref.read(typographyProvider).fontSize,
+              56.0 - ref.read(typographyProvider).fontSize,
+            );
+      }
+    });
+  }
+
+  Future<void> _openAdjacentParallelBiblePassage(int direction) async {
+    final activeTab = ref.read(readerProvider).activeTab;
+    final englishTab = _parallelEnglishTab;
+    if (activeTab == null || englishTab == null) return;
+    if (activeTab.type != ReaderContentType.bible ||
+        activeTab.book == null ||
+        activeTab.chapter == null) {
+      return;
+    }
+
+    final sourceLang =
+        (activeTab.bibleLang ?? ref.read(selectedBibleLangProvider)) ?? 'en';
+    final books = await ref.read(
+      bibleBookListByLangProvider(sourceLang).future,
+    );
+    if (books.isEmpty) return;
+
+    final sortedBooks = [...books]
+      ..sort((a, b) {
+        final first = a['book_index'] as int? ?? 1;
+        final second = b['book_index'] as int? ?? 1;
+        return first.compareTo(second);
+      });
+
+    final currentBook = activeTab.book!;
+    final currentChapter = activeTab.chapter!;
+    var currentBookIndex = sortedBooks.indexWhere((book) {
+      return (book['book'] as String?) == currentBook;
+    });
+    if (currentBookIndex < 0) {
+      final normalizedCurrent = currentBook.trim().toLowerCase();
+      currentBookIndex = sortedBooks.indexWhere((book) {
+        final name = (book['book'] as String? ?? '').trim().toLowerCase();
+        return name == normalizedCurrent;
+      });
+    }
+    if (currentBookIndex < 0) return;
+
+    var nextBookIndex = currentBookIndex;
+    var nextChapter = currentChapter;
+
+    if (direction > 0) {
+      final currentBookChapters =
+          sortedBooks[currentBookIndex]['chapters'] as int? ?? 1;
+      if (currentChapter < currentBookChapters) {
+        nextChapter = currentChapter + 1;
+      } else if (currentBookIndex < sortedBooks.length - 1) {
+        nextBookIndex = currentBookIndex + 1;
+        nextChapter = 1;
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('No next Bible passage.')),
+          );
+        }
+        return;
+      }
+    } else {
+      if (currentChapter > 1) {
+        nextChapter = currentChapter - 1;
+      } else if (currentBookIndex > 0) {
+        nextBookIndex = currentBookIndex - 1;
+        final prevBookChapters =
+            sortedBooks[nextBookIndex]['chapters'] as int? ?? 1;
+        nextChapter = prevBookChapters;
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('No previous Bible passage.')),
+          );
+        }
+        return;
+      }
+    }
+
+    final nextSourceBook = sortedBooks[nextBookIndex]['book'] as String;
+    final mappedEnglishBook = await _mapBookNameForLanguage(
+      sourceBook: nextSourceBook,
+      sourceLang: sourceLang,
+      targetLang: 'en',
+    );
+
+    final nextSourceTab = activeTab.copyWith(
+      title: '$nextSourceBook $nextChapter',
+      book: nextSourceBook,
+      chapter: nextChapter,
+      verse: null,
+      initialSearchQuery: null,
+      openedFromSearch: false,
+    );
+
+    final nextEnglishTab = englishTab.copyWith(
+      title: '$mappedEnglishBook $nextChapter',
+      book: mappedEnglishBook,
+      chapter: nextChapter,
+      verse: null,
+      bibleLang: 'en',
+      initialSearchQuery: null,
+      openedFromSearch: false,
+    );
+
+    ref.read(readerProvider.notifier).replaceCurrentTab(nextSourceTab);
+    if (!mounted) return;
+    setState(() {
+      _parallelEnglishTab = nextEnglishTab;
+    });
+  }
+
+  Future<void> _openParallelQuickNav() async {
+    final activeTab = ref.read(readerProvider).activeTab;
+    final englishTab = _parallelEnglishTab;
+    if (activeTab == null || englishTab == null) return;
+    if (activeTab.type != ReaderContentType.bible ||
+        activeTab.book == null ||
+        activeTab.chapter == null) {
+      return;
+    }
+
+    final sourceLang =
+        (activeTab.bibleLang ?? ref.read(selectedBibleLangProvider)) ?? 'en';
+    final result = await showResponsiveBottomSheet<Map<String, dynamic>>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      maxWidth: 980,
+      builder: (_) => QuickNavigationSheet(initialLang: sourceLang),
+    );
+    if (result == null) return;
+
+    final selectedBook = result['book'] as String?;
+    final selectedChapter = result['chapter'] as int?;
+    final selectedVerse = result['verse'] as int?;
+    if (selectedBook == null || selectedChapter == null) return;
+
+    final mappedEnglishBook = await _mapBookNameForLanguage(
+      sourceBook: selectedBook,
+      sourceLang: sourceLang,
+      targetLang: 'en',
+    );
+
+    final nextSourceTab = activeTab.copyWith(
+      title: '$selectedBook $selectedChapter',
+      book: selectedBook,
+      chapter: selectedChapter,
+      verse: selectedVerse,
+      initialSearchQuery: null,
+      openedFromSearch: false,
+    );
+
+    final nextEnglishTab = englishTab.copyWith(
+      title: '$mappedEnglishBook $selectedChapter',
+      book: mappedEnglishBook,
+      chapter: selectedChapter,
+      verse: selectedVerse,
+      bibleLang: 'en',
+      initialSearchQuery: null,
+      openedFromSearch: false,
+    );
+
+    ref.read(readerProvider.notifier).replaceCurrentTab(nextSourceTab);
+    if (!mounted) return;
+    setState(() {
+      _parallelEnglishTab = nextEnglishTab;
+      _selectedVerseNumbers.clear();
+      _activeSelectionText = null;
+      _lastVerseTapped = null;
+    });
+  }
+
   void _handleNavResult(Map<String, dynamic>? result) {
     if (result == null) return;
     final verse = result['verse'] as int?;
@@ -174,10 +549,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       _selectedVerseNumbers.clear();
       _activeSelectionText = null;
       _lastVerseTapped = null;
-      _isSearching = false;
-      _searchController.clear();
-      _clearMatches();
     });
+    _resetGlobalSearchState();
   }
 
   // ── In-page search helpers ─────────────────────────────────────────────────
@@ -217,6 +590,154 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     _matchVerseIndices = [];
     _totalMatches = 0;
     _currentMatchIndex = 0;
+  }
+
+  void _resetSearchFilters() {
+    _bookRangeStartIndex = null;
+    _bookRangeEndIndex = null;
+    _chapterRangeStart = null;
+    _chapterRangeEnd = null;
+  }
+
+  void _resetGlobalSearchState({bool clearQuery = true}) {
+    if (!mounted) return;
+    setState(() {
+      _isSearching = false;
+      _showSearchOptions = true;
+      if (clearQuery) {
+        _searchController.clear();
+      }
+      _clearMatches();
+      _searchScope = BibleSearchScope.chapter;
+      _resetSearchFilters();
+      _globalBibleResults = [];
+      _globalSearchLoading = false;
+      _globalSearchLoadingMore = false;
+      _globalSearchTotalCount = 0;
+      _lastSearchActivatedTabId = null;
+    });
+  }
+
+  BibleSearchMode? _modeFromName(String? name) {
+    if (name == null || name.isEmpty) return null;
+    for (final mode in BibleSearchMode.values) {
+      if (mode.name == name) return mode;
+    }
+    return null;
+  }
+
+  Future<void> _loadSearchPreferences() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedMode = _modeFromName(prefs.getString(_searchModePrefKey));
+    if (!mounted || savedMode == null) return;
+    setState(() => _searchMode = savedMode);
+  }
+
+  Future<void> _persistSearchMode() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_searchModePrefKey, _searchMode.name);
+  }
+
+  bool get _hasBookRangeSelection {
+    return _bookRangeStartIndex != null || _bookRangeEndIndex != null;
+  }
+
+  List<Map<String, dynamic>> _resolveBookRangeBooks(
+    List<Map<String, dynamic>> books, {
+    bool includeAllWhenUnset = false,
+  }) {
+    if (books.isEmpty) return [];
+    final startIndex = _bookRangeStartIndex;
+    final endIndex = _bookRangeEndIndex;
+    if (startIndex == null && endIndex == null) {
+      return includeAllWhenUnset ? books : [];
+    }
+
+    final resolvedStart = startIndex ?? endIndex;
+    final resolvedEnd = endIndex ?? startIndex;
+    if (resolvedStart == null || resolvedEnd == null) {
+      return includeAllWhenUnset ? books : [];
+    }
+
+    final fromIndex = resolvedStart <= resolvedEnd
+        ? resolvedStart
+        : resolvedEnd;
+    final toIndex = resolvedStart <= resolvedEnd ? resolvedEnd : resolvedStart;
+
+    return books.where((book) {
+      final index = book['book_index'] as int? ?? -1;
+      return index >= fromIndex && index <= toIndex;
+    }).toList();
+  }
+
+  List<String>? _buildBookFilters(
+    List<Map<String, dynamic>> books,
+    ReaderTab? activeTab,
+  ) {
+    if (_hasBookRangeSelection) {
+      final selectedBooks = _resolveBookRangeBooks(books);
+      if (selectedBooks.isEmpty) return null;
+      return selectedBooks.map((book) => book['book'] as String).toList();
+    }
+
+    if (_searchScope == BibleSearchScope.book && activeTab?.book != null) {
+      return <String>[activeTab!.book!];
+    }
+
+    return null;
+  }
+
+  int _bookRangeChapterMax(List<Map<String, dynamic>> books) {
+    final selectedBooks = _resolveBookRangeBooks(
+      books,
+      includeAllWhenUnset: true,
+    );
+    if (selectedBooks.isEmpty) return 1;
+
+    var maxChapters = 1;
+    for (final book in selectedBooks) {
+      final chapters = book['chapters'] as int? ?? 1;
+      if (chapters > maxChapters) {
+        maxChapters = chapters;
+      }
+    }
+    return maxChapters;
+  }
+
+  void _sanitizeChapterSelections(int maxChapter) {
+    final start = _chapterRangeStart;
+    final end = _chapterRangeEnd;
+    if ((start == null || start <= maxChapter) &&
+        (end == null || end <= maxChapter)) {
+      return;
+    }
+
+    setState(() {
+      if (_chapterRangeStart != null && _chapterRangeStart! > maxChapter) {
+        _chapterRangeStart = null;
+      }
+      if (_chapterRangeEnd != null && _chapterRangeEnd! > maxChapter) {
+        _chapterRangeEnd = null;
+      }
+    });
+  }
+
+  int? _chapterRangeStartEffective() {
+    final start = _chapterRangeStart;
+    final end = _chapterRangeEnd;
+    if (start == null && end == null) return null;
+    if (start != null && end == null) return start;
+    if (start == null && end != null) return end;
+    return start! <= end! ? start : end;
+  }
+
+  int? _chapterRangeEndEffective() {
+    final start = _chapterRangeStart;
+    final end = _chapterRangeEnd;
+    if (start == null && end == null) return null;
+    if (start != null && end == null) return start;
+    if (start == null && end != null) return end;
+    return start! >= end! ? start : end;
   }
 
   void _navigateToMatch(int direction) {
@@ -350,11 +871,12 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     try {
       final lang =
           (activeTab?.bibleLang ?? ref.read(selectedBibleLangProvider)) ?? 'en';
-      final activeBook = activeTab?.book;
-      final isBookScope = _searchScope == BibleSearchScope.book;
-      final bookFilters = isBookScope && activeBook != null
-          ? <String>[activeBook]
-          : null;
+      final books = await ref
+          .read(bibleBookListByLangProvider(lang).future)
+          .timeout(const Duration(seconds: 8));
+      final bookFilters = _buildBookFilters(books, activeTab);
+      final chapterFrom = _chapterRangeStartEffective();
+      final chapterTo = _chapterRangeEndEffective();
       final fetchLimit = _globalBiblePageSize;
       final fetchOffset = append ? _globalBibleResults.length : 0;
       final repo = await ref.read(bibleRepositoryByLangProvider(lang).future);
@@ -364,11 +886,18 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
           limit: fetchLimit,
           offset: fetchOffset,
           bookFilters: bookFilters,
+          chapterFrom: chapterFrom,
+          chapterTo: chapterTo,
           sortOrder: 'bookOrder',
           exactMatch: _searchMode == BibleSearchMode.exactPhrase,
           anyWord: _searchMode == BibleSearchMode.anyWord,
         ),
-        repo.countSearchResults(query, bookFilters: bookFilters),
+        repo.countSearchResults(
+          query,
+          bookFilters: bookFilters,
+          chapterFrom: chapterFrom,
+          chapterTo: chapterTo,
+        ),
       ]).timeout(const Duration(seconds: 12));
       final results = both[0] as List<BibleSearchResult>;
       final totalCount = both[1] as int;
@@ -817,22 +1346,26 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     final activeTabId = activeTab?.id;
     final tabChanged = activeTabId != _lastActiveTabId;
     if (tabChanged) {
+      if (_parallelSourceTabId != null && activeTabId != _parallelSourceTabId) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _clearParallelMode();
+        });
+      }
       _lastActiveTabId = activeTabId;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (_isSearching && activeTab?.initialSearchQuery == null) {
-          setState(() {
-            _isSearching = false;
-            _searchController.clear();
-            _clearMatches();
-            _searchScope = BibleSearchScope.chapter;
-            _searchMode = BibleSearchMode.smart;
-            _globalBibleResults = [];
-            _globalSearchLoading = false;
-            _globalSearchLoadingMore = false;
-            _globalSearchTotalCount = 0;
-            _lastSearchActivatedTabId = null;
-          });
+          _resetGlobalSearchState();
         }
+      });
+    }
+
+    final isParallelMode = _isParallelActiveFor(activeTab);
+    final englishParallelTab = _parallelEnglishTab;
+
+    if (!isParallelMode &&
+        (_parallelSourceTabId != null || _parallelEnglishTab != null)) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _clearParallelMode();
       });
     }
 
@@ -877,7 +1410,13 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                       Column(
                         children: [
                           Expanded(
-                            child: _buildTabContent(activeTab, typographyState),
+                            child: isParallelMode && englishParallelTab != null
+                                ? _buildParallelContent(
+                                    primaryTab: activeTab,
+                                    secondaryTab: englishParallelTab,
+                                    typography: typographyState,
+                                  )
+                                : _buildTabContent(activeTab, typographyState),
                           ),
                           SelectionActionBar(
                             isVisible:
@@ -921,16 +1460,48 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                   )
                 : Column(
                     children: [
-                      if (_isSearching) _buildSearchChipsRow(activeTab),
-                      if (_isSearching &&
-                          _searchScope != BibleSearchScope.chapter)
-                        _buildSearchTypeChipsRow(activeTab),
+                      if (_isSearching)
+                        AnimatedSize(
+                          duration: const Duration(milliseconds: 220),
+                          curve: Curves.easeInOutCubic,
+                          alignment: Alignment.topCenter,
+                          child: ClipRect(
+                            child: _showSearchOptions
+                                ? Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      _buildSearchChipsRow(activeTab),
+                                      if (_searchScope !=
+                                          BibleSearchScope.chapter)
+                                        _buildCompactRangeFiltersRow(activeTab),
+                                    ],
+                                  )
+                                : const SizedBox.shrink(),
+                          ),
+                        ),
+                      if (_isSearching)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 8, bottom: 2),
+                          child: Align(
+                            alignment: Alignment.centerRight,
+                            child: _buildSearchOptionsToggleButton(),
+                          ),
+                        ),
                       Expanded(
                         child:
                             _isSearching &&
                                 _searchScope != BibleSearchScope.chapter
                             ? _buildScopeSearchResults(activeTab)
-                            : _buildTabContent(activeTab, typographyState),
+                            : (isParallelMode && englishParallelTab != null
+                                  ? _buildParallelContent(
+                                      primaryTab: activeTab,
+                                      secondaryTab: englishParallelTab,
+                                      typography: typographyState,
+                                    )
+                                  : _buildTabContent(
+                                      activeTab,
+                                      typographyState,
+                                    )),
                       ),
                       SelectionActionBar(
                         isVisible:
@@ -991,18 +1562,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
         icon: const Icon(Icons.arrow_back),
         onPressed: () {
           // Exit search mode
-          setState(() {
-            _isSearching = false;
-            _searchController.clear();
-            _clearMatches();
-            _searchScope = BibleSearchScope.chapter;
-            _searchMode = BibleSearchMode.smart;
-            _globalBibleResults = [];
-            _globalSearchLoading = false;
-            _globalSearchLoadingMore = false;
-            _globalSearchTotalCount = 0;
-            _lastSearchActivatedTabId = null;
-          });
+          _resetGlobalSearchState();
         },
       ),
       title: TextField(
@@ -1090,6 +1650,16 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     );
   }
 
+  Widget _buildSearchOptionsToggleButton() {
+    return IconButton(
+      tooltip: _showSearchOptions ? 'Hide options' : 'Show options',
+      icon: Icon(_showSearchOptions ? Icons.visibility_off : Icons.visibility),
+      onPressed: () {
+        setState(() => _showSearchOptions = !_showSearchOptions);
+      },
+    );
+  }
+
   Widget _buildSearchChipsRow(ReaderTab? activeTab) {
     final theme = Theme.of(context);
     return Container(
@@ -1101,93 +1671,268 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
           ),
         ),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          ChoiceChip(
-            label: const Text('Current Chapter'),
-            selected: _searchScope == BibleSearchScope.chapter,
-            onSelected: (selected) {
-              if (!selected) return;
-              setState(() {
-                _searchScope = BibleSearchScope.chapter;
-                _globalBibleResults = [];
-                _globalSearchLoading = false;
-                _globalSearchLoadingMore = false;
-                _globalSearchTotalCount = 0;
-              });
-              _computeMatches(_searchController.text);
-            },
-          ),
-          const SizedBox(width: 8),
-          ChoiceChip(
-            label: const Text('Current Book'),
-            selected: _searchScope == BibleSearchScope.book,
-            onSelected: (selected) {
-              if (!selected) return;
-              setState(() {
-                _searchScope = BibleSearchScope.book;
-                _clearMatches();
-                _globalSearchTotalCount = 0;
-              });
-              _scheduleScopeSearch(activeTab, immediate: true);
-            },
-          ),
-          const SizedBox(width: 8),
-          ChoiceChip(
-            label: const Text('All Books'),
-            selected: _searchScope == BibleSearchScope.all,
-            onSelected: (selected) {
-              if (!selected) return;
-              setState(() {
-                _searchScope = BibleSearchScope.all;
-                _clearMatches();
-                _globalSearchTotalCount = 0;
-              });
-              _scheduleScopeSearch(activeTab, immediate: true);
-            },
+          Center(
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              alignment: WrapAlignment.center,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                ChoiceChip(
+                  label: const Text('Current Chapter'),
+                  selected: _searchScope == BibleSearchScope.chapter,
+                  onSelected: (selected) {
+                    if (!selected) return;
+                    setState(() {
+                      _searchScope = BibleSearchScope.chapter;
+                      _globalBibleResults = [];
+                      _globalSearchLoading = false;
+                      _globalSearchLoadingMore = false;
+                      _globalSearchTotalCount = 0;
+                    });
+                    _computeMatches(_searchController.text);
+                  },
+                ),
+                ChoiceChip(
+                  label: const Text('Current Book'),
+                  selected: _searchScope == BibleSearchScope.book,
+                  onSelected: (selected) {
+                    if (!selected) return;
+                    setState(() {
+                      _searchScope = BibleSearchScope.book;
+                      _clearMatches();
+                      _globalSearchTotalCount = 0;
+                    });
+                    _scheduleScopeSearch(activeTab, immediate: true);
+                  },
+                ),
+                ChoiceChip(
+                  label: const Text('All Books'),
+                  selected: _searchScope == BibleSearchScope.all,
+                  onSelected: (selected) {
+                    if (!selected) return;
+                    setState(() {
+                      _searchScope = BibleSearchScope.all;
+                      _clearMatches();
+                      _globalSearchTotalCount = 0;
+                    });
+                    _scheduleScopeSearch(activeTab, immediate: true);
+                  },
+                ),
+                const SizedBox(width: 8),
+                ChoiceChip(
+                  label: const Text('Smart'),
+                  selected: _searchMode == BibleSearchMode.smart,
+                  onSelected: (selected) {
+                    if (!selected) return;
+                    setState(() => _searchMode = BibleSearchMode.smart);
+                    unawaited(_persistSearchMode());
+                    _scheduleScopeSearch(activeTab, immediate: true);
+                  },
+                ),
+                ChoiceChip(
+                  label: const Text('Exact Phrase'),
+                  selected: _searchMode == BibleSearchMode.exactPhrase,
+                  onSelected: (selected) {
+                    if (!selected) return;
+                    setState(() => _searchMode = BibleSearchMode.exactPhrase);
+                    unawaited(_persistSearchMode());
+                    _scheduleScopeSearch(activeTab, immediate: true);
+                  },
+                ),
+                ChoiceChip(
+                  label: const Text('Any Word'),
+                  selected: _searchMode == BibleSearchMode.anyWord,
+                  onSelected: (selected) {
+                    if (!selected) return;
+                    setState(() => _searchMode = BibleSearchMode.anyWord);
+                    unawaited(_persistSearchMode());
+                    _scheduleScopeSearch(activeTab, immediate: true);
+                  },
+                ),
+              ],
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildSearchTypeChipsRow(ReaderTab? activeTab) {
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-      child: Row(
-        children: [
-          ChoiceChip(
-            label: const Text('Smart'),
-            selected: _searchMode == BibleSearchMode.smart,
-            onSelected: (selected) {
-              if (!selected) return;
-              setState(() => _searchMode = BibleSearchMode.smart);
-              _scheduleScopeSearch(activeTab, immediate: true);
-            },
+  Widget _buildCompactRangeFiltersRow(ReaderTab? activeTab) {
+    final lang =
+        (activeTab?.bibleLang ?? ref.read(selectedBibleLangProvider)) ?? 'en';
+    final booksAsync = ref.watch(bibleBookListByLangProvider(lang));
+
+    return booksAsync.when(
+      loading: () => const SizedBox.shrink(),
+      error: (_, __) => const SizedBox.shrink(),
+      data: (books) {
+        final sortedBooks = [...books]
+          ..sort(
+            (a, b) =>
+                (a['book_index'] as int).compareTo(b['book_index'] as int),
+          );
+        final maxChapter = _bookRangeChapterMax(sortedBooks);
+        final chapterStartInvalid =
+            _chapterRangeStart != null && _chapterRangeStart! > maxChapter;
+        final chapterEndInvalid =
+            _chapterRangeEnd != null && _chapterRangeEnd! > maxChapter;
+        if (chapterStartInvalid || chapterEndInvalid) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              _sanitizeChapterSelections(maxChapter);
+            }
+          });
+        }
+
+        final chapterItems = List<DropdownMenuItem<int?>>.generate(maxChapter, (
+          index,
+        ) {
+          final value = index + 1;
+          return DropdownMenuItem<int?>(
+            value: value,
+            child: Text(value.toString()),
+          );
+        });
+
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 860),
+              child: Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                alignment: WrapAlignment.center,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  SizedBox(
+                    width: 190,
+                    child: DropdownButtonFormField<int?>(
+                      value: _bookRangeStartIndex,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'From Book',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                      items: [
+                        const DropdownMenuItem<int?>(
+                          value: null,
+                          child: Text('All Books'),
+                        ),
+                        ...sortedBooks.map((book) {
+                          final bookIndex = book['book_index'] as int;
+                          return DropdownMenuItem<int?>(
+                            value: bookIndex,
+                            child: Text(book['book'] as String),
+                          );
+                        }),
+                      ],
+                      onChanged: (value) {
+                        setState(() {
+                          _bookRangeStartIndex = value;
+                        });
+                        _sanitizeChapterSelections(
+                          _bookRangeChapterMax(sortedBooks),
+                        );
+                        _scheduleScopeSearch(activeTab, immediate: true);
+                      },
+                    ),
+                  ),
+                  SizedBox(
+                    width: 190,
+                    child: DropdownButtonFormField<int?>(
+                      value: _bookRangeEndIndex,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'To Book',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                      items: [
+                        const DropdownMenuItem<int?>(
+                          value: null,
+                          child: Text('All Books'),
+                        ),
+                        ...sortedBooks.map((book) {
+                          final bookIndex = book['book_index'] as int;
+                          return DropdownMenuItem<int?>(
+                            value: bookIndex,
+                            child: Text(book['book'] as String),
+                          );
+                        }),
+                      ],
+                      onChanged: (value) {
+                        setState(() {
+                          _bookRangeEndIndex = value;
+                        });
+                        _sanitizeChapterSelections(
+                          _bookRangeChapterMax(sortedBooks),
+                        );
+                        _scheduleScopeSearch(activeTab, immediate: true);
+                      },
+                    ),
+                  ),
+                  SizedBox(
+                    width: 165,
+                    child: DropdownButtonFormField<int?>(
+                      value: _chapterRangeStart,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'From Chapter',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                      items: [
+                        const DropdownMenuItem<int?>(
+                          value: null,
+                          child: Text('All'),
+                        ),
+                        ...chapterItems,
+                      ],
+                      onChanged: (value) {
+                        setState(() {
+                          _chapterRangeStart = value;
+                        });
+                        _scheduleScopeSearch(activeTab, immediate: true);
+                      },
+                    ),
+                  ),
+                  SizedBox(
+                    width: 165,
+                    child: DropdownButtonFormField<int?>(
+                      value: _chapterRangeEnd,
+                      isExpanded: true,
+                      decoration: const InputDecoration(
+                        labelText: 'To Chapter',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                      items: [
+                        const DropdownMenuItem<int?>(
+                          value: null,
+                          child: Text('All'),
+                        ),
+                        ...chapterItems,
+                      ],
+                      onChanged: (value) {
+                        setState(() {
+                          _chapterRangeEnd = value;
+                        });
+                        _scheduleScopeSearch(activeTab, immediate: true);
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
-          const SizedBox(width: 8),
-          ChoiceChip(
-            label: const Text('Exact Phrase'),
-            selected: _searchMode == BibleSearchMode.exactPhrase,
-            onSelected: (selected) {
-              if (!selected) return;
-              setState(() => _searchMode = BibleSearchMode.exactPhrase);
-              _scheduleScopeSearch(activeTab, immediate: true);
-            },
-          ),
-          const SizedBox(width: 8),
-          ChoiceChip(
-            label: const Text('Any Word'),
-            selected: _searchMode == BibleSearchMode.anyWord,
-            onSelected: (selected) {
-              if (!selected) return;
-              setState(() => _searchMode = BibleSearchMode.anyWord);
-              _scheduleScopeSearch(activeTab, immediate: true);
-            },
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -1265,18 +2010,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                 ref.read(readerProvider.notifier).openTab(replacement);
               }
 
-              setState(() {
-                _isSearching = false;
-                _searchController.clear();
-                _searchScope = BibleSearchScope.chapter;
-                _searchMode = BibleSearchMode.smart;
-                _globalBibleResults = [];
-                _globalSearchLoading = false;
-                _globalSearchLoadingMore = false;
-                _globalSearchTotalCount = 0;
-                _clearMatches();
-                _lastSearchActivatedTabId = null;
-              });
+              _resetGlobalSearchState();
             },
           ),
         );
@@ -1289,6 +2023,11 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     final openedFromSearch = activeTab?.openedFromSearch ?? false;
     final isBibleTab =
         activeTab?.type == ReaderContentType.bible && activeTab?.book != null;
+    final activeLang =
+        (activeTab?.bibleLang ?? ref.read(selectedBibleLangProvider)) ?? 'en';
+    final isTamilBibleTab = isBibleTab && activeLang == 'ta';
+    final isCompactAppBar = MediaQuery.sizeOf(context).width < 700;
+    final showCompactTamilOptions = isTamilBibleTab && isCompactAppBar;
 
     return AppBar(
       leading: IconButton(
@@ -1358,6 +2097,23 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                       onPressed: () => _openQuickNavForTestament(1),
                       child: const Text('New Testament'),
                     ),
+                    if (isTamilBibleTab) ...[
+                      const SizedBox(width: 12),
+                      TextButton(
+                        onPressed: () => _openEnglishParallel(
+                          activeTab,
+                          sourceLangOverride: activeLang,
+                        ),
+                        child: const Text('English Parallel'),
+                      ),
+                      TextButton(
+                        onPressed: () => _switchToEnglishBible(
+                          activeTab,
+                          sourceLangOverride: activeLang,
+                        ),
+                        child: const Text('English Bible'),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -1384,17 +2140,42 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
             }),
           ),
         ] else ...[
+          if (showCompactTamilOptions)
+            PopupMenuButton<String>(
+              tooltip: 'English options',
+              icon: const Icon(Icons.language),
+              onSelected: (value) {
+                if (value == 'parallel') {
+                  _openEnglishParallel(
+                    activeTab,
+                    sourceLangOverride: activeLang,
+                  );
+                } else if (value == 'switch') {
+                  _switchToEnglishBible(
+                    activeTab,
+                    sourceLangOverride: activeLang,
+                  );
+                }
+              },
+              itemBuilder: (context) => const [
+                PopupMenuItem<String>(
+                  value: 'parallel',
+                  child: Text('English Parallel'),
+                ),
+                PopupMenuItem<String>(
+                  value: 'switch',
+                  child: Text('English Bible'),
+                ),
+              ],
+            ),
           IconButton(
             icon: const Icon(Icons.search),
-            onPressed: () => setState(() {
-              _isSearching = true;
-              _searchScope = BibleSearchScope.chapter;
-              _searchMode = BibleSearchMode.smart;
-              _globalBibleResults = [];
-              _globalSearchLoading = false;
-              _globalSearchLoadingMore = false;
-              _globalSearchTotalCount = 0;
-            }),
+            onPressed: () {
+              _resetGlobalSearchState();
+              setState(() {
+                _isSearching = true;
+              });
+            },
           ),
           IconButton(
             icon: const Icon(Icons.home),
@@ -1663,6 +2444,356 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     }
 
     return Center(child: Text('Unsupported content for ${tab.title}'));
+  }
+
+  Widget _buildParallelContent({
+    required ReaderTab primaryTab,
+    required ReaderTab secondaryTab,
+    required TypographySettings typography,
+  }) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isWide = constraints.maxWidth >= _parallelWideBreakpoint;
+        final ratio = _parallelSplitRatio.clamp(
+          _parallelSplitMin,
+          _parallelSplitMax,
+        );
+
+        final primaryPanel = _buildParallelBiblePanel(
+          tab: primaryTab,
+          typography: typography,
+          controller: _parallelPrimaryScrollController,
+          panelTitle: 'Tamil',
+          panelSubtitle: '${primaryTab.book ?? ''} ${primaryTab.chapter ?? ''}'
+              .trim(),
+          showControls: true,
+          isPrimaryPane: true,
+        );
+
+        final secondaryPanel = _buildParallelBiblePanel(
+          tab: secondaryTab,
+          typography: typography,
+          controller: _parallelSecondaryScrollController,
+          panelTitle: 'English',
+          panelSubtitle:
+              '${secondaryTab.book ?? ''} ${secondaryTab.chapter ?? ''}'.trim(),
+          showControls: true,
+          isPrimaryPane: false,
+        );
+
+        if (isWide) {
+          final width = constraints.maxWidth;
+          final leftWidth = (width * ratio).clamp(
+            width * _parallelSplitMin,
+            width * _parallelSplitMax,
+          );
+          final rightWidth = width - leftWidth - _parallelSplitterWidth;
+
+          return Row(
+            children: [
+              SizedBox(width: leftWidth, child: primaryPanel),
+              MouseRegion(
+                cursor: SystemMouseCursors.resizeColumn,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onHorizontalDragUpdate: (details) {
+                    setState(() {
+                      final next =
+                          _parallelSplitRatio + details.delta.dx / width;
+                      _parallelSplitRatio = next.clamp(
+                        _parallelSplitMin,
+                        _parallelSplitMax,
+                      );
+                    });
+                  },
+                  onHorizontalDragEnd: (_) {
+                    unawaited(_persistParallelSplitRatio());
+                  },
+                  onDoubleTap: () {
+                    setState(() {
+                      _parallelSplitRatio = _parallelSplitDefault;
+                    });
+                    unawaited(_persistParallelSplitRatio());
+                  },
+                  child: SizedBox(
+                    width: _parallelSplitterWidth,
+                    child: Center(
+                      child: Container(
+                        width: 2,
+                        color: Theme.of(context).colorScheme.outlineVariant,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              SizedBox(width: rightWidth, child: secondaryPanel),
+            ],
+          );
+        }
+
+        final height = constraints.maxHeight;
+        final topHeight = (height * ratio).clamp(
+          height * _parallelSplitMin,
+          height * _parallelSplitMax,
+        );
+        final bottomHeight = height - topHeight - _parallelSplitterWidth;
+
+        return Column(
+          children: [
+            SizedBox(height: topHeight, child: primaryPanel),
+            MouseRegion(
+              cursor: SystemMouseCursors.resizeRow,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onVerticalDragUpdate: (details) {
+                  setState(() {
+                    final next =
+                        _parallelSplitRatio + details.delta.dy / height;
+                    _parallelSplitRatio = next.clamp(
+                      _parallelSplitMin,
+                      _parallelSplitMax,
+                    );
+                  });
+                },
+                onVerticalDragEnd: (_) {
+                  unawaited(_persistParallelSplitRatio());
+                },
+                onDoubleTap: () {
+                  setState(() {
+                    _parallelSplitRatio = _parallelSplitDefault;
+                  });
+                  unawaited(_persistParallelSplitRatio());
+                },
+                child: SizedBox(
+                  height: _parallelSplitterWidth,
+                  child: Center(
+                    child: Container(
+                      height: 2,
+                      color: Theme.of(context).colorScheme.outlineVariant,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            SizedBox(height: bottomHeight, child: secondaryPanel),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildParallelBiblePanel({
+    required ReaderTab tab,
+    required TypographySettings typography,
+    required ScrollController controller,
+    required String panelTitle,
+    required String panelSubtitle,
+    required bool showControls,
+    required bool isPrimaryPane,
+  }) {
+    final asyncVerses = ref.watch(chapterVersesProvider(tab));
+    final cs = Theme.of(context).colorScheme;
+
+    return Container(
+      decoration: BoxDecoration(
+        border: Border(top: BorderSide(color: cs.outlineVariant.withAlpha(90))),
+      ),
+      child: Column(
+        children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: cs.surfaceContainerHighest.withAlpha(160),
+              border: Border(
+                bottom: BorderSide(color: cs.outlineVariant.withAlpha(100)),
+              ),
+            ),
+            child: Row(
+              children: [
+                Text(
+                  panelTitle,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    panelSubtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      color: cs.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+                if (showControls) ...[
+                  IconButton(
+                    icon: const Icon(Icons.chevron_left),
+                    tooltip: 'Previous chapter',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () => _openAdjacentParallelBiblePassage(-1),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.chevron_right),
+                    tooltip: 'Next chapter',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () => _openAdjacentParallelBiblePassage(1),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.menu_book_outlined),
+                    tooltip: 'Choose chapter',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: _openParallelQuickNav,
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.remove),
+                    tooltip: 'Decrease text size',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () => _adjustParallelPaneFontSize(
+                      isPrimary: isPrimaryPane,
+                      delta: -1,
+                    ),
+                  ),
+                  Text(
+                    _parallelPaneFontSize(
+                      typography,
+                      isPrimaryPane,
+                    ).toStringAsFixed(0),
+                    style: Theme.of(context).textTheme.labelMedium,
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.add),
+                    tooltip: 'Increase text size',
+                    visualDensity: VisualDensity.compact,
+                    onPressed: () => _adjustParallelPaneFontSize(
+                      isPrimary: isPrimaryPane,
+                      delta: 1,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          Expanded(
+            child: asyncVerses.when(
+              data: (verses) {
+                if (verses.isEmpty) {
+                  return const Center(
+                    child: Text('No verses found in this chapter.'),
+                  );
+                }
+
+                final paneFontSize = _parallelPaneFontSize(
+                  typography,
+                  isPrimaryPane,
+                );
+                final baseStyle =
+                    Theme.of(context).textTheme.bodyLarge?.copyWith(
+                      fontSize: paneFontSize,
+                      height: typography.lineHeight,
+                      fontFamily: typography.resolvedFontFamily,
+                    ) ??
+                    const TextStyle();
+
+                return SelectionArea(
+                  child: ListView.builder(
+                    controller: controller,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
+                    itemCount: verses.length,
+                    itemBuilder: (context, index) {
+                      final verse = verses[index];
+                      final isSelected = _selectedVerseNumbers.contains(
+                        verse.verse,
+                      );
+                      final plainText = '${verse.verse} ${verse.text}';
+
+                      return GestureDetector(
+                        key: ValueKey<String>('${tab.id}:${verse.verse}'),
+                        onTap: () => _toggleVerseSelection(verse.verse),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 150),
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? cs.primaryContainer.withAlpha(120)
+                                : Colors.transparent,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 4,
+                          ),
+                          margin: const EdgeInsets.only(bottom: 4),
+                          child: SelectableText.rich(
+                            TextSpan(
+                              style: baseStyle,
+                              children: [
+                                TextSpan(
+                                  text: '${verse.verse} ',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: paneFontSize * 0.8,
+                                    color: isSelected
+                                        ? cs.primary
+                                        : cs.onSurfaceVariant,
+                                  ),
+                                ),
+                                TextSpan(text: verse.text),
+                              ],
+                            ),
+                            onSelectionChanged: (selection, cause) {
+                              if (selection.start == selection.end) {
+                                if (_activeSelectionText != null) {
+                                  setState(() => _activeSelectionText = null);
+                                }
+                                return;
+                              }
+                              final start = selection.start.clamp(
+                                0,
+                                plainText.length,
+                              );
+                              final end = selection.end.clamp(
+                                0,
+                                plainText.length,
+                              );
+                              if (start >= end) return;
+                              final selected = plainText
+                                  .substring(start, end)
+                                  .trim();
+                              if (selected.isEmpty) return;
+                              setState(() {
+                                _activeSelectionText = selected;
+                                _selectedVerseNumbers.clear();
+                                _lastVerseTapped = null;
+                              });
+                            },
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                );
+              },
+              loading: () => const Center(child: CircularProgressIndicator()),
+              error: (err, _) => Center(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Text(
+                    err.toString(),
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   // ── Bottom tab bar ────────────────────────────────────────────────────────

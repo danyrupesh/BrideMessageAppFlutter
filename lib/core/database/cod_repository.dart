@@ -277,14 +277,9 @@ class CodRepository {
       where.add('q.scriptures = 1');
     }
 
-    whereArgs
-      ..add(limit)
-      ..add(offset);
-
-    final whereClause = where.isNotEmpty ? 'WHERE ${where.join(' AND ')}' : '';
-
-    final rows = await db.rawQuery(
-      '''
+    final rows = where.isEmpty
+        ? await db.rawQuery(
+            '''
       SELECT
         q.id,
         q.number,
@@ -298,14 +293,36 @@ class CodRepository {
       FROM questions q
       JOIN categories_lookup c ON q.category_id = c.id
       LEFT JOIN topics_lookup t ON q.topic_id = t.id
-      $whereClause
       ORDER BY
         COALESCE(q.number, 99999) ASC,
         q.title ASC
       LIMIT ? OFFSET ?
       ''',
-      <Object?>[_seriesLabel, ...whereArgs, limit, offset],
-    );
+            <Object?>[_seriesLabel, limit, offset],
+          )
+        : await db.rawQuery(
+            '''
+      SELECT
+        q.id,
+        q.number,
+        q.title,
+        q.title_short,
+        c.slug AS category,
+        ? AS series,
+        t.topic_slug AS topic_slug,
+        t.topic_title AS topic_title,
+        NULL AS page_ref
+      FROM questions q
+      JOIN categories_lookup c ON q.category_id = c.id
+      LEFT JOIN topics_lookup t ON q.topic_id = t.id
+      WHERE ${where.join(' AND ')}
+      ORDER BY
+        COALESCE(q.number, 99999) ASC,
+        q.title ASC
+      LIMIT ? OFFSET ?
+      ''',
+            <Object?>[_seriesLabel, ...whereArgs, limit, offset],
+          );
 
     return rows.map((row) => CodQuestion.fromMap(row)).toList();
   }
@@ -444,6 +461,10 @@ class CodRepository {
     if (onlyWithScriptures == true) {
       where.add('q.scriptures = 1');
     }
+
+    args
+      ..add(limit)
+      ..add(offset);
 
     final whereClause = 'WHERE ${where.join(' AND ')}';
 

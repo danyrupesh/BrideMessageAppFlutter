@@ -9,6 +9,7 @@ class InstalledDatabase {
   final String language; // 'en' or 'ta'
   final int installedDate; // epoch ms
   final int fileSize; // bytes
+  final int? recordCount; // total rows for this content (e.g., total sermons)
   final bool isDefault;
 
   const InstalledDatabase({
@@ -19,6 +20,7 @@ class InstalledDatabase {
     required this.language,
     required this.installedDate,
     required this.fileSize,
+    this.recordCount,
     this.isDefault = false,
   });
 
@@ -35,6 +37,7 @@ class InstalledDatabase {
       language: map['language'] as String,
       installedDate: map['installed_date'] as int,
       fileSize: map['file_size'] as int,
+      recordCount: (map['record_count'] as num?)?.toInt(),
       isDefault: (map['is_default'] as int) == 1,
     );
   }
@@ -48,11 +51,12 @@ class InstalledDatabase {
       'language': language,
       'installed_date': installedDate,
       'file_size': fileSize,
+      'record_count': recordCount,
       'is_default': isDefault ? 1 : 0,
     };
   }
 
-  InstalledDatabase copyWith({bool? isDefault}) {
+  InstalledDatabase copyWith({bool? isDefault, int? recordCount}) {
     return InstalledDatabase(
       id: id,
       type: type,
@@ -61,6 +65,7 @@ class InstalledDatabase {
       language: language,
       installedDate: installedDate,
       fileSize: fileSize,
+      recordCount: recordCount ?? this.recordCount,
       isDefault: isDefault ?? this.isDefault,
     );
   }
