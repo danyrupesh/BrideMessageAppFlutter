@@ -1,0 +1,68 @@
+name: iOS Build (Flutter)
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      signed:
+        description: "Build signed IPA (requires iOS signing secrets)"
+        required: true
+        default: false
+        type: boolean
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.2"
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Flutter Version
+        run: flutter --version
+
+      - name: Install Fastlane Dependencies
+        working-directory: ios
+        run: bundle install
+
+      - name: Build iOS via Fastlane (No Code Sign)
+        if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.signed != 'true' }}
+        working-directory: ios
+        run: bundle exec fastlane ios build_no_sign
+
+      - name: Build Signed IPA via Fastlane
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.signed == 'true' }}
+        working-directory: ios
+        env:
+          IOS_CERTIFICATE_P12_BASE64: ${{ secrets.IOS_CERTIFICATE_P12_BASE64 }}
+          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+          IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+          IOS_KEYCHAIN_PASSWORD: ${{ secrets.IOS_KEYCHAIN_PASSWORD }}
+          IOS_PROFILE_NAME: ${{ secrets.IOS_PROFILE_NAME }}
+        run: bundle exec fastlane ios build_signed_ipa
+
+      - name: Upload Artifact
+        if: ${{ github.event_name != 'workflow_dispatch' || github.event.inputs.signed != 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-build-MessageApp
+          path: build/ios/iphoneos/MessageApp-Runner.app.zip
+
+      - name: Upload Signed IPA Artifact
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.signed == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-ipa-signed-MessageApp
+          path: build/ios/ipa/*.ipa

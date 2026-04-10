@@ -1,0 +1,52 @@
+require "base64"
+
+default_platform(:ios)
+
+platform :ios do
+  desc "Build unsigned iOS app and zip Runner.app for CI artifacts"
+  lane :build_no_sign do
+    sh("flutter pub get")
+    sh("flutter build ios --release --no-codesign")
+    sh("cd ../build/ios/iphoneos && zip -r MessageApp-Runner.app.zip Runner.app")
+  end
+
+  desc "Build signed IPA for TestFlight/App Store using CI secrets"
+  lane :build_signed_ipa do
+    cert_b64 = ENV["IOS_CERTIFICATE_P12_BASE64"]
+    cert_password = ENV["IOS_CERTIFICATE_PASSWORD"]
+    profile_b64 = ENV["IOS_PROVISIONING_PROFILE_BASE64"]
+    keychain_password = ENV["IOS_KEYCHAIN_PASSWORD"]
+
+    UI.user_error!("Missing IOS_CERTIFICATE_P12_BASE64") if cert_b64.to_s.empty?
+    UI.user_error!("Missing IOS_CERTIFICATE_PASSWORD") if cert_password.to_s.empty?
+    UI.user_error!("Missing IOS_PROVISIONING_PROFILE_BASE64") if profile_b64.to_s.empty?
+    UI.user_error!("Missing IOS_KEYCHAIN_PASSWORD") if keychain_password.to_s.empty?
+
+    cert_path = File.expand_path("../ci-signing-cert.p12", __dir__)
+    File.binwrite(cert_path, Base64.decode64(cert_b64))
+
+    profiles_dir = File.expand_path("~/Library/MobileDevice/Provisioning Profiles")
+    sh("mkdir -p '#{profiles_dir}'")
+    profile_name = ENV["IOS_PROFILE_NAME"].to_s.empty? ? "Runner.mobileprovision" : ENV["IOS_PROFILE_NAME"]
+    profile_path = File.join(profiles_dir, profile_name)
+    File.binwrite(profile_path, Base64.decode64(profile_b64))
+
+    create_keychain(
+      name: "ci-signing",
+      default_keychain: true,
+      unlock: true,
+      timeout: 3600,
+      password: keychain_password
+    )
+
+    import_certificate(
+      certificate_path: cert_path,
+      certificate_password: cert_password,
+      keychain_name: "ci-signing",
+      keychain_password: keychain_password
+    )
+
+    sh("flutter pub get")
+    sh("flutter build ipa --release")
+  end
+end
