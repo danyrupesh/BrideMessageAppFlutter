@@ -1,4 +1,13 @@
 name: iOS Build (Flutter)
+env:
+  IOS_CERTIFICATE_P12_BASE64: ${{ secrets.IOS_CERTIFICATE_P12_BASE64 }}
+  IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+  IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+  IOS_KEYCHAIN_PASSWORD: ${{ secrets.IOS_KEYCHAIN_PASSWORD }}
+  IOS_PROFILE_NAME: ${{ secrets.IOS_PROFILE_NAME }}
+  APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+  APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+  APP_STORE_CONNECT_API_PRIVATE_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_API_PRIVATE_KEY_BASE64 }}
 
 on:
   push:
@@ -37,6 +46,12 @@ jobs:
 
       - name: Flutter Version
         run: flutter --version
+
+      - name: Ensure iOS Podfile Exists
+        run: |
+          if [ ! -f ios/Podfile ]; then
+            flutter create --platforms=ios .
+          fi
 
       - name: Install Fastlane Dependencies
         working-directory: ios
