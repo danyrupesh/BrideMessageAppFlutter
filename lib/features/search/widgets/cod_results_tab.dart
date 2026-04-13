@@ -5,19 +5,108 @@ import '../providers/search_provider.dart';
 import '../../../core/database/models/sermon_search_result.dart';
 import '../../common/widgets/cards.dart';
 import '../../common/widgets/fts_highlight_text.dart';
+import '../../onboarding/onboarding_screen.dart';
+import '../../cod/providers/cod_provider.dart';
 
 class CodResultsTab extends ConsumerWidget {
   const CodResultsTab({super.key});
+
+  bool _isMissingCodDbError(String? error) {
+    if (error == null) return false;
+    final lower = error.toLowerCase();
+    return lower.contains('cod database is not installed') ||
+        (lower.contains('database file not found') &&
+            (lower.contains('cod_english.db') ||
+                lower.contains('cod_tamil.db')));
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(searchProvider);
     final notifier = ref.read(searchProvider.notifier);
+    final codDbExists = ref.watch(
+      codDatabaseExistsProvider(state.languageCode),
+    );
+
+    if (codDbExists.maybeWhen(data: (exists) => !exists, orElse: () => false)) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.folder_off_outlined, size: 46),
+              const SizedBox(height: 10),
+              Text(
+                'COD database is not installed',
+                style: Theme.of(context).textTheme.titleMedium,
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Import COD English / COD Tamil database to search COD content.',
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 14),
+              FilledButton.icon(
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          const OnboardingScreen(showImportDirectly: true),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.cloud_download_outlined),
+                label: const Text('Import Database'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
 
     if (state.isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
     if (state.error != null) {
+      if (_isMissingCodDbError(state.error)) {
+        return Center(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.folder_off_outlined, size: 46),
+                const SizedBox(height: 10),
+                Text(
+                  'COD database is not installed',
+                  style: Theme.of(context).textTheme.titleMedium,
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Import COD English / COD Tamil database to search COD content.',
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 14),
+                FilledButton.icon(
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            const OnboardingScreen(showImportDirectly: true),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.cloud_download_outlined),
+                  label: const Text('Import Database'),
+                ),
+              ],
+            ),
+          ),
+        );
+      }
       return Center(
         child: Text(
           'Error: ${state.error}',

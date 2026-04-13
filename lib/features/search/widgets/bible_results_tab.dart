@@ -8,20 +8,111 @@ import '../../../core/database/models/bible_search_result.dart';
 import '../../common/widgets/cards.dart';
 import '../../common/widgets/chips.dart';
 import '../../common/widgets/fts_highlight_text.dart';
+import '../../onboarding/onboarding_screen.dart';
 
 class BibleResultsTab extends ConsumerWidget {
   const BibleResultsTab({super.key});
+
+  bool _isMissingBibleDbError(String? error) {
+    if (error == null) return false;
+    final lower = error.toLowerCase();
+    return lower.contains('bible database is not installed') ||
+        (lower.contains('database file not found') &&
+            lower.contains('bible_') &&
+            lower.contains('.db'));
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(searchProvider);
     final notifier = ref.read(searchProvider.notifier);
+    final bibleDbExists = ref.watch(
+      bibleDatabaseExistsByLangProvider(state.languageCode),
+    );
+
+    if (bibleDbExists.maybeWhen(
+      data: (exists) => !exists,
+      orElse: () => false,
+    )) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.folder_off_outlined, size: 46),
+              const SizedBox(height: 10),
+              Text(
+                'Bible database is not installed',
+                style: Theme.of(context).textTheme.titleMedium,
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Import Tamil/English Bible database to search Bible content.',
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 14),
+              FilledButton.icon(
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          const OnboardingScreen(showImportDirectly: true),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.cloud_download_outlined),
+                label: const Text('Import Database'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
 
     if (state.isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
 
     if (state.error != null) {
+      if (_isMissingBibleDbError(state.error)) {
+        return Center(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.folder_off_outlined, size: 46),
+                const SizedBox(height: 10),
+                Text(
+                  'Bible database is not installed',
+                  style: Theme.of(context).textTheme.titleMedium,
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Import Tamil/English Bible database to search Bible content.',
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 14),
+                FilledButton.icon(
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            const OnboardingScreen(showImportDirectly: true),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.cloud_download_outlined),
+                  label: const Text('Import Database'),
+                ),
+              ],
+            ),
+          ),
+        );
+      }
       return Center(
         child: Text(
           'Error: ${state.error}',

@@ -23,6 +23,7 @@ Map<String, dynamic> readerTabToJson(ReaderTab tab) {
     'verse': tab.verse,
     'sermonId': tab.sermonId,
     'bibleLang': tab.bibleLang,
+    'sermonLang': tab.sermonLang,
     // Note: initialSearchQuery is NOT persisted - it's only for immediate search result navigation
   };
 }
@@ -46,6 +47,7 @@ ReaderTab? readerTabFromJson(Map<String, dynamic> json) {
     verse: (json['verse'] as num?)?.toInt(),
     sermonId: json['sermonId'] as String?,
     bibleLang: json['bibleLang'] as String?,
+    sermonLang: json['sermonLang'] as String?,
     initialSearchQuery: null, // CRITICAL: Never deserialize from persistence
   );
 }

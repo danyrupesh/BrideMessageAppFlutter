@@ -5,6 +5,11 @@ import 'package:go_router/go_router.dart';
 import '../../core/database/metadata/installed_content_provider.dart';
 import 'providers/downloader_provider.dart';
 
+const String kApiBaseUrl = String.fromEnvironment(
+  'API_BASE_URL',
+  defaultValue: 'https://api.endtimebride.in',
+);
+
 // ─── Main screen ─────────────────────────────────────────────────────────────
 
 class OnboardingScreen extends ConsumerStatefulWidget {
@@ -279,7 +284,7 @@ class _ImportDialog extends ConsumerWidget {
             onPressed: () => ref
                 .read(downloaderProvider.notifier)
                 .startDownload(
-                  'https://api.endtimebride.in/database/bridemessage_db_en-ta.zip',
+                  '$kApiBaseUrl/database/bridemessage_db_en-ta.zip',
                 ),
             icon: const Icon(Icons.cloud_download_outlined),
             label: const Text('Download from Server (~200MB)'),

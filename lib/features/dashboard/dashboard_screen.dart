@@ -16,7 +16,6 @@ class DashboardScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-    final recentReadsAsync = ref.watch(recentReadsProvider);
 
     return Scaffold(
       body: CustomScrollView(
@@ -29,6 +28,11 @@ class DashboardScreen extends ConsumerWidget {
               style: TextStyle(fontWeight: FontWeight.bold),
             ),
             actions: [
+              IconButton(
+                tooltip: 'Recent viewed',
+                icon: const Icon(Icons.history),
+                onPressed: () => _showRecentReadsSheet(context, ref),
+              ),
               IconButton(
                 icon: const Icon(Icons.color_lens),
                 onPressed: () => ThemePickerSheet.show(context),
@@ -59,34 +63,12 @@ class DashboardScreen extends ConsumerWidget {
             padding: const EdgeInsets.all(16.0),
             sliver: SliverList(
               delegate: SliverChildListDelegate([
-                _buildContinueReadingSection(context, ref, recentReadsAsync),
-                const SizedBox(height: 24),
-                const SizedBox(height: 8),
                 const Text(
                   'Modules',
                   style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                 ),
                 // const SizedBox(height: 16),
                 _buildModulesGrid(context, ref),
-                const SizedBox(height: 24),
-                _buildRecentReadsHeader(context, ref, recentReadsAsync),
-                const SizedBox(height: 16),
-                recentReadsAsync.when(
-                  data: (items) => _buildRecentReadsStrip(context, ref, items),
-                  loading: () => const SizedBox(
-                    height: 80,
-                    child: Center(child: CircularProgressIndicator()),
-                  ),
-                  error: (_, _) => const SizedBox(
-                    height: 80,
-                    child: Center(
-                      child: Text(
-                        'Unable to load recent reads.',
-                        style: TextStyle(color: Colors.grey),
-                      ),
-                    ),
-                  ),
-                ),
                 const SizedBox(height: 32),
               ]),
             ),
@@ -96,6 +78,7 @@ class DashboardScreen extends ConsumerWidget {
     );
   }
 
+  // ignore: unused_element
   Widget _buildContinueReadingSection(
     BuildContext context,
     WidgetRef ref,
@@ -300,12 +283,12 @@ class DashboardScreen extends ConsumerWidget {
                   if (flowType == FlowType.bible) {
                     ref
                         .read(readerProvider.notifier)
-                        .restoreSession(item!.snapshot);
+                        .restoreSession(item.snapshot);
                     context.push('/reader');
                   } else {
                     ref
                         .read(sermonFlowProvider.notifier)
-                        .restoreSession(item!.snapshot);
+                        .restoreSession(item.snapshot);
                     context.push('/sermon-reader');
                   }
                   return;
@@ -498,6 +481,7 @@ class DashboardScreen extends ConsumerWidget {
     );
   }
 
+  // ignore: unused_element
   Widget _buildRecentReadsStrip(
     BuildContext context,
     WidgetRef ref,
@@ -601,6 +585,7 @@ class DashboardScreen extends ConsumerWidget {
     );
   }
 
+  // ignore: unused_element
   Widget _buildRecentReadsHeader(
     BuildContext context,
     WidgetRef ref,
@@ -631,6 +616,125 @@ class DashboardScreen extends ConsumerWidget {
           label: const Text('Clear'),
         ),
       ],
+    );
+  }
+
+  Future<void> _showRecentReadsSheet(BuildContext context, WidgetRef ref) {
+    return showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return Consumer(
+          builder: (context, sheetRef, _) {
+            final recentReadsAsync = sheetRef.watch(recentReadsProvider);
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                child: recentReadsAsync.when(
+                  loading: () => const SizedBox(
+                    height: 180,
+                    child: Center(child: CircularProgressIndicator()),
+                  ),
+                  error: (_, _) => const SizedBox(
+                    height: 180,
+                    child: Center(
+                      child: Text(
+                        'Unable to load recent viewed items.',
+                        style: TextStyle(color: Colors.grey),
+                      ),
+                    ),
+                  ),
+                  data: (items) {
+                    if (items.isEmpty) {
+                      return const SizedBox(
+                        height: 180,
+                        child: Center(
+                          child: Text(
+                            'No recent viewed items yet.',
+                            style: TextStyle(color: Colors.grey),
+                          ),
+                        ),
+                      );
+                    }
+
+                    final sorted = [...items]
+                      ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+
+                    return Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Row(
+                          children: [
+                            const Text(
+                              'Recent Viewed',
+                              style: TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const Spacer(),
+                            TextButton.icon(
+                              onPressed: () async {
+                                await sheetRef
+                                    .read(readingStateRepositoryProvider)
+                                    .clearRecentReads();
+                                sheetRef.invalidate(recentReadsProvider);
+                              },
+                              icon: const Icon(Icons.delete_outline, size: 18),
+                              label: const Text('Clear'),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Flexible(
+                          child: ListView.separated(
+                            shrinkWrap: true,
+                            itemCount: sorted.length,
+                            separatorBuilder: (_, _) =>
+                                const Divider(height: 1),
+                            itemBuilder: (context, index) {
+                              final item = sorted[index];
+                              final icon = item.flowType == FlowType.bible
+                                  ? Icons.menu_book
+                                  : Icons.headphones;
+                              return ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                leading: Icon(icon),
+                                title: Text(
+                                  item.title,
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                subtitle: Text(item.subtitle),
+                                trailing: const Icon(Icons.chevron_right),
+                                onTap: () {
+                                  Navigator.of(sheetContext).pop();
+                                  if (item.flowType == FlowType.bible) {
+                                    ref
+                                        .read(readerProvider.notifier)
+                                        .restoreSession(item.snapshot);
+                                    context.push('/reader');
+                                  } else {
+                                    ref
+                                        .read(sermonFlowProvider.notifier)
+                                        .restoreSession(item.snapshot);
+                                    context.push('/sermon-reader');
+                                  }
+                                },
+                              );
+                            },
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 }

@@ -1,10 +1,21 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'dart:io';
 
 import '../../../core/database/cod_repository.dart';
 import '../../../core/database/database_manager.dart';
 import '../../../core/database/models/cod_models.dart';
 
 final _dbManagerProvider = Provider<DatabaseManager>((_) => DatabaseManager());
+
+final codDatabaseExistsProvider = FutureProvider.family<bool, String>((
+  ref,
+  lang,
+) async {
+  final dbManager = ref.read(_dbManagerProvider);
+  final dbFileName = lang == 'ta' ? 'cod_tamil.db' : 'cod_english.db';
+  final dbPath = await dbManager.getDatabasePath(dbFileName);
+  return File(dbPath).exists();
+});
 
 final codRepositoryProvider = Provider.family<CodRepository, String>((
   ref,

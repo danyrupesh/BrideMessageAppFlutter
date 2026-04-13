@@ -488,11 +488,24 @@ class SearchNotifier extends Notifier<SearchState> {
     } catch (e) {
       if (state.query == query) {
         String message = e.toString();
-        if (e is FileSystemException &&
-            e.path != null &&
-            e.path!.endsWith('hymn.db')) {
-          message =
-              'Songs database is not installed. Please import the Only Believe songs database from the onboarding/import screen and try again.';
+        if (e is FileSystemException) {
+          final pathOrError = '${e.path ?? ''} ${e.toString()}'.toLowerCase();
+          if (pathOrError.contains('hymn.db')) {
+            message =
+                'Songs database is not installed. Please import the songs database from the import screen and try again.';
+          } else if (pathOrError.contains('cod_english.db') ||
+              pathOrError.contains('cod_tamil.db')) {
+            message =
+                'COD database is not installed. Please import COD English / COD Tamil database from the import screen.';
+          } else if (pathOrError.contains('sermons_') &&
+              pathOrError.contains('.db')) {
+            message =
+                'Sermon database is not installed. Please import Tamil/English sermons database from the import screen.';
+          } else if (pathOrError.contains('bible_') &&
+              pathOrError.contains('.db')) {
+            message =
+                'Bible database is not installed. Please import Tamil/English Bible database from the import screen.';
+          }
         }
         state = state.copyWith(
           isLoading: false,

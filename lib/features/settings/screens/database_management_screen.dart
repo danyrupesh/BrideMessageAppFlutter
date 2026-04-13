@@ -1,26 +1,189 @@
 import 'dart:io';
 
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/database/database_manager.dart';
 import '../../../core/database/metadata/installed_content_provider.dart';
 import '../../../core/database/metadata/installed_database_model.dart';
+import '../../../core/update/app_restart_helper.dart';
+import '../../../core/update/update_service.dart';
 import '../../onboarding/onboarding_screen.dart';
 import 'database_management_provider.dart';
 
-class DatabaseManagementScreen extends ConsumerWidget {
+class DatabaseManagementScreen extends ConsumerStatefulWidget {
   const DatabaseManagementScreen({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<DatabaseManagementScreen> createState() =>
+      _DatabaseManagementScreenState();
+}
+
+class _DatabaseManagementScreenState
+    extends ConsumerState<DatabaseManagementScreen> {
+  bool _isCheckingLatestDb = false;
+
+  Future<void> _checkLatestDb() async {
+    if (_isCheckingLatestDb) return;
+    setState(() => _isCheckingLatestDb = true);
+
+    final messenger = ScaffoldMessenger.of(context);
+    final service = UpdateService();
+
+    try {
+      final dbUpdates = await service.checkDatabaseUpdates();
+      if (!mounted) return;
+
+      if (dbUpdates.isEmpty) {
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text('You already have the latest database versions.'),
+          ),
+        );
+        return;
+      }
+
+      await showDialog<void>(
+        context: context,
+        builder: (context) {
+          return AlertDialog(
+            title: const Text('Database Updates Found'),
+            content: SizedBox(
+              width: 420,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Available updates: ${dbUpdates.length}'),
+                  const SizedBox(height: 8),
+                  ...dbUpdates.map(
+                    (u) => Text(
+                      '- ${u.displayName} (v${u.version})${u.mandatory ? ' • mandatory' : ''}\n  ${(u.updateMessage ?? '').trim().isEmpty ? 'New database version v${u.version} is available.' : u.updateMessage!.trim()}',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Later'),
+              ),
+              FilledButton(
+                onPressed: () async {
+                  Navigator.of(context).pop();
+                  await _applyDatabaseUpdates(service, dbUpdates);
+                },
+                child: const Text('Update Now'),
+              ),
+            ],
+          );
+        },
+      );
+    } catch (e) {
+      if (!mounted) return;
+      messenger.showSnackBar(
+        SnackBar(content: Text('Could not check database updates: $e')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isCheckingLatestDb = false);
+      }
+    }
+  }
+
+  Future<void> _applyDatabaseUpdates(
+    UpdateService service,
+    List<DatabaseUpdateInfo> dbUpdates,
+  ) async {
+    final status = ValueNotifier<String>('Preparing updates...');
+    final cancelToken = CancelToken();
+    var cancelledByUser = false;
+    var progressDialogOpen = true;
+
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return PopScope(
+          canPop: false,
+          child: AlertDialog(
+            title: const Text('Updating Databases'),
+            content: ValueListenableBuilder<String>(
+              valueListenable: status,
+              builder: (_, value, __) {
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const LinearProgressIndicator(),
+                    const SizedBox(height: 12),
+                    Text(value),
+                  ],
+                );
+              },
+            ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  cancelledByUser = true;
+                  progressDialogOpen = false;
+                  cancelToken.cancel('Cancelled by user');
+                  Navigator.of(context).pop();
+                },
+                child: const Text('Cancel'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    try {
+      await service.applyDatabaseUpdates(
+        dbUpdates,
+        onStatus: (message) => status.value = message,
+        cancelToken: cancelToken,
+      );
+      if (!mounted) return;
+      if (progressDialogOpen) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
+      await ref.read(hasInstalledContentProvider.notifier).refresh();
+      await ref.read(installedDbListProvider.notifier).refreshList();
+      await AppRestartHelper.restartAfterDatabaseUpgrade();
+      return;
+    } catch (e) {
+      if (!mounted) return;
+      if (progressDialogOpen) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
+
+      if (cancelledByUser ||
+          (e is DioException && e.type == DioExceptionType.cancel)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Database update cancelled.')),
+        );
+        return;
+      }
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Database update failed: $e')));
+    } finally {
+      status.dispose();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final asyncList = ref.watch(installedDbListProvider);
     final cs = Theme.of(context).colorScheme;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Manage Databases'),
-      ),
+      appBar: AppBar(title: const Text('Manage Databases')),
       body: asyncList.when(
         data: (items) {
           if (items.isEmpty) {
@@ -29,15 +192,18 @@ class DatabaseManagementScreen extends ConsumerWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  _ImportHeader(onImport: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => const OnboardingScreen(
-                          showImportDirectly: true,
+                  _ImportHeader(
+                    onImport: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) =>
+                              const OnboardingScreen(showImportDirectly: true),
                         ),
-                      ),
-                    );
-                  }),
+                      );
+                    },
+                    onCheckLatestDb: _checkLatestDb,
+                    isCheckingLatestDb: _isCheckingLatestDb,
+                  ),
                   const SizedBox(height: 24),
                   Card(
                     child: Padding(
@@ -47,9 +213,7 @@ class DatabaseManagementScreen extends ConsumerWidget {
                         children: [
                           Text(
                             'No databases installed yet',
-                            style: Theme.of(context)
-                                .textTheme
-                                .titleMedium
+                            style: Theme.of(context).textTheme.titleMedium
                                 ?.copyWith(fontWeight: FontWeight.bold),
                           ),
                           const SizedBox(height: 8),
@@ -72,22 +236,24 @@ class DatabaseManagementScreen extends ConsumerWidget {
             child: ListView(
               padding: const EdgeInsets.all(16),
               children: [
-                _ImportHeader(onImport: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => const OnboardingScreen(
-                        showImportDirectly: true,
+                _ImportHeader(
+                  onImport: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            const OnboardingScreen(showImportDirectly: true),
                       ),
-                    ),
-                  );
-                }),
+                    );
+                  },
+                  onCheckLatestDb: _checkLatestDb,
+                  isCheckingLatestDb: _isCheckingLatestDb,
+                ),
                 const SizedBox(height: 16),
                 Text(
                   'Installed Databases',
-                  style: Theme.of(context)
-                      .textTheme
-                      .titleMedium
-                      ?.copyWith(fontWeight: FontWeight.bold),
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
                 const SizedBox(height: 8),
                 ...items.map(
@@ -101,10 +267,9 @@ class DatabaseManagementScreen extends ConsumerWidget {
                 const SizedBox(height: 16),
                 Text(
                   'Tip: If you re-import using a newer ZIP file, the app will automatically update metadata and indexes.',
-                  style: Theme.of(context)
-                      .textTheme
-                      .bodySmall
-                      ?.copyWith(color: cs.onSurfaceVariant),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
                 ),
               ],
             ),
@@ -131,9 +296,8 @@ class DatabaseManagementScreen extends ConsumerWidget {
                 ),
                 const SizedBox(height: 16),
                 FilledButton(
-                  onPressed: () => ref
-                      .read(installedDbListProvider.notifier)
-                      .refreshList(),
+                  onPressed: () =>
+                      ref.read(installedDbListProvider.notifier).refreshList(),
                   child: const Text('Retry'),
                 ),
               ],
@@ -190,24 +354,26 @@ class DatabaseManagementScreen extends ConsumerWidget {
       await ref.read(installedDbListProvider.notifier).refreshList();
 
       messenger.showSnackBar(
-        SnackBar(
-          content: Text('"${db.displayName}" removed successfully.'),
-        ),
+        SnackBar(content: Text('"${db.displayName}" removed successfully.')),
       );
     } catch (e) {
       messenger.showSnackBar(
-        SnackBar(
-          content: Text('Failed to remove database: $e'),
-        ),
+        SnackBar(content: Text('Failed to remove database: $e')),
       );
     }
   }
 }
 
 class _ImportHeader extends StatelessWidget {
-  const _ImportHeader({required this.onImport});
+  const _ImportHeader({
+    required this.onImport,
+    required this.onCheckLatestDb,
+    required this.isCheckingLatestDb,
+  });
 
   final VoidCallback onImport;
+  final VoidCallback onCheckLatestDb;
+  final bool isCheckingLatestDb;
 
   @override
   Widget build(BuildContext context) {
@@ -220,24 +386,41 @@ class _ImportHeader extends StatelessWidget {
           children: [
             Text(
               'Import / Re-import Databases',
-              style: Theme.of(context)
-                  .textTheme
-                  .titleMedium
-                  ?.copyWith(fontWeight: FontWeight.bold),
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
             Text(
               'Download all databases from server or import a ZIP file from this device.',
-              style: Theme.of(context)
-                  .textTheme
-                  .bodyMedium
-                  ?.copyWith(color: cs.onSurfaceVariant),
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: cs.onSurfaceVariant),
             ),
             const SizedBox(height: 12),
-            FilledButton.icon(
-              onPressed: onImport,
-              icon: const Icon(Icons.cloud_download_outlined),
-              label: const Text('Open Import Screen'),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                FilledButton.icon(
+                  onPressed: onImport,
+                  icon: const Icon(Icons.cloud_download_outlined),
+                  label: const Text('Open Import Screen'),
+                ),
+                FilledButton.tonalIcon(
+                  onPressed: isCheckingLatestDb ? null : onCheckLatestDb,
+                  icon: isCheckingLatestDb
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.sync),
+                  label: Text(
+                    isCheckingLatestDb ? 'Checking...' : 'Check for latest DB',
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -247,10 +430,7 @@ class _ImportHeader extends StatelessWidget {
 }
 
 class _DatabaseTile extends StatelessWidget {
-  const _DatabaseTile({
-    required this.db,
-    required this.onDeleted,
-  });
+  const _DatabaseTile({required this.db, required this.onDeleted});
 
   final InstalledDatabase db;
   final VoidCallback onDeleted;
@@ -280,10 +460,9 @@ class _DatabaseTile extends StatelessWidget {
             const SizedBox(height: 2),
             Text(
               '$typeLabel • $langLabel • $fileSizeText',
-              style: Theme.of(context)
-                  .textTheme
-                  .bodySmall
-                  ?.copyWith(color: cs.onSurfaceVariant),
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
             ),
             const SizedBox(height: 2),
             Text(
@@ -291,16 +470,14 @@ class _DatabaseTile extends StatelessWidget {
               '${installedDate.day.toString().padLeft(2, '0')}-'
               '${installedDate.month.toString().padLeft(2, '0')}-'
               '${installedDate.year}',
-              style: Theme.of(context)
-                  .textTheme
-                  .bodySmall
-                  ?.copyWith(color: cs.onSurfaceVariant),
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
             ),
             if (db.isDefault) ...[
               const SizedBox(height: 4),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                 decoration: BoxDecoration(
                   color: cs.primaryContainer,
                   borderRadius: BorderRadius.circular(12),
@@ -308,9 +485,9 @@ class _DatabaseTile extends StatelessWidget {
                 child: Text(
                   'Default for $langLabel',
                   style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: cs.onPrimaryContainer,
-                        fontWeight: FontWeight.w600,
-                      ),
+                    color: cs.onPrimaryContainer,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
             ],
@@ -336,4 +513,3 @@ class _DatabaseTile extends StatelessWidget {
     return '${size.toStringAsFixed(1)} ${units[unitIndex]}';
   }
 }
-

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:archive/archive_io.dart';
@@ -10,13 +11,18 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/database/database_manager.dart';
 import '../../core/database/metadata/installed_database_registry.dart';
+import 'database_patch_applier.dart';
 import '../../features/onboarding/services/selective_database_importer.dart';
 import '../../features/songs/services/hymns_importer.dart';
 
+const String kApiBaseUrl = String.fromEnvironment(
+  'API_BASE_URL',
+  defaultValue: 'https://api.endtimebride.in',
+);
 const String kAppUpdatesManifestUrl =
-    'https://api.endtimebride.in/database/updates/app_version.json';
+  '$kApiBaseUrl/database/updates/app_version.json';
 const String kDatabaseUpdatesManifestUrl =
-    'https://api.endtimebride.in/database/updates/db_version.json';
+  '$kApiBaseUrl/database/updates/db_version.json';
 
 class AppUpdateInfo {
   final String targetVersion;
@@ -37,25 +43,58 @@ class AppUpdateInfo {
 class DatabaseUpdateInfo {
   final String id;
   final String displayName;
-  final int version;
+  final String version;
+  final String? updateMessage;
   final bool mandatory;
   final String url;
   final String installStrategy;
+  final DatabasePatchInfo? patch;
 
   const DatabaseUpdateInfo({
     required this.id,
     required this.displayName,
     required this.version,
+    required this.updateMessage,
     required this.mandatory,
     required this.url,
     required this.installStrategy,
+    this.patch,
+  });
+}
+
+class DatabasePatchInfo {
+  final String fromVersion;
+  final String? targetDbFileName;
+  final String? manifestUrl;
+  final String? downloadUrl;
+  final String? sha256;
+  final int? size;
+  final String type;
+
+  const DatabasePatchInfo({
+    required this.fromVersion,
+    required this.targetDbFileName,
+    required this.manifestUrl,
+    required this.downloadUrl,
+    required this.sha256,
+    required this.size,
+    required this.type,
   });
 }
 
 class UpdateService {
   final Dio _dio;
 
-  UpdateService({Dio? dio}) : _dio = dio ?? Dio();
+  UpdateService({Dio? dio})
+    : _dio =
+          dio ??
+          Dio(
+            BaseOptions(
+              connectTimeout: const Duration(seconds: 30),
+              sendTimeout: const Duration(minutes: 5),
+              receiveTimeout: const Duration(minutes: 10),
+            ),
+          );
 
   Future<AppUpdateInfo?> checkAppUpdate() async {
     final payload = await _fetchJson(kAppUpdatesManifestUrl);
@@ -105,9 +144,13 @@ class UpdateService {
     for (final entry in entries) {
       final id = (entry['id'] ?? '').toString().trim();
       final displayName = (entry['displayName'] ?? id).toString().trim();
-      final version = _parseInt(entry['version']);
+      final version = (entry['version'] ?? '').toString().trim();
       final url = (entry['url'] ?? '').toString().trim();
       final mandatory = _parseBool(entry['mandatory']);
+        final updateMessage =
+          (entry['updateMessage'] ?? entry['notes'] ?? entry['description'] ?? '')
+            .toString()
+            .trim();
       final installStrategy =
           (entry['installStrategy'] ??
                   entry['install_strategy'] ??
@@ -116,25 +159,32 @@ class UpdateService {
               .toString()
               .trim()
               .toLowerCase();
+      final patch = _parsePatchInfo(entry);
       final bundledVersion =
           _parseInt(entry['bundledVersion'] ?? entry['defaultVersion']) ?? 0;
 
-      if (id.isEmpty || version == null || url.isEmpty) continue;
+      if (id.isEmpty || version.isEmpty || url.isEmpty) continue;
 
       // Fresh installs should not receive update prompts before a DB exists.
       final isInstalled = await _isDatabaseInstalledLocally(id);
       if (!isInstalled) continue;
 
-      final localVersion = prefs.getInt(_dbVersionKey(id)) ?? bundledVersion;
-      if (version > localVersion) {
+      final localVersion = _getStoredDbVersion(
+        prefs,
+        id,
+        defaultValue: bundledVersion > 0 ? bundledVersion.toString() : '0',
+      );
+      if (_compareSemver(version, localVersion) > 0) {
         updates.add(
           DatabaseUpdateInfo(
             id: id,
             displayName: displayName.isEmpty ? id : displayName,
             version: version,
+            updateMessage: updateMessage.isEmpty ? null : updateMessage,
             mandatory: mandatory,
             url: url,
             installStrategy: installStrategy,
+            patch: patch,
           ),
         );
       }
@@ -148,13 +198,16 @@ class UpdateService {
     List<DatabaseUpdateInfo> updates, {
     void Function(String message)? onStatus,
     void Function(int received, int total)? onReceiveProgress,
+    CancelToken? cancelToken,
   }) async {
     if (updates.isEmpty) return;
 
     final prefs = await SharedPreferences.getInstance();
     final importer = SelectiveDatabaseImporter();
+    final patchApplier = DatabasePatchApplier();
 
     for (final update in updates) {
+      _throwIfCancelled(cancelToken, path: update.url);
       final tempRoot = await getTemporaryDirectory();
       final workDir = Directory(
         p.join(
@@ -168,15 +221,113 @@ class UpdateService {
       }
 
       final zipPath = p.join(workDir.path, '${update.id}.zip');
+      final localVersion = _getStoredDbVersion(
+        prefs,
+        update.id,
+        defaultValue: '0',
+      );
+      final shouldUsePatch =
+          update.patch != null &&
+          update.patch!.fromVersion == localVersion &&
+          update.patch!.downloadUrl != null &&
+          update.patch!.targetDbFileName != null &&
+          update.patch!.type == 'sql_changelog';
+      final patchDownloadUrl = update.patch?.downloadUrl;
+      var usePatchDownload = shouldUsePatch;
 
       try {
+        if (update.patch != null && !shouldUsePatch) {
+          onStatus?.call(
+            'Patch metadata detected for ${update.displayName}; using full package fallback...',
+          );
+        }
+
+        if (shouldUsePatch) {
+          onStatus?.call('Downloading patch for ${update.displayName}...');
+          await _dio
+              .download(
+                patchDownloadUrl!,
+                zipPath,
+                cancelToken: cancelToken,
+                onReceiveProgress: (received, total) {
+                  onReceiveProgress?.call(received, total);
+
+                  if (total > 0) {
+                    final percent = (received / total * 100).clamp(0, 100);
+                    onStatus?.call(
+                      'Downloading patch ${update.displayName}... ${percent.toStringAsFixed(0)}%',
+                    );
+                  } else {
+                    final mb = received / (1024 * 1024);
+                    onStatus?.call(
+                      'Downloading patch ${update.displayName}... ${mb.toStringAsFixed(1)} MB',
+                    );
+                  }
+                },
+                options: Options(responseType: ResponseType.bytes),
+              )
+              .timeout(
+                const Duration(minutes: 12),
+                onTimeout: () => throw TimeoutException(
+                  'Patch download timed out for ${update.displayName}.',
+                ),
+              );
+
+          _throwIfCancelled(cancelToken, path: patchDownloadUrl!);
+
+          final patchResult = await patchApplier.applySqlChangelogBundle(
+            zipPath: zipPath,
+            targetDbFileName: update.patch!.targetDbFileName!,
+            baseVersion: localVersion,
+            targetVersion: update.version,
+            expectedZipSha256: update.patch!.sha256,
+            onStatus: (message) => onStatus?.call(message),
+            cancelToken: cancelToken,
+          );
+
+          if (patchResult.success) {
+            await prefs.setString(_dbVersionKey(update.id), update.version);
+            onStatus?.call(patchResult.message);
+            continue;
+          }
+
+          onStatus?.call(
+            'Patch apply failed for ${update.displayName}; falling back to full package...',
+          );
+          usePatchDownload = false;
+        }
+
         onStatus?.call('Downloading ${update.displayName}...');
-        await _dio.download(
-          update.url,
-          zipPath,
-          onReceiveProgress: onReceiveProgress,
-          options: Options(responseType: ResponseType.bytes),
-        );
+        await _dio
+            .download(
+              update.url,
+              zipPath,
+              cancelToken: cancelToken,
+              onReceiveProgress: (received, total) {
+                onReceiveProgress?.call(received, total);
+
+                if (total > 0) {
+                  final percent = (received / total * 100).clamp(0, 100);
+                  onStatus?.call(
+                    '${usePatchDownload ? 'Downloading patch' : 'Downloading'} ${update.displayName}... ${percent.toStringAsFixed(0)}%',
+                  );
+                } else {
+                  final mb = received / (1024 * 1024);
+                  onStatus?.call(
+                    '${usePatchDownload ? 'Downloading patch' : 'Downloading'} ${update.displayName}... ${mb.toStringAsFixed(1)} MB',
+                  );
+                }
+              },
+              options: Options(responseType: ResponseType.bytes),
+            )
+            .timeout(
+              const Duration(minutes: 12),
+              onTimeout: () => throw TimeoutException(
+                'Download timed out for ${update.displayName}.',
+              ),
+            );
+
+        _throwIfCancelled(cancelToken, path: update.url);
 
         onStatus?.call('Installing ${update.displayName}...');
         final shouldUseHymnsInstaller =
@@ -199,7 +350,9 @@ class UpdateService {
           }
         }
 
-        await prefs.setInt(_dbVersionKey(update.id), update.version);
+        _throwIfCancelled(cancelToken, path: update.url);
+
+        await prefs.setString(_dbVersionKey(update.id), update.version);
         onStatus?.call('${update.displayName} updated to v${update.version}.');
       } finally {
         if (await workDir.exists()) {
@@ -251,6 +404,53 @@ class UpdateService {
     return entries;
   }
 
+  DatabasePatchInfo? _parsePatchInfo(Map<String, dynamic> entry) {
+    final patchRaw = entry['patch'];
+    Map<String, dynamic>? patch;
+    if (patchRaw is Map) {
+      patch = patchRaw.map((key, value) => MapEntry(key.toString(), value));
+    }
+
+    final fromVersion =
+        (patch?['fromVersion'] ?? entry['delta_from_version'] ?? '')
+            .toString()
+            .trim();
+    if (fromVersion.isEmpty) return null;
+
+    final targetDbFileName =
+        (patch?['targetDbFileName'] ??
+                entry['patch_target_db_file_name'] ??
+                entry['target_db_file_name'] ??
+                '')
+            .toString()
+            .trim();
+
+    final manifestUrl = (patch?['manifestUrl'] ?? patch?['url'] ?? '')
+        .toString()
+        .trim();
+    final downloadUrl = (patch?['downloadUrl'] ?? entry['url_delta'] ?? '')
+        .toString()
+        .trim();
+    final sha256 = (patch?['sha256'] ?? entry['checksum_delta'] ?? '')
+        .toString()
+        .trim();
+    final size = _parseInt(patch?['size'] ?? entry['delta_size']);
+    final type = (patch?['type'] ?? entry['patch_type'] ?? 'sql_changelog')
+        .toString()
+        .trim()
+        .toLowerCase();
+
+    return DatabasePatchInfo(
+      fromVersion: fromVersion,
+      targetDbFileName: targetDbFileName.isEmpty ? null : targetDbFileName,
+      manifestUrl: manifestUrl.isEmpty ? null : manifestUrl,
+      downloadUrl: downloadUrl.isEmpty ? null : downloadUrl,
+      sha256: sha256.isEmpty ? null : sha256,
+      size: size,
+      type: type,
+    );
+  }
+
   String? get _platformKey {
     if (Platform.isAndroid) return 'android';
     if (Platform.isWindows) return 'windows';
@@ -258,6 +458,34 @@ class UpdateService {
   }
 
   String _dbVersionKey(String id) => 'updates.db.version.$id';
+
+  void _throwIfCancelled(CancelToken? token, {required String path}) {
+    if (token?.isCancelled != true) return;
+    throw DioException(
+      requestOptions: RequestOptions(path: path),
+      type: DioExceptionType.cancel,
+      error: 'Database update cancelled by user.',
+    );
+  }
+
+  String _getStoredDbVersion(
+    SharedPreferences prefs,
+    String id, {
+    required String defaultValue,
+  }) {
+    final key = _dbVersionKey(id);
+    final raw = prefs.get(key);
+    if (raw is String && raw.trim().isNotEmpty) {
+      return raw.trim();
+    }
+    if (raw is int) {
+      return raw.toString();
+    }
+    if (raw is double) {
+      return raw.toString();
+    }
+    return defaultValue;
+  }
 
   Future<bool> _isDatabaseInstalledLocally(String id) async {
     if (id == 'only_believe_song') {

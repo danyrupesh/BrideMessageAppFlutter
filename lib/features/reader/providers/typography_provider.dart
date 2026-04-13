@@ -1,4 +1,5 @@
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -87,11 +88,11 @@ class TypographyNotifier extends Notifier<TypographySettings> {
   int _loadGen = 0;
 
   static String _fontSizeKey(String lang) => 'reader_font_size_$lang';
-  static String _titleFontSizeKey(String lang) => 'reader_title_font_size_$lang';
+  static String _titleFontSizeKey(String lang) =>
+      'reader_title_font_size_$lang';
   static String _lineHeightKey(String lang) => 'reader_line_height_$lang';
 
-  static String _normalizeLang(String? raw) =>
-      raw == _ta ? _ta : _en;
+  static String _normalizeLang(String? raw) => raw == _ta ? _ta : _en;
 
   static _LangTypographyDefaults _defaultsFor(String lang) =>
       lang == _ta ? _defaultsTa : _defaultsEn;
@@ -114,7 +115,10 @@ class TypographyNotifier extends Notifier<TypographySettings> {
     final next = _normalizeLang(rawLang);
     if (next == _contentLang && _loadedForLang == next) return;
     _contentLang = next;
-    _reloadTypographyForCurrentLang();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!ref.mounted) return;
+      _reloadTypographyForCurrentLang();
+    });
   }
 
   Future<void> _migrateLegacyPrefsIfNeeded(SharedPreferences prefs) async {
@@ -146,43 +150,53 @@ class TypographyNotifier extends Notifier<TypographySettings> {
     final d = _defaultsFor(lang);
 
     final storedFamily = prefs.getString(_fontFamilyKey);
-    final normalizedFamily = (storedFamily == null ||
+    final normalizedFamily =
+        (storedFamily == null ||
             storedFamily.trim().isEmpty ||
             storedFamily == 'System' ||
             storedFamily == 'Default')
         ? TypographySettings.systemFontFamily
         : storedFamily;
 
-    state = TypographySettings(
+    final nextState = TypographySettings(
       fontSize: prefs.getDouble(_fontSizeKey(lang)) ?? d.fontSize,
-      titleFontSize: prefs.getDouble(_titleFontSizeKey(lang)) ?? d.titleFontSize,
+      titleFontSize:
+          prefs.getDouble(_titleFontSizeKey(lang)) ?? d.titleFontSize,
       lineHeight: prefs.getDouble(_lineHeightKey(lang)) ?? d.lineHeight,
       fontFamily: normalizedFamily,
       isFullscreen: prefs.getBool(_fullscreenKey) ?? false,
     );
-    _loadedForLang = lang;
-    _applySystemUi(state.isFullscreen);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!ref.mounted) return;
+      if (gen != _loadGen) return;
+      state = nextState;
+      _loadedForLang = lang;
+      _applySystemUi(state.isFullscreen);
+    });
   }
 
   void updateFontSize(double size) {
     state = state.copyWith(fontSize: size);
     final lang = _contentLang;
-    SharedPreferences.getInstance()
-        .then((prefs) => prefs.setDouble(_fontSizeKey(lang), size));
+    SharedPreferences.getInstance().then(
+      (prefs) => prefs.setDouble(_fontSizeKey(lang), size),
+    );
   }
 
   void updateTitleFontSize(double size) {
     state = state.copyWith(titleFontSize: size);
     final lang = _contentLang;
-    SharedPreferences.getInstance()
-        .then((prefs) => prefs.setDouble(_titleFontSizeKey(lang), size));
+    SharedPreferences.getInstance().then(
+      (prefs) => prefs.setDouble(_titleFontSizeKey(lang), size),
+    );
   }
 
   void updateLineHeight(double height) {
     state = state.copyWith(lineHeight: height);
     final lang = _contentLang;
-    SharedPreferences.getInstance()
-        .then((prefs) => prefs.setDouble(_lineHeightKey(lang), height));
+    SharedPreferences.getInstance().then(
+      (prefs) => prefs.setDouble(_lineHeightKey(lang), height),
+    );
   }
 
   void updateFontFamily(String family) {
@@ -190,16 +204,18 @@ class TypographyNotifier extends Notifier<TypographySettings> {
         ? TypographySettings.systemFontFamily
         : family;
     state = state.copyWith(fontFamily: normalized);
-    SharedPreferences.getInstance()
-        .then((prefs) => prefs.setString(_fontFamilyKey, normalized));
+    SharedPreferences.getInstance().then(
+      (prefs) => prefs.setString(_fontFamilyKey, normalized),
+    );
   }
 
   void toggleFullscreen() {
     final next = !state.isFullscreen;
     state = state.copyWith(isFullscreen: next);
     _applySystemUi(next);
-    SharedPreferences.getInstance()
-        .then((prefs) => prefs.setBool(_fullscreenKey, next));
+    SharedPreferences.getInstance().then(
+      (prefs) => prefs.setBool(_fullscreenKey, next),
+    );
   }
 
   void _applySystemUi(bool fullscreen) {
@@ -213,5 +229,5 @@ class TypographyNotifier extends Notifier<TypographySettings> {
 
 final typographyProvider =
     NotifierProvider<TypographyNotifier, TypographySettings>(() {
-  return TypographyNotifier();
-});
+      return TypographyNotifier();
+    });

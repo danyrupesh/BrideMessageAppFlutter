@@ -1,11 +1,13 @@
 import 'dart:io';
 
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:in_app_update/in_app_update.dart' hide AppUpdateInfo;
 import 'package:url_launcher/url_launcher.dart';
 
 import '../navigation/app_router.dart';
+import 'app_restart_helper.dart';
 import 'update_service.dart';
 
 class StartupUpdateCoordinator extends StatefulWidget {
@@ -189,13 +191,25 @@ class _StartupUpdateCoordinatorState extends State<StartupUpdateCoordinator> {
 
     final names = updates.map((e) => e.displayName).join(', ');
     if (!mandatory) {
+      final details = updates
+          .map((e) {
+            final message = (e.updateMessage ?? '').trim();
+            final fallback = 'New database version v${e.version} is available.';
+            return '${e.displayName} (v${e.version})\n${message.isEmpty ? fallback : message}';
+          })
+          .join('\n\n');
       final shouldUpdate =
           await showDialog<bool>(
             context: dialogContext,
             builder: (context) {
               return AlertDialog(
                 title: const Text('Database Update Available'),
-                content: Text('Updates found for: $names'),
+                content: SizedBox(
+                  width: 420,
+                  child: SingleChildScrollView(
+                    child: Text('Updates found for: $names\n\n$details'),
+                  ),
+                ),
                 actions: [
                   TextButton(
                     onPressed: () => Navigator.of(context).pop(false),
@@ -214,6 +228,9 @@ class _StartupUpdateCoordinatorState extends State<StartupUpdateCoordinator> {
     }
 
     final status = ValueNotifier<String>('Preparing updates...');
+    final cancelToken = CancelToken();
+    var cancelledByUser = false;
+    var progressDialogOpen = true;
 
     if (mounted) {
       showDialog<void>(
@@ -240,6 +257,18 @@ class _StartupUpdateCoordinatorState extends State<StartupUpdateCoordinator> {
                   );
                 },
               ),
+              actions: [
+                if (!mandatory)
+                  TextButton(
+                    onPressed: () {
+                      cancelledByUser = true;
+                      progressDialogOpen = false;
+                      cancelToken.cancel('Cancelled by user');
+                      Navigator.of(context).pop();
+                    },
+                    child: const Text('Cancel'),
+                  ),
+              ],
             ),
           );
         },
@@ -250,13 +279,25 @@ class _StartupUpdateCoordinatorState extends State<StartupUpdateCoordinator> {
       await _updateService.applyDatabaseUpdates(
         updates,
         onStatus: (message) => status.value = message,
+        cancelToken: cancelToken,
       );
-      if (mounted) {
+      if (mounted && progressDialogOpen) {
         appRootNavigatorKey.currentState?.pop();
       }
-    } catch (e) {
       if (mounted) {
-        appRootNavigatorKey.currentState?.pop();
+        await AppRestartHelper.restartAfterDatabaseUpgrade();
+        return;
+      }
+    } catch (e) {
+      if (cancelledByUser ||
+          (e is DioException && e.type == DioExceptionType.cancel)) {
+        return;
+      }
+
+      if (mounted) {
+        if (progressDialogOpen) {
+          appRootNavigatorKey.currentState?.pop();
+        }
         await showDialog<void>(
           context: dialogContext,
           barrierDismissible: !mandatory,

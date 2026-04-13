@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/database/models/cod_models.dart';
+import '../onboarding/onboarding_screen.dart';
 import 'providers/cod_provider.dart';
 
 class CodQuestionsScreen extends ConsumerStatefulWidget {
@@ -347,6 +348,72 @@ class _CodQuestionsScreenState extends ConsumerState<CodQuestionsScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isTamil = widget.lang == 'ta';
+    final codDbExistsAsync = ref.watch(codDatabaseExistsProvider(widget.lang));
+
+    final codDbExists = codDbExistsAsync.maybeWhen(
+      data: (exists) => exists,
+      orElse: () => true,
+    );
+
+    if (!codDbExists) {
+      return Scaffold(
+        appBar: AppBar(
+          centerTitle: false,
+          title: Text(
+            isTamil ? 'கேள்விகளும் பதில்களும்' : 'COD – Questions & Answers',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.folder_off_outlined,
+                  size: 56,
+                  color: theme.colorScheme.error,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  isTamil
+                      ? 'COD தரவுத்தளம் இல்லை'
+                      : 'COD database not installed',
+                  style: theme.textTheme.titleMedium,
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  isTamil
+                      ? 'COD English / COD Tamil தரவுத்தளத்தை இறக்குமதி செய்யவும்.'
+                      : 'Please import COD English / COD Tamil database to continue.',
+                  style: theme.textTheme.bodyMedium,
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 16),
+                FilledButton.icon(
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            const OnboardingScreen(showImportDirectly: true),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.cloud_download_outlined),
+                  label: Text(
+                    isTamil ? 'தரவுத்தளத்தை இறக்குமதி செய்' : 'Import Database',
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     final questionsAsync = _topicSlug == null
         ? ref.watch(
             codQuestionsProvider((

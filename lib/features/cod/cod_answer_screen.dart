@@ -127,7 +127,9 @@ class _CodAnswerScreenState extends ConsumerState<CodAnswerScreen> {
   void didUpdateWidget(CodAnswerScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.lang != widget.lang) {
-      ref.read(typographyProvider.notifier).setReaderContentLanguage(widget.lang);
+      ref
+          .read(typographyProvider.notifier)
+          .setReaderContentLanguage(widget.lang);
     }
     if (oldWidget.id != widget.id ||
         oldWidget.scrollToAnswerParagraphId !=
@@ -389,6 +391,12 @@ class _CodAnswerScreenState extends ConsumerState<CodAnswerScreen> {
     SharePlus.instance.share(ShareParams(text: text));
   }
 
+  void _adjustReaderFontSize(double delta) {
+    final typography = ref.read(typographyProvider);
+    final next = (typography.fontSize + delta).clamp(12.0, 56.0).toDouble();
+    ref.read(typographyProvider.notifier).updateFontSize(next);
+  }
+
   PreferredSizeWidget? _buildAppBar({
     required bool isTamil,
     required bool canUseAnswerActions,
@@ -543,6 +551,16 @@ class _CodAnswerScreenState extends ConsumerState<CodAnswerScreen> {
         },
       ),
       actions: [
+        IconButton(
+          icon: const Text('A-', style: TextStyle(fontWeight: FontWeight.w700)),
+          tooltip: isTamil ? 'எழுத்தளவை குறை' : 'Decrease font size',
+          onPressed: () => _adjustReaderFontSize(-1),
+        ),
+        IconButton(
+          icon: const Text('A+', style: TextStyle(fontWeight: FontWeight.w700)),
+          tooltip: isTamil ? 'எழுத்தளவை அதிகரி' : 'Increase font size',
+          onPressed: () => _adjustReaderFontSize(1),
+        ),
         IconButton(
           icon: const Icon(Icons.search),
           tooltip: isTamil ? 'பதிலில் தேடு' : 'Search in answer',

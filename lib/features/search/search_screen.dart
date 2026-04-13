@@ -362,6 +362,33 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
     }
   }
 
+  bool _isMissingCodDbError(String? error) {
+    if (error == null) return false;
+    final lower = error.toLowerCase();
+    return lower.contains('cod database is not installed') ||
+        (lower.contains('database file not found') &&
+            (lower.contains('cod_english.db') ||
+                lower.contains('cod_tamil.db')));
+  }
+
+  bool _isMissingBibleDbError(String? error) {
+    if (error == null) return false;
+    final lower = error.toLowerCase();
+    return lower.contains('bible database is not installed') ||
+        (lower.contains('database file not found') &&
+            lower.contains('bible_') &&
+            lower.contains('.db'));
+  }
+
+  bool _isMissingSermonDbError(String? error) {
+    if (error == null) return false;
+    final lower = error.toLowerCase();
+    return lower.contains('sermon database is not installed') ||
+        (lower.contains('database file not found') &&
+            lower.contains('sermons_') &&
+            lower.contains('.db'));
+  }
+
   String _resultsLabel(SearchState state) {
     String withLoaded(int loaded, int total, String label) {
       if (total <= 0) return 'Found 0 $label';
@@ -371,18 +398,27 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
 
     switch (state.activeTab) {
       case SearchTab.bible:
+        if (_isMissingBibleDbError(state.error)) {
+          return 'Bible database not installed';
+        }
         return withLoaded(
           state.bibleResults.length,
           state.bibleTotalCount,
           'Bible verses',
         );
       case SearchTab.sermon:
+        if (_isMissingSermonDbError(state.error)) {
+          return 'Sermon database not installed';
+        }
         return withLoaded(
           state.sermonResults.length,
           state.sermonTotalCount,
           'sermon occurrences',
         );
       case SearchTab.cod:
+        if (_isMissingCodDbError(state.error)) {
+          return 'COD database not installed';
+        }
         return withLoaded(
           state.codResults.length,
           state.codTotalCount,

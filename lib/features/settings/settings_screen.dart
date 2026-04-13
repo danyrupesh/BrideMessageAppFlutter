@@ -3,9 +3,11 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:dio/dio.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../core/update/app_restart_helper.dart';
 import '../../core/update/update_service.dart';
 import 'widgets/theme_picker_sheet.dart';
 import '../onboarding/onboarding_screen.dart';
@@ -142,6 +144,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     List<DatabaseUpdateInfo> dbUpdates,
   ) async {
     final status = ValueNotifier<String>('Preparing updates...');
+    final cancelToken = CancelToken();
+    var cancelledByUser = false;
+    var progressDialogOpen = true;
 
     showDialog<void>(
       context: context,
@@ -165,6 +170,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 );
               },
             ),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  cancelledByUser = true;
+                  progressDialogOpen = false;
+                  cancelToken.cancel('Cancelled by user');
+                  Navigator.of(context).pop();
+                },
+                child: const Text('Cancel'),
+              ),
+            ],
           ),
         );
       },
@@ -174,17 +190,28 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       await service.applyDatabaseUpdates(
         dbUpdates,
         onStatus: (message) => status.value = message,
+        cancelToken: cancelToken,
       );
       if (!mounted) return;
-      Navigator.of(context, rootNavigator: true).pop();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Database updates installed successfully.'),
-        ),
-      );
+      if (progressDialogOpen) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
+          await AppRestartHelper.restartAfterDatabaseUpgrade();
+          return;
     } catch (e) {
       if (!mounted) return;
-      Navigator.of(context, rootNavigator: true).pop();
+      if (progressDialogOpen) {
+        Navigator.of(context, rootNavigator: true).pop();
+      }
+
+      if (cancelledByUser ||
+          (e is DioException && e.type == DioExceptionType.cancel)) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Database update cancelled.')),
+        );
+        return;
+      }
+
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Database update failed: $e')));

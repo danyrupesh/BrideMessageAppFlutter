@@ -7,6 +7,7 @@ import 'providers/sermon_provider.dart';
 import 'providers/sermon_flow_provider.dart';
 import '../reader/models/reader_tab.dart';
 import '../common/widgets/cards.dart';
+import '../onboarding/onboarding_screen.dart';
 import 'widgets/sermon_filters_sheet.dart';
 import '../../core/database/models/sermon_models.dart';
 
@@ -51,6 +52,15 @@ class _SermonListScreenState extends ConsumerState<SermonListScreen> {
       case TargetPlatform.fuchsia:
         return false;
     }
+  }
+
+  bool _isMissingSermonDbError(String? error) {
+    if (error == null) return false;
+    final lower = error.toLowerCase();
+    return lower.contains('sermon database is not installed') ||
+        (lower.contains('database file not found') &&
+            lower.contains('sermons_') &&
+            lower.contains('.db'));
   }
 
   ReaderTab _tabForSermon(SermonEntity sermon) {
@@ -249,8 +259,27 @@ class _SermonListScreenState extends ConsumerState<SermonListScreen> {
     final yearsAsync = ref.watch(availableYearsProvider);
     final flowState = ref.watch(sermonFlowProvider);
     final lang = ref.watch(selectedSermonLangProvider);
+    final sermonDbExists = ref.watch(sermonDatabaseExistsProvider(lang));
     final totalCountAsync = ref.watch(sermonStoredCountByLangProvider(lang));
     final theme = Theme.of(context);
+    final hasAllowedIds =
+        widget.allowedIds != null && widget.allowedIds!.isNotEmpty;
+
+    final countLabel = hasAllowedIds
+        ? (state.searchQuery.trim().isEmpty
+              ? '${state.sermons.length} sermons'
+              : '${state.sermons.length} shown · ${widget.allowedIds!.length} total sermons')
+        : totalCountAsync.when(
+            data: (total) {
+              if (state.selectedYear == null &&
+                  state.searchQuery.trim().isEmpty) {
+                return '$total sermons';
+              }
+              return '${state.sermons.length} shown · $total total sermons';
+            },
+            loading: () => '${state.sermons.length} sermons',
+            error: (err, st) => '${state.sermons.length} sermons',
+          );
 
     if (widget.autoResume && !_autoResumeChecked && flowState.isInitialized) {
       _autoResumeChecked = true;
@@ -298,203 +327,256 @@ class _SermonListScreenState extends ConsumerState<SermonListScreen> {
               icon: const Icon(Icons.filter_list),
               label: const Text('Filter'),
             ),
-      body: Column(
-        children: [
-          if (state.loadError != null)
-            Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Card(
-                color: theme.colorScheme.errorContainer,
-                child: Padding(
-                  padding: const EdgeInsets.all(12.0),
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.error_outline,
-                        color: theme.colorScheme.onErrorContainer,
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          state.loadError!,
-                          style: TextStyle(
-                            color: theme.colorScheme.onErrorContainer,
-                            fontSize: 12,
-                          ),
-                          maxLines: 3,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 16.0,
-              vertical: 8.0,
-            ),
-            child: TextField(
-              controller: _searchController,
-              decoration: InputDecoration(
-                hintText: 'Search title, year, ID, location...',
-                prefixIcon: const Icon(Icons.search),
-                suffixIcon: _searchController.text.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.clear),
-                        onPressed: () {
-                          _searchController.clear();
-                          _debounce?.cancel();
-                          ref
-                              .read(sermonListProvider.notifier)
-                              .filterSermons(
-                                year: state.selectedYear,
-                                query: '',
-                                titlePrefix: widget.titlePrefix,
-                              );
-                        },
-                      )
-                    : null,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-              onChanged: (val) {
-                setState(() {});
-                _debounce?.cancel();
-                _debounce = Timer(const Duration(milliseconds: 400), () {
-                  ref
-                      .read(sermonListProvider.notifier)
-                      .filterSermons(
-                        year: state.selectedYear,
-                        query: val,
-                        titlePrefix: widget.titlePrefix,
-                      );
-                });
-              },
-            ),
-          ),
-          if (!widget.hideFilters) ...[
-            yearsAsync.when(
-              data: (years) => SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                padding: const EdgeInsets.symmetric(horizontal: 16.0),
-                child: Row(
+      body:
+          sermonDbExists.maybeWhen(
+            data: (exists) => !exists,
+            orElse: () => false,
+          )
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    FilterChip(
-                      label: const Text('All Years'),
-                      selected: state.selectedYear == null,
-                      onSelected: (val) {
-                        ref
-                            .read(sermonListProvider.notifier)
-                            .filterSermons(
-                              year: null,
-                              query: _searchController.text,
-                              titlePrefix: widget.titlePrefix,
-                            );
-                      },
+                    const Icon(Icons.error_outline, size: 44),
+                    const SizedBox(height: 10),
+                    Text(
+                      'Sermon database is not installed',
+                      style: theme.textTheme.titleMedium,
+                      textAlign: TextAlign.center,
                     ),
-                    const SizedBox(width: 8),
-                    ...years.map(
-                      (y) => Padding(
-                        padding: const EdgeInsets.only(right: 8.0),
-                        child: FilterChip(
-                          label: Text(y.toString()),
-                          selected: state.selectedYear == y,
-                          onSelected: (val) {
-                            ref
-                                .read(sermonListProvider.notifier)
-                                .filterSermons(
-                                  year: y,
-                                  query: _searchController.text,
-                                  titlePrefix: widget.titlePrefix,
-                                );
-                          },
-                        ),
-                      ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Import Tamil/English sermons database to continue.',
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 14),
+                    FilledButton.icon(
+                      onPressed: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const OnboardingScreen(
+                              showImportDirectly: true,
+                            ),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.cloud_download_outlined),
+                      label: const Text('Import Database'),
                     ),
                   ],
                 ),
               ),
-              loading: () => const SizedBox.shrink(),
-              error: (err, _) => const SizedBox.shrink(),
-            ),
-            const SizedBox(height: 8),
-          ],
-
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            )
+          : Column(
               children: [
-                Text(
-                  totalCountAsync.when(
-                    data: (total) {
-                      if (state.selectedYear == null &&
-                          state.searchQuery.trim().isEmpty) {
-                        return '$total sermons';
-                      }
-                      return '${state.sermons.length} shown · $total total sermons';
-                    },
-                    loading: () => '${state.sermons.length} sermons',
-                    error: (err, st) => '${state.sermons.length} sermons',
+                if (state.loadError != null)
+                  Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Card(
+                      color: theme.colorScheme.errorContainer,
+                      child: Padding(
+                        padding: const EdgeInsets.all(12.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(
+                                  Icons.error_outline,
+                                  color: theme.colorScheme.onErrorContainer,
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Text(
+                                    state.loadError!,
+                                    style: TextStyle(
+                                      color: theme.colorScheme.onErrorContainer,
+                                      fontSize: 12,
+                                    ),
+                                    maxLines: 3,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            if (_isMissingSermonDbError(state.loadError)) ...[
+                              const SizedBox(height: 10),
+                              FilledButton.icon(
+                                onPressed: () {
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (_) => const OnboardingScreen(
+                                        showImportDirectly: true,
+                                      ),
+                                    ),
+                                  );
+                                },
+                                icon: const Icon(Icons.cloud_download_outlined),
+                                label: const Text('Import Database'),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
                   ),
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16.0,
+                    vertical: 8.0,
+                  ),
+                  child: TextField(
+                    controller: _searchController,
+                    decoration: InputDecoration(
+                      hintText: 'Search title, year, ID, location...',
+                      prefixIcon: const Icon(Icons.search),
+                      suffixIcon: _searchController.text.isNotEmpty
+                          ? IconButton(
+                              icon: const Icon(Icons.clear),
+                              onPressed: () {
+                                _searchController.clear();
+                                _debounce?.cancel();
+                                ref
+                                    .read(sermonListProvider.notifier)
+                                    .filterSermons(
+                                      year: state.selectedYear,
+                                      query: '',
+                                      titlePrefix: widget.titlePrefix,
+                                    );
+                              },
+                            )
+                          : null,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    onChanged: (val) {
+                      setState(() {});
+                      _debounce?.cancel();
+                      _debounce = Timer(const Duration(milliseconds: 400), () {
+                        ref
+                            .read(sermonListProvider.notifier)
+                            .filterSermons(
+                              year: state.selectedYear,
+                              query: val,
+                              titlePrefix: widget.titlePrefix,
+                            );
+                      });
+                    },
                   ),
                 ),
-                TextButton(
-                  onPressed: () => context.push(
-                    widget.hideFilters ? '/search?tab=cod' : '/search',
+                if (!widget.hideFilters) ...[
+                  yearsAsync.when(
+                    data: (years) => SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                      child: Row(
+                        children: [
+                          FilterChip(
+                            label: const Text('All Years'),
+                            selected: state.selectedYear == null,
+                            onSelected: (val) {
+                              ref
+                                  .read(sermonListProvider.notifier)
+                                  .filterSermons(
+                                    year: null,
+                                    query: _searchController.text,
+                                    titlePrefix: widget.titlePrefix,
+                                  );
+                            },
+                          ),
+                          const SizedBox(width: 8),
+                          ...years.map(
+                            (y) => Padding(
+                              padding: const EdgeInsets.only(right: 8.0),
+                              child: FilterChip(
+                                label: Text(y.toString()),
+                                selected: state.selectedYear == y,
+                                onSelected: (val) {
+                                  ref
+                                      .read(sermonListProvider.notifier)
+                                      .filterSermons(
+                                        year: y,
+                                        query: _searchController.text,
+                                        titlePrefix: widget.titlePrefix,
+                                      );
+                                },
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    loading: () => const SizedBox.shrink(),
+                    error: (err, _) => const SizedBox.shrink(),
                   ),
-                  child: const Text('Advanced Search'),
+                  const SizedBox(height: 8),
+                ],
+
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        countLabel,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: () => context.push(
+                          widget.hideFilters ? '/search?tab=cod' : '/search',
+                        ),
+                        child: const Text('Advanced Search'),
+                      ),
+                    ],
+                  ),
+                ),
+
+                Expanded(
+                  child: state.sermons.isEmpty && !state.isLoading
+                      ? const Center(child: Text("No sermons found."))
+                      : ListView.builder(
+                          controller: _scrollController,
+                          itemCount:
+                              state.sermons.length + (state.isLoading ? 1 : 0),
+                          itemBuilder: (context, index) {
+                            if (index == state.sermons.length) {
+                              return const Center(
+                                child: Padding(
+                                  padding: EdgeInsets.all(16.0),
+                                  child: CircularProgressIndicator(),
+                                ),
+                              );
+                            }
+
+                            final sermon = state.sermons[index];
+                            return SermonResultCard(
+                              id: sermon.id,
+                              title: sermon.title,
+                              date: sermon.date,
+                              duration: sermon.duration,
+                              location: sermon.location,
+                              metaRightBadge: sermon.year?.toString(),
+                              subtitle: sermon.totalParagraphs != null
+                                  ? '${sermon.totalParagraphs} ¶'
+                                  : null,
+                              highlightQuery: state.searchQuery,
+                              onTap: () => _openSermon(sermon),
+                              onDoubleTap: _isDesktopPlatform
+                                  ? () => _replaceActiveSermon(sermon)
+                                  : null,
+                              onLongPress: _isDesktopPlatform
+                                  ? null
+                                  : () => _showSermonActionsSheet(sermon),
+                            );
+                          },
+                        ),
                 ),
               ],
             ),
-          ),
-
-          Expanded(
-            child: state.sermons.isEmpty && !state.isLoading
-                ? const Center(child: Text("No sermons found."))
-                : ListView.builder(
-                    controller: _scrollController,
-                    itemCount: state.sermons.length + (state.isLoading ? 1 : 0),
-                    itemBuilder: (context, index) {
-                      if (index == state.sermons.length) {
-                        return const Center(
-                          child: Padding(
-                            padding: EdgeInsets.all(16.0),
-                            child: CircularProgressIndicator(),
-                          ),
-                        );
-                      }
-
-                      final sermon = state.sermons[index];
-                      return SermonResultCard(
-                        id: sermon.id,
-                        title: sermon.title,
-                        date: sermon.date,
-                        duration: sermon.duration,
-                        location: sermon.location,
-                        metaRightBadge: sermon.year?.toString(),
-                        subtitle: sermon.totalParagraphs != null
-                            ? '${sermon.totalParagraphs} ¶'
-                            : null,
-                        highlightQuery: state.searchQuery,
-                        onTap: () => _openSermon(sermon),
-                        onDoubleTap: _isDesktopPlatform
-                            ? () => _replaceActiveSermon(sermon)
-                            : null,
-                        onLongPress: _isDesktopPlatform
-                            ? null
-                            : () => _showSermonActionsSheet(sermon),
-                      );
-                    },
-                  ),
-          ),
-        ],
-      ),
     );
   }
 }

@@ -60,23 +60,22 @@ class _SongDetailReaderState extends ConsumerState<_SongDetailReader> {
           overflow: TextOverflow.ellipsis,
         ),
         actions: [
-          if (state case SongDetailContent(
-            :final prevHymnNo,
-            :final nextHymnNo,
-          )) ...[
-            _SongNavButton(
-              icon: Icons.chevron_left,
-              label: 'Previous',
-              enabled: prevHymnNo != null,
-              onPressed: notifier.navigateToPrevious,
+          IconButton(
+            tooltip: 'Decrease font size',
+            icon: const Text(
+              'A-',
+              style: TextStyle(fontWeight: FontWeight.w700),
             ),
-            _SongNavButton(
-              icon: Icons.chevron_right,
-              label: 'Next',
-              enabled: nextHymnNo != null,
-              onPressed: notifier.navigateToNext,
+            onPressed: notifier.decreaseFontSize,
+          ),
+          IconButton(
+            tooltip: 'Increase font size',
+            icon: const Text(
+              'A+',
+              style: TextStyle(fontWeight: FontWeight.w700),
             ),
-          ],
+            onPressed: notifier.increaseFontSize,
+          ),
           IconButton(
             tooltip: 'Select Song',
             icon: const Icon(Icons.queue_music),
@@ -194,6 +193,8 @@ class _SongDetailReaderState extends ConsumerState<_SongDetailReader> {
                 palette: palette,
                 onPrev: notifier.navigateToPrevious,
                 onNext: notifier.navigateToNext,
+                onFontDecrease: notifier.decreaseFontSize,
+                onFontIncrease: notifier.increaseFontSize,
               ),
             },
           ),
@@ -263,18 +264,51 @@ class _ContentView extends StatelessWidget {
     required this.palette,
     required this.onPrev,
     required this.onNext,
+    required this.onFontDecrease,
+    required this.onFontIncrease,
   });
 
   final SongDetailContent state;
   final _ReaderPalette palette;
   final VoidCallback onPrev;
   final VoidCallback onNext;
+  final VoidCallback onFontDecrease;
+  final VoidCallback onFontIncrease;
 
   @override
   Widget build(BuildContext context) {
     final hymn = state.hymn;
     return Column(
       children: [
+        const SizedBox(height: 6),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 6),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              _SongNavButton(
+                icon: Icons.chevron_left,
+                label: 'Previous',
+                enabled: state.prevHymnNo != null,
+                iconTrailing: false,
+                onPressed: onPrev,
+              ),
+              _SongZoomControl(
+                fontSize: state.fontSize,
+                onDecrease: onFontDecrease,
+                onIncrease: onFontIncrease,
+                palette: palette,
+              ),
+              _SongNavButton(
+                icon: Icons.chevron_right,
+                label: 'Next',
+                enabled: state.nextHymnNo != null,
+                iconTrailing: true,
+                onPressed: onNext,
+              ),
+            ],
+          ),
+        ),
         const SizedBox(height: 8),
         _SongHeader(
           hymnNo: hymn.hymnNo,
@@ -299,6 +333,49 @@ class _ContentView extends StatelessWidget {
               },
             ),
           ),
+        ),
+      ],
+    );
+  }
+}
+
+class _SongZoomControl extends StatelessWidget {
+  const _SongZoomControl({
+    required this.fontSize,
+    required this.onDecrease,
+    required this.onIncrease,
+    required this.palette,
+  });
+
+  final double fontSize;
+  final VoidCallback onDecrease;
+  final VoidCallback onIncrease;
+  final _ReaderPalette palette;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          onPressed: onDecrease,
+          tooltip: 'Decrease text size',
+          visualDensity: VisualDensity.compact,
+          icon: const Icon(Icons.remove, size: 18),
+        ),
+        Text(
+          '${fontSize.toStringAsFixed(0)}%',
+          style: theme.textTheme.labelMedium?.copyWith(
+            color: palette.onBackgroundMuted,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        IconButton(
+          onPressed: onIncrease,
+          tooltip: 'Increase text size',
+          visualDensity: VisualDensity.compact,
+          icon: const Icon(Icons.add, size: 18),
         ),
       ],
     );
@@ -810,19 +887,35 @@ class _SongNavButton extends StatelessWidget {
     required this.label,
     required this.enabled,
     required this.onPressed,
+    this.iconTrailing = false,
   });
 
   final IconData icon;
   final String label;
   final bool enabled;
   final VoidCallback onPressed;
+  final bool iconTrailing;
 
   @override
   Widget build(BuildContext context) {
-    return TextButton.icon(
+    final iconWidget = Icon(icon, size: 18);
+    final labelWidget = Text(label);
+
+    return TextButton(
       onPressed: enabled ? onPressed : null,
-      icon: Icon(icon, size: 18),
-      label: Text(label),
+      style: TextButton.styleFrom(
+        visualDensity: VisualDensity.compact,
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        minimumSize: Size.zero,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: iconTrailing
+            ? [labelWidget, const SizedBox(width: 2), iconWidget]
+            : [iconWidget, const SizedBox(width: 2), labelWidget],
+      ),
     );
   }
 }

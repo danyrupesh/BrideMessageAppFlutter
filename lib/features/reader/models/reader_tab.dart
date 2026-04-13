@@ -11,8 +11,11 @@ class ReaderTab {
   final int? verse; // optional — used to scroll to a specific verse on open
   final String? sermonId;
   final String? bibleLang; // 'en' or 'ta' for Bible tabs
-  final String? initialSearchQuery; // optional — search query to auto-activate on open
-  final int? initialFocusParagraph; // optional — paragraph number to focus on search open
+  final String? sermonLang; // 'en' or 'ta' for Sermon tabs in split view
+  final String?
+  initialSearchQuery; // optional — search query to auto-activate on open
+  final int?
+  initialFocusParagraph; // optional — paragraph number to focus on search open
   final bool openedFromSearch; // true when opened from Common Search results
 
   ReaderTab({
@@ -24,6 +27,7 @@ class ReaderTab {
     this.verse,
     this.sermonId,
     this.bibleLang,
+    this.sermonLang,
     this.initialSearchQuery,
     this.initialFocusParagraph,
     this.openedFromSearch = false,
@@ -36,6 +40,7 @@ class ReaderTab {
     int? verse,
     String? sermonId,
     String? bibleLang,
+    String? sermonLang,
     String? initialSearchQuery,
     int? initialFocusParagraph,
     bool? openedFromSearch,
@@ -49,8 +54,10 @@ class ReaderTab {
       verse: verse,
       sermonId: sermonId ?? this.sermonId,
       bibleLang: bibleLang ?? this.bibleLang,
+      sermonLang: sermonLang ?? this.sermonLang,
       initialSearchQuery: initialSearchQuery ?? this.initialSearchQuery,
-      initialFocusParagraph: initialFocusParagraph ?? this.initialFocusParagraph,
+      initialFocusParagraph:
+          initialFocusParagraph ?? this.initialFocusParagraph,
       openedFromSearch: openedFromSearch ?? this.openedFromSearch,
     );
   }

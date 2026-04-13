@@ -93,6 +93,8 @@ class SermonFlowState {
 // ─── Notifier ─────────────────────────────────────────────────────────────────
 
 class SermonFlowNotifier extends Notifier<SermonFlowState> {
+  static const int sermonTabLimit = 20;
+  static const int bmBibleTabLimit = 20;
   ReaderTab? _pendingOpenSermon;
   String? _pendingOpenLang;
   bool _persistInFlight = false;
@@ -327,25 +329,33 @@ class SermonFlowNotifier extends Notifier<SermonFlowState> {
 
   /// Add a new sermon tab without clearing existing tabs.
   /// If the sermon is already open, just activate that tab instead.
-  void addSermonTab(ReaderTab sermonTab) {
+  bool addSermonTab(ReaderTab sermonTab) {
     final existingIndex = state.tabs.indexWhere(
       (t) => t.sermonId != null && t.sermonId == sermonTab.sermonId,
     );
     if (existingIndex != -1) {
       state = state.copyWith(activeTabIndex: existingIndex);
       unawaited(_persistFlow());
-      return;
+      return true;
+    }
+    if (state.tabs.length >= sermonTabLimit) {
+      return false;
     }
     final newTabs = [...state.tabs, sermonTab];
     state = state.copyWith(tabs: newTabs, activeTabIndex: newTabs.length - 1);
     unawaited(_persistFlow());
+    return true;
   }
 
   /// Add a Bible reference tab. Always appended after the sermon tab.
-  void addBibleTab(ReaderTab bibleTab) {
+  bool addBibleTab(ReaderTab bibleTab) {
+    if (state.tabs.length >= sermonTabLimit) {
+      return false;
+    }
     final newTabs = [...state.tabs, bibleTab];
     state = state.copyWith(tabs: newTabs, activeTabIndex: newTabs.length - 1);
     unawaited(_persistFlow());
+    return true;
   }
 
   /// Replace the Bible tab at [index] with [tab].
@@ -439,7 +449,7 @@ class SermonFlowNotifier extends Notifier<SermonFlowState> {
 
   void toggleBmMode() => setBmMode(!state.bmMode);
 
-  void upsertBmBibleTab({
+  bool upsertBmBibleTab({
     required ReaderTab bibleTab,
     required bool openInNewTab,
   }) {
@@ -447,6 +457,9 @@ class SermonFlowNotifier extends Notifier<SermonFlowState> {
     final tabs = List<ReaderTab>.from(current.tabs);
     var activeIndex = current.activeIndex;
     if (openInNewTab || tabs.isEmpty) {
+      if (tabs.length >= bmBibleTabLimit) {
+        return false;
+      }
       tabs.add(bibleTab);
       activeIndex = tabs.length - 1;
     } else {
@@ -457,6 +470,7 @@ class SermonFlowNotifier extends Notifier<SermonFlowState> {
       bmBibleGroup: BmBibleGroup(tabs: tabs, activeIndex: activeIndex),
     );
     unawaited(_persistFlow());
+    return true;
   }
 
   void setBmBibleActive(int index) {

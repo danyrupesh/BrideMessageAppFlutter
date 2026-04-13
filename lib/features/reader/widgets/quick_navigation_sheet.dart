@@ -26,6 +26,7 @@ class QuickNavigationSheet extends ConsumerStatefulWidget {
     super.key,
     this.initialLang,
     this.initialTestamentIndex,
+    this.initialOpenInNewTab,
   });
 
   /// Optional initial language for this sheet ('en' or 'ta').
@@ -36,10 +37,15 @@ class QuickNavigationSheet extends ConsumerStatefulWidget {
   /// When null, defaults to Old Testament.
   final int? initialTestamentIndex;
 
+  /// Optional initial state for "Open in new tab".
+  /// Defaults to true when null.
+  final bool? initialOpenInNewTab;
+
   static void show(
     BuildContext context, {
     String? initialLang,
     int? initialTestamentIndex,
+    bool? initialOpenInNewTab,
   }) {
     showResponsiveBottomSheet(
       context: context,
@@ -50,6 +56,7 @@ class QuickNavigationSheet extends ConsumerStatefulWidget {
       builder: (context) => QuickNavigationSheet(
         initialLang: initialLang,
         initialTestamentIndex: initialTestamentIndex,
+        initialOpenInNewTab: initialOpenInNewTab,
       ),
     );
   }
@@ -76,6 +83,7 @@ class _QuickNavigationSheetState extends ConsumerState<QuickNavigationSheet>
   void initState() {
     super.initState();
     _sheetLang = widget.initialLang ?? ref.read(selectedBibleLangProvider);
+    _openInNewTab = widget.initialOpenInNewTab ?? true;
     _tabController = TabController(length: 2, vsync: this);
     // Clamp provided initial testament index into [0,1]; default to OT.
     final initialIndex = (widget.initialTestamentIndex ?? 0).clamp(0, 1);
@@ -218,10 +226,10 @@ class _QuickNavigationSheetState extends ConsumerState<QuickNavigationSheet>
         final isWide = constraints.maxWidth >= 640;
         final crossAxisCount = _gridColumnsForWidth(
           width: constraints.maxWidth,
-          mobile: 5,
-          tablet: 6,
-          desktop: 7,
-          wideDesktop: 8,
+          mobile: isTamil ? 4 : 5,
+          tablet: isTamil ? 5 : 6,
+          desktop: isTamil ? 6 : 7,
+          wideDesktop: isTamil ? 7 : 8,
         );
         return GridView.builder(
           padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
@@ -887,11 +895,12 @@ class _BookTile extends StatelessWidget {
               Text(
                 name,
                 textAlign: TextAlign.center,
-                maxLines: showFullName ? 2 : 1,
+                maxLines: isTamil ? 1 : (showFullName ? 2 : 2),
+                softWrap: false,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   fontWeight: FontWeight.w600,
-                  fontSize: showFullName ? 13 : 11,
+                  fontSize: showFullName ? (isTamil ? 14 : 13) : 11,
                   color: isDark ? Colors.white : Colors.black87,
                 ),
               ),

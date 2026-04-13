@@ -4,22 +4,114 @@ import 'package:go_router/go_router.dart';
 import '../providers/search_provider.dart';
 import '../../reader/models/reader_tab.dart';
 import '../../sermons/providers/sermon_flow_provider.dart';
+import '../../sermons/providers/sermon_provider.dart';
 import '../../../core/database/models/sermon_search_result.dart';
 import '../../common/widgets/cards.dart';
 import '../../common/widgets/fts_highlight_text.dart';
+import '../../onboarding/onboarding_screen.dart';
 
 class SermonResultsTab extends ConsumerWidget {
   const SermonResultsTab({super.key});
+
+  bool _isMissingSermonDbError(String? error) {
+    if (error == null) return false;
+    final lower = error.toLowerCase();
+    return lower.contains('sermon database is not installed') ||
+        (lower.contains('database file not found') &&
+            lower.contains('sermons_') &&
+            lower.contains('.db'));
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(searchProvider);
     final notifier = ref.read(searchProvider.notifier);
+    final sermonDbExists = ref.watch(
+      sermonDatabaseExistsProvider(state.languageCode),
+    );
+
+    if (sermonDbExists.maybeWhen(
+      data: (exists) => !exists,
+      orElse: () => false,
+    )) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.folder_off_outlined, size: 46),
+              const SizedBox(height: 10),
+              Text(
+                'Sermon database is not installed',
+                style: Theme.of(context).textTheme.titleMedium,
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              const Text(
+                'Import Tamil/English sermons database to search sermons.',
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 14),
+              FilledButton.icon(
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          const OnboardingScreen(showImportDirectly: true),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.cloud_download_outlined),
+                label: const Text('Import Database'),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
 
     if (state.isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
     if (state.error != null) {
+      if (_isMissingSermonDbError(state.error)) {
+        return Center(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(Icons.folder_off_outlined, size: 46),
+                const SizedBox(height: 10),
+                Text(
+                  'Sermon database is not installed',
+                  style: Theme.of(context).textTheme.titleMedium,
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 8),
+                const Text(
+                  'Import Tamil/English sermons database to search sermons.',
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 14),
+                FilledButton.icon(
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) =>
+                            const OnboardingScreen(showImportDirectly: true),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.cloud_download_outlined),
+                  label: const Text('Import Database'),
+                ),
+              ],
+            ),
+          ),
+        );
+      }
       return Center(
         child: Text(
           'Error: ${state.error}',

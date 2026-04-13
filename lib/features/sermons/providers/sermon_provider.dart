@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/database/database_manager.dart';
@@ -18,6 +20,18 @@ class _SermonLangNotifier extends Notifier<String> {
 
 final selectedSermonLangProvider =
     NotifierProvider<_SermonLangNotifier, String>(_SermonLangNotifier.new);
+
+final sermonDatabaseExistsProvider = FutureProvider.family<bool, String>((
+  ref,
+  lang,
+) async {
+  final installed = await ref.watch(
+    defaultInstalledDbProvider((DbType.sermon, lang)).future,
+  );
+  final code = installed?.code ?? lang;
+  final dbPath = await DatabaseManager().getDatabasePath('sermons_$code.db');
+  return File(dbPath).exists();
+});
 
 /// Resolves the Sermon repository based on the selected language.
 /// Falls back to language code as db code if no metadata found.

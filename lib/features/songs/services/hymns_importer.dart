@@ -6,9 +6,14 @@ import 'package:path/path.dart' as p;
 
 import '../../../core/database/database_manager.dart';
 
+const String kApiBaseUrl = String.fromEnvironment(
+  'API_BASE_URL',
+  defaultValue: 'https://api.endtimebride.in',
+);
+
 class HymnsImporter {
   static const String serverZipUrl =
-      'https://api.endtimebride.in/database/only_believe_song.zip';
+      '$kApiBaseUrl/database/only_believe_song.zip';
   static const String hymnDbName = 'hymn.db';
 
   final DatabaseManager _dbManager = DatabaseManager();

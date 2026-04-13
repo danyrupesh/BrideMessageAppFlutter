@@ -37,6 +37,7 @@ dependencies:
   in_app_update: ^4.2.3
   url_launcher: ^6.0.0
   super_editor: ^0.3.0-dev.50
+  crypto: ^3.0.7
 
 
 dev_dependencies:
