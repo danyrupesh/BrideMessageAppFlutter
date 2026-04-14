@@ -25,6 +25,7 @@ class SermonRepository {
     String? searchQuery,
     String? titlePrefix,
     String? titleContains,
+    String? category,
     String sortBy = 'year_asc',
     int? yearFrom,
     int? yearTo,
@@ -57,6 +58,11 @@ class SermonRepository {
     if (titleContains != null && titleContains.isNotEmpty) {
       sql += ' AND title LIKE ?';
       args.add('%$titleContains%');
+    }
+
+    if (category != null && category.trim().isNotEmpty) {
+      sql += " AND LOWER(COALESCE(category, '')) = ?";
+      args.add(category.trim().toLowerCase());
     }
 
     if (searchQuery != null && searchQuery.isNotEmpty) {
@@ -96,8 +102,27 @@ ORDER BY
     args.add(limit);
     args.add(offset);
 
-    final results = await db.rawQuery(sql, args);
-    return results.map((e) => SermonEntity.fromMap(e)).toList();
+    try {
+      final results = await db.rawQuery(sql, args);
+      return results.map((e) => SermonEntity.fromMap(e)).toList();
+    } catch (e) {
+      // If the query fails due to missing category column, retry without filtering by category
+      final errorStr = e.toString();
+      if ((category != null && category!.isNotEmpty) &&
+          (errorStr.contains('no such column: category') ||
+              errorStr.contains('no such column'))) {
+        // Retry without category filter
+        final categoryValue = category!.trim().toLowerCase();
+        final retrySql = sql.replaceAll(
+          " AND LOWER(COALESCE(category, '')) = ?",
+          '',
+        );
+        final retryArgs = args.where((arg) => arg != categoryValue).toList();
+        final results = await db.rawQuery(retrySql, retryArgs);
+        return results.map((e) => SermonEntity.fromMap(e)).toList();
+      }
+      rethrow;
+    }
   }
 
   Future<List<int>> getAvailableYears() async {
@@ -114,6 +139,24 @@ ORDER BY
     final rows = await db.rawQuery(
       'SELECT COUNT(*) AS c FROM sermons WHERE language = ?',
       [languageCode],
+    );
+    if (rows.isEmpty) return 0;
+    final value = rows.first['c'];
+    return (value is int) ? value : (value as num?)?.toInt() ?? 0;
+  }
+
+  Future<int> getSermonCountByCategory(String category) async {
+    final normalized = category.trim().toLowerCase();
+    if (normalized.isEmpty) return 0;
+    final db = await _dbManager.getDatabase(dbFileName);
+    final rows = await db.rawQuery(
+      '''
+      SELECT COUNT(*) AS c
+      FROM sermons
+      WHERE language = ?
+        AND LOWER(COALESCE(category, '')) = ?
+      ''',
+      [languageCode, normalized],
     );
     if (rows.isEmpty) return 0;
     final value = rows.first['c'];

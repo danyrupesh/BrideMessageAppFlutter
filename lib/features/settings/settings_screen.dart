@@ -11,9 +11,9 @@ import '../../core/update/app_restart_helper.dart';
 import '../../core/update/update_service.dart';
 import 'widgets/theme_picker_sheet.dart';
 import '../onboarding/onboarding_screen.dart';
+import '../database_management/screens/manage_databases_screen.dart';
 import '../search/providers/search_history_provider.dart';
 import 'screens/developer_details_screen.dart';
-import 'screens/database_management_screen.dart';
 
 class SettingsScreen extends ConsumerStatefulWidget {
   const SettingsScreen({super.key});
@@ -281,14 +281,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   leading: const Icon(Icons.storage),
                   title: const Text('Manage Databases'),
                   subtitle: const Text(
-                    'View installed Bibles & sermons, delete or re-import',
+                    'View all available & installed databases',
                   ),
                   onTap: () {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => const DatabaseManagementScreen(),
-                      ),
-                    );
+                    context.push('/manage-databases');
                   },
                 ),
                 const Divider(height: 1),

@@ -19,8 +19,13 @@ import 'providers/typography_provider.dart';
 import 'models/reader_tab.dart';
 import 'widgets/reader_settings_sheet.dart';
 import 'widgets/quick_navigation_sheet.dart';
+import 'widgets/pane_header.dart';
+import 'widgets/reading_pane.dart';
+import 'widgets/bottom_tab_rail.dart';
+import 'widgets/parallel_source_sheet.dart';
 import '../../core/database/models/bible_search_result.dart';
 import '../../core/database/models/sermon_models.dart';
+import '../../core/database/sermon_repository.dart';
 import '../common/widgets/fts_highlight_text.dart';
 import '../onboarding/onboarding_screen.dart';
 import '../sermons/providers/sermon_provider.dart';
@@ -67,13 +72,24 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   final ScrollController _bmTabsScrollController = ScrollController();
   final ScrollController _splitTabsScrollController = ScrollController();
   final FocusNode _searchFieldFocusNode = FocusNode();
+  final TextEditingController _primaryMiniSearchController =
+      TextEditingController();
+  final TextEditingController _secondaryMiniSearchController =
+      TextEditingController();
+  final FocusNode _primaryMiniSearchFocusNode = FocusNode();
+  final FocusNode _secondaryMiniSearchFocusNode = FocusNode();
   late final bool Function(KeyEvent) _searchKeyHandler;
 
   String? _parallelSourceTabId;
   ReaderTab? _parallelEnglishTab;
   double _parallelSplitRatio = _parallelSplitDefault;
-  double _parallelPrimaryFontOffset = 0;
-  double _parallelSecondaryFontOffset = 0;
+  bool _primaryMiniSearchActive = false;
+  bool _secondaryMiniSearchActive = false;
+  List<BibleSearchResult> _secondaryVerses = [];
+  String? _lastSecondaryChapterSignature;
+  List<int> _secondaryMatchVerseIndices = [];
+  int _secondaryCurrentMatchIndex = 0;
+  int _secondaryTotalMatches = 0;
 
   // ── In-page search ────────────────────────────────────────────────────────
   bool _isSearching = false;
@@ -150,7 +166,11 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     _bmTabsScrollController.dispose();
     _splitTabsScrollController.dispose();
     _searchController.dispose();
+    _primaryMiniSearchController.dispose();
+    _secondaryMiniSearchController.dispose();
     _searchFieldFocusNode.dispose();
+    _primaryMiniSearchFocusNode.dispose();
+    _secondaryMiniSearchFocusNode.dispose();
     _globalSearchDebounce?.cancel();
     HardwareKeyboard.instance.removeHandler(_searchKeyHandler);
     super.dispose();
@@ -428,8 +448,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
         break;
       case 'split_off':
         _clearParallelMode();
-        ref.read(readerProvider.notifier).disableBmMode();
-        ref.read(readerProvider.notifier).disableSplitView();
+        ref.read(readerProvider.notifier).closeSecondaryPane();
         break;
     }
   }
@@ -504,9 +523,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   }
 
   double _parallelPaneFontSize(TypographySettings typography, bool isPrimary) {
+    final readerState = ref.read(readerProvider);
     final offset = isPrimary
-        ? _parallelPrimaryFontOffset
-        : _parallelSecondaryFontOffset;
+        ? readerState.primaryFontOffset
+        : readerState.secondaryFontOffset;
     return (typography.fontSize + offset).clamp(12.0, 56.0);
   }
 
@@ -514,20 +534,71 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     required bool isPrimary,
     required double delta,
   }) {
-    setState(() {
-      if (isPrimary) {
-        _parallelPrimaryFontOffset = (_parallelPrimaryFontOffset + delta).clamp(
-          12.0 - ref.read(typographyProvider).fontSize,
-          56.0 - ref.read(typographyProvider).fontSize,
-        );
-      } else {
-        _parallelSecondaryFontOffset = (_parallelSecondaryFontOffset + delta)
-            .clamp(
-              12.0 - ref.read(typographyProvider).fontSize,
-              56.0 - ref.read(typographyProvider).fontSize,
-            );
+    if (isPrimary) {
+      ref.read(readerProvider.notifier).adjustPrimaryFontOffset(delta);
+    } else {
+      ref.read(readerProvider.notifier).adjustSecondaryFontOffset(delta);
+    }
+  }
+
+  Future<void> _onPaneSourceSelected({
+    required bool isPrimary,
+    required ReaderTab? activeTab,
+    String? selectedSource,
+    bool forceNewTab = false,
+  }) async {
+    final picked = selectedSource ?? (await ParallelSourceSheet.show(context));
+    if (!mounted || picked == null) return;
+    if (isPrimary) {
+      await _onSplitViewSourceSelected(activeTab, picked);
+      return;
+    }
+
+    final notifier = ref.read(readerProvider.notifier);
+    final current = _activeSplitRightTab(ref.read(readerProvider));
+    final sourceTab = activeTab;
+    if (sourceTab == null) return;
+
+    if (picked == 'bible_en' || picked == 'bible_ta') {
+      if (sourceTab.type != ReaderContentType.bible ||
+          sourceTab.book == null ||
+          sourceTab.chapter == null) {
+        return;
       }
-    });
+      final targetLang = picked == 'bible_ta' ? 'ta' : 'en';
+      final sourceLang =
+          (sourceTab.bibleLang ?? ref.read(selectedBibleLangProvider)) ?? 'en';
+      final mappedBook = await _mapBookNameForLanguage(
+        sourceBook: sourceTab.book!,
+        sourceLang: sourceLang,
+        targetLang: targetLang,
+      );
+      notifier.openSecondaryTab(
+        ReaderTab(
+          type: ReaderContentType.bible,
+          title: '$mappedBook ${sourceTab.chapter}',
+          book: mappedBook,
+          chapter: sourceTab.chapter,
+          verse: sourceTab.verse,
+          bibleLang: targetLang,
+        ),
+        openInNewTab: forceNewTab,
+      );
+      return;
+    }
+
+    final sermonLang = picked == 'sermon_ta' ? 'ta' : 'en';
+    final pickedSermon = await _pickSermonForBm(sermonLang);
+    if (!mounted || pickedSermon == null) return;
+    notifier.openSecondaryTab(
+      ReaderTab(
+        type: ReaderContentType.sermon,
+        title: pickedSermon.title,
+        sermonId: pickedSermon.id,
+        sermonLang: sermonLang,
+      ),
+      openInNewTab: forceNewTab || current != null,
+    );
   }
 
   void _adjustReaderFontSize(double delta) {
@@ -542,6 +613,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     if (!mounted || sermons.isEmpty) return null;
 
     var query = '';
+    Future<List<SermonEntity>>? searchFuture;
     return showModalBottomSheet<SermonEntity>(
       context: context,
       isScrollControlled: true,
@@ -549,14 +621,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       builder: (ctx) {
         return StatefulBuilder(
           builder: (context, setSheetState) {
-            final q = query.trim().toLowerCase();
-            final filtered = q.isEmpty
-                ? sermons
-                : sermons.where((s) {
-                    final title = s.title.toLowerCase();
-                    final id = s.id.toLowerCase();
-                    return title.contains(q) || id.contains(q);
-                  }).toList();
+            final q = query.trim();
 
             return SafeArea(
               child: SizedBox(
@@ -571,19 +636,28 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                           hintText: 'Search message...',
                         ),
                         onChanged: (value) {
-                          setSheetState(() => query = value);
+                          setSheetState(() {
+                            query = value;
+                            final normalized = value.trim();
+                            searchFuture = normalized.isEmpty
+                                ? null
+                                : _searchAllSermonsForPicker(
+                                    repo: repo,
+                                    lang: lang,
+                                    query: normalized,
+                                  );
+                          });
                         },
                       ),
                     ),
                     Expanded(
-                      child: filtered.isEmpty
-                          ? const Center(child: Text('No sermons found.'))
-                          : ListView.separated(
-                              itemCount: filtered.length,
+                      child: q.isEmpty
+                          ? ListView.separated(
+                              itemCount: sermons.length,
                               separatorBuilder: (_, __) =>
                                   const Divider(height: 1),
                               itemBuilder: (context, index) {
-                                final sermon = filtered[index];
+                                final sermon = sermons[index];
                                 return ListTile(
                                   title: Text(
                                     sermon.title,
@@ -600,6 +674,50 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                                   onTap: () => Navigator.of(ctx).pop(sermon),
                                 );
                               },
+                            )
+                          : FutureBuilder<List<SermonEntity>>(
+                              future: searchFuture,
+                              builder: (context, snapshot) {
+                                if (snapshot.connectionState ==
+                                    ConnectionState.waiting) {
+                                  return const Center(
+                                    child: CircularProgressIndicator(),
+                                  );
+                                }
+
+                                final results =
+                                    snapshot.data ?? const <SermonEntity>[];
+                                if (results.isEmpty) {
+                                  return const Center(
+                                    child: Text('No sermons found.'),
+                                  );
+                                }
+
+                                return ListView.separated(
+                                  itemCount: results.length,
+                                  separatorBuilder: (_, __) =>
+                                      const Divider(height: 1),
+                                  itemBuilder: (context, index) {
+                                    final sermon = results[index];
+                                    return ListTile(
+                                      title: Text(
+                                        sermon.title,
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      subtitle: Text(
+                                        [
+                                          sermon.id,
+                                          if (sermon.year != null)
+                                            sermon.year.toString(),
+                                        ].join(' • '),
+                                      ),
+                                      onTap: () =>
+                                          Navigator.of(ctx).pop(sermon),
+                                    );
+                                  },
+                                );
+                              },
                             ),
                     ),
                   ],
@@ -609,6 +727,46 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
           },
         );
       },
+    );
+  }
+
+  Future<List<SermonEntity>> _searchAllSermonsForPicker({
+    required SermonRepository repo,
+    required String lang,
+    required String query,
+  }) async {
+    final trimmed = query.trim();
+    if (trimmed.isEmpty) return const <SermonEntity>[];
+
+    final fts = await repo.searchSermons(
+      query: trimmed,
+      limit: 300,
+      offset: 0,
+      anyWord: true,
+      sortOrder: 'relevance',
+    );
+
+    if (fts.isNotEmpty) {
+      final byId = <String, SermonEntity>{};
+      for (final row in fts) {
+        if (byId.containsKey(row.sermonId)) continue;
+        byId[row.sermonId] = SermonEntity(
+          id: row.sermonId,
+          title: row.title,
+          language: lang,
+          date: row.date,
+          year: row.year,
+          location: row.location,
+        );
+      }
+      return byId.values.toList();
+    }
+
+    return repo.getSermonsPage(
+      limit: 500,
+      offset: 0,
+      searchQuery: trimmed,
+      sortBy: 'name_asc',
     );
   }
 
@@ -1012,6 +1170,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
         final ratio = bmRatio.clamp(_bmSplitMin, _bmSplitMax);
 
         if (isWide) {
+          const dividerHeaderInset = 56.0;
           final leftWidth = constraints.maxWidth * ratio;
           final rightWidth =
               constraints.maxWidth - leftWidth - _bmSplitterWidth;
@@ -1041,9 +1200,29 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                 },
                 child: MouseRegion(
                   cursor: SystemMouseCursors.resizeColumn,
-                  child: Container(
-                    width: _bmSplitterWidth,
-                    color: Theme.of(context).colorScheme.outlineVariant,
+                  child: Center(
+                    child: Container(
+                      width: 28,
+                      height: 48,
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.outlineVariant,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: Theme.of(context).colorScheme.outline,
+                          width: 1.2,
+                        ),
+                      ),
+                      child: Center(
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: const [
+                            Icon(Icons.drag_handle, size: 16),
+                            SizedBox(height: 2),
+                            Icon(Icons.drag_handle, size: 16),
+                          ],
+                        ),
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -1503,6 +1682,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   Widget _buildSplitSermonPane({
     required ReaderTab sermonTab,
     required TypographySettings typography,
+    bool showHeaderControls = true,
   }) {
     final sermonId = sermonTab.sermonId;
     final sermonLang =
@@ -1517,51 +1697,52 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
     return Column(
       children: [
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          decoration: BoxDecoration(
-            border: Border(
-              bottom: BorderSide(
-                color: Theme.of(context).colorScheme.outlineVariant,
+        if (showHeaderControls)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              border: Border(
+                bottom: BorderSide(
+                  color: Theme.of(context).colorScheme.outlineVariant,
+                ),
               ),
             ),
-          ),
-          child: Row(
-            children: [
-              IconButton(
-                icon: const Icon(Icons.chevron_left),
-                tooltip: 'Previous sermon',
-                visualDensity: VisualDensity.compact,
-                onPressed: () => _openAdjacentSplitRightSermon(
-                  rightSermonTab: sermonTab,
-                  direction: -1,
-                ),
-              ),
-              Expanded(
-                child: Center(
-                  child: TextButton.icon(
-                    style: TextButton.styleFrom(
-                      visualDensity: VisualDensity.compact,
-                    ),
-                    onPressed: () => _changeSplitRightSermon(sermonTab),
-                    icon: const Icon(Icons.library_books_outlined, size: 16),
-                    label: const Text('All Sermons'),
+            child: Row(
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.chevron_left),
+                  tooltip: 'Previous sermon',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () => _openAdjacentSplitRightSermon(
+                    rightSermonTab: sermonTab,
+                    direction: -1,
                   ),
                 ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.chevron_right),
-                tooltip: 'Next sermon',
-                visualDensity: VisualDensity.compact,
-                onPressed: () => _openAdjacentSplitRightSermon(
-                  rightSermonTab: sermonTab,
-                  direction: 1,
+                Expanded(
+                  child: Center(
+                    child: TextButton.icon(
+                      style: TextButton.styleFrom(
+                        visualDensity: VisualDensity.compact,
+                      ),
+                      onPressed: () => _changeSplitRightSermon(sermonTab),
+                      icon: const Icon(Icons.library_books_outlined, size: 16),
+                      label: const Text('All Sermons'),
+                    ),
+                  ),
                 ),
-              ),
-            ],
+                IconButton(
+                  icon: const Icon(Icons.chevron_right),
+                  tooltip: 'Next sermon',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () => _openAdjacentSplitRightSermon(
+                    rightSermonTab: sermonTab,
+                    direction: 1,
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
         Expanded(
           child: FutureBuilder<List<SermonParagraphEntity>>(
             future: paragraphsFuture,
@@ -1827,6 +2008,362 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
               color: Theme.of(context).colorScheme.outlineVariant,
             ),
             Expanded(flex: bottomFlex, child: rightPaneWithTabs),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildReaderSplitContentV2({
+    required ReaderTab bibleTab,
+    required ReaderState readerState,
+    required TypographySettings typography,
+  }) {
+    if (readerState.secondaryTabs.isEmpty) {
+      return _buildTabContent(bibleTab, typography);
+    }
+
+    final secondaryTabs = readerState.secondaryTabs;
+    final secondaryIndex = readerState.secondaryActiveIndex.clamp(
+      0,
+      secondaryTabs.length - 1,
+    );
+    final activeSecondary = secondaryTabs[secondaryIndex];
+
+    final primaryContent = _buildTabContent(bibleTab, typography);
+    final secondaryContent = activeSecondary.type == ReaderContentType.bible
+        ? _buildParallelBiblePanel(
+            tab: activeSecondary,
+            typography: typography,
+            controller: _parallelSecondaryScrollController,
+            panelTitle: _languageLabel(activeSecondary.bibleLang ?? 'en'),
+            panelSubtitle:
+                '${activeSecondary.book ?? ''} ${activeSecondary.chapter ?? ''}'
+                    .trim(),
+            showHeader: false,
+            showControls: false,
+            isPrimaryPane: false,
+            searchQuery: _secondaryMiniSearchController.text,
+            searchMatchVerseIndices: _secondaryMatchVerseIndices,
+            searchCurrentMatchIndex: _secondaryCurrentMatchIndex,
+            onVersesResolved: (verses) {
+              final signature =
+                  '${activeSecondary.id}:${activeSecondary.book}:${activeSecondary.chapter}';
+              if (_lastSecondaryChapterSignature != signature ||
+                  _secondaryVerses.length != verses.length) {
+                _lastSecondaryChapterSignature = signature;
+                _secondaryVerses = verses;
+                if (_secondaryMiniSearchController.text.trim().isNotEmpty) {
+                  _computeSecondaryBibleMatches(
+                    _secondaryMiniSearchController.text,
+                    scrollToMatch: false,
+                  );
+                }
+              }
+            },
+          )
+        : _buildSplitSermonPane(
+            sermonTab: activeSecondary,
+            typography: typography,
+            showHeaderControls: false,
+          );
+
+    final primaryPane = Column(
+      children: [
+        PaneHeader(
+          tab: bibleTab,
+          isPrimary: true,
+          displayFontSize: _parallelPaneFontSize(typography, true),
+          isSearchActive: _primaryMiniSearchActive,
+          onOpenPicker: () => _openQuickNav(
+            initialLang: bibleTab.bibleLang,
+            initialOpenInNewTab: false,
+          ),
+          onPrev: () => _openAdjacentParallelBiblePassage(-1),
+          onNext: () => _openAdjacentParallelBiblePassage(1),
+          onDecreaseFont: () =>
+              _adjustParallelPaneFontSize(isPrimary: true, delta: -1),
+          onIncreaseFont: () =>
+              _adjustParallelPaneFontSize(isPrimary: true, delta: 1),
+          onToggleSearch: () {
+            setState(() {
+              _primaryMiniSearchActive = !_primaryMiniSearchActive;
+              if (_primaryMiniSearchActive) {
+                _isSearching = true;
+                _searchScope = BibleSearchScope.chapter;
+                _searchController.text = _primaryMiniSearchController.text;
+                _computeMatches(_searchController.text);
+              }
+            });
+          },
+          onSourceSelected: (value) => _onPaneSourceSelected(
+            isPrimary: true,
+            activeTab: bibleTab,
+            selectedSource: value,
+          ),
+        ),
+        Expanded(
+          child: ReadingPane(
+            child: primaryContent,
+            isSearchActive: _primaryMiniSearchActive,
+            searchController: _primaryMiniSearchController,
+            searchFocusNode: _primaryMiniSearchFocusNode,
+            matchCounterText: _totalMatches > 0
+                ? '${_currentMatchIndex + 1}/$_totalMatches'
+                : '0/0',
+            onSearchChanged: (value) {
+              setState(() {
+                _isSearching = true;
+                _searchScope = BibleSearchScope.chapter;
+                _searchController.text = value;
+                _computeMatches(value);
+              });
+            },
+            onPrevMatch: () => _navigateToMatch(-1),
+            onNextMatch: () => _navigateToMatch(1),
+            onCloseSearch: () {
+              setState(() {
+                _primaryMiniSearchActive = false;
+                _resetGlobalSearchState(clearQuery: false);
+              });
+            },
+          ),
+        ),
+      ],
+    );
+
+    final rightPaneTabs = SizedBox(
+      height: 40,
+      child: Row(
+        children: [
+          Expanded(
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              itemCount: secondaryTabs.length,
+              itemBuilder: (context, index) {
+                final tab = secondaryTabs[index];
+                final isActive = index == secondaryIndex;
+                final title = tab.type == ReaderContentType.bible
+                    ? '${tab.book ?? ''} ${tab.chapter ?? ''}'.trim()
+                    : tab.title;
+                return Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 4,
+                    vertical: 4,
+                  ),
+                  child: FilterChip(
+                    selected: isActive,
+                    label: Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    onSelected: (_) async {
+                      if (isActive) {
+                        if (tab.type == ReaderContentType.bible) {
+                          await _openSplitRightBibleQuickNav(
+                            sourceLeftTab: bibleTab,
+                            rightBibleTab: tab,
+                          );
+                          return;
+                        }
+
+                        await _changeSplitRightSermon(tab);
+                        return;
+                      }
+
+                      ref
+                          .read(readerProvider.notifier)
+                          .setActiveSecondaryTab(index);
+                      setState(() {
+                        _secondaryMiniSearchController.clear();
+                        _secondaryMatchVerseIndices = [];
+                        _secondaryTotalMatches = 0;
+                        _secondaryCurrentMatchIndex = 0;
+                        _lastSecondaryChapterSignature = null;
+                        _secondaryVerses = [];
+                      });
+                    },
+                    deleteIcon: const Icon(Icons.close, size: 16),
+                    onDeleted: () => ref
+                        .read(readerProvider.notifier)
+                        .closeSecondaryTab(index),
+                  ),
+                );
+              },
+            ),
+          ),
+          IconButton(
+            tooltip: 'Open new tab in right pane',
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(Icons.add),
+            onPressed: () => _onPaneSourceSelected(
+              isPrimary: false,
+              activeTab: bibleTab,
+              forceNewTab: true,
+            ),
+          ),
+        ],
+      ),
+    );
+
+    final secondaryPane = Column(
+      children: [
+        PaneHeader(
+          tab: activeSecondary,
+          isPrimary: false,
+          showClose: true,
+          displayFontSize: _parallelPaneFontSize(typography, false),
+          isSearchActive: _secondaryMiniSearchActive,
+          onOpenPicker: () {
+            if (activeSecondary.type == ReaderContentType.bible) {
+              _openSplitRightBibleQuickNav(
+                sourceLeftTab: bibleTab,
+                rightBibleTab: activeSecondary,
+              );
+              return;
+            }
+            _changeSplitRightSermon(activeSecondary);
+          },
+          onPrev: () {
+            if (activeSecondary.type == ReaderContentType.bible) {
+              _openAdjacentSplitRightBiblePassage(
+                sourceLeftTab: bibleTab,
+                rightBibleTab: activeSecondary,
+                direction: -1,
+              );
+              return;
+            }
+            _openAdjacentSplitRightSermon(
+              rightSermonTab: activeSecondary,
+              direction: -1,
+            );
+          },
+          onNext: () {
+            if (activeSecondary.type == ReaderContentType.bible) {
+              _openAdjacentSplitRightBiblePassage(
+                sourceLeftTab: bibleTab,
+                rightBibleTab: activeSecondary,
+                direction: 1,
+              );
+              return;
+            }
+            _openAdjacentSplitRightSermon(
+              rightSermonTab: activeSecondary,
+              direction: 1,
+            );
+          },
+          onDecreaseFont: () =>
+              _adjustParallelPaneFontSize(isPrimary: false, delta: -1),
+          onIncreaseFont: () =>
+              _adjustParallelPaneFontSize(isPrimary: false, delta: 1),
+          onToggleSearch: () {
+            setState(() {
+              _secondaryMiniSearchActive = !_secondaryMiniSearchActive;
+            });
+          },
+          onClose: () => ref.read(readerProvider.notifier).closeSecondaryPane(),
+          onSourceSelected: (value) => _onPaneSourceSelected(
+            isPrimary: false,
+            activeTab: bibleTab,
+            selectedSource: value,
+          ),
+        ),
+        rightPaneTabs,
+        Expanded(
+          child: ReadingPane(
+            child: secondaryContent,
+            isSearchActive: _secondaryMiniSearchActive,
+            searchController: _secondaryMiniSearchController,
+            searchFocusNode: _secondaryMiniSearchFocusNode,
+            matchCounterText: activeSecondary.type == ReaderContentType.bible
+                ? (_secondaryTotalMatches > 0
+                      ? '${_secondaryCurrentMatchIndex + 1}/$_secondaryTotalMatches'
+                      : '0/0')
+                : '0/0',
+            onSearchChanged: (value) {
+              if (activeSecondary.type == ReaderContentType.bible) {
+                _computeSecondaryBibleMatches(value);
+              }
+            },
+            onPrevMatch: activeSecondary.type == ReaderContentType.bible
+                ? () => _navigateSecondaryBibleMatch(-1)
+                : null,
+            onNextMatch: activeSecondary.type == ReaderContentType.bible
+                ? () => _navigateSecondaryBibleMatch(1)
+                : null,
+            onCloseSearch: () {
+              setState(() {
+                _secondaryMiniSearchActive = false;
+                _secondaryMiniSearchController.clear();
+                _secondaryMatchVerseIndices = [];
+                _secondaryTotalMatches = 0;
+                _secondaryCurrentMatchIndex = 0;
+              });
+            },
+          ),
+        ),
+      ],
+    );
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final isWide = constraints.maxWidth >= _parallelWideBreakpoint;
+        final ratio = readerState.splitViewRatio.clamp(
+          _bmSplitMin,
+          _bmSplitMax,
+        );
+        if (isWide) {
+          final leftWidth = constraints.maxWidth * ratio;
+          final rightWidth =
+              constraints.maxWidth - leftWidth - _bmSplitterWidth;
+          return Row(
+            children: [
+              SizedBox(width: leftWidth, child: primaryPane),
+              GestureDetector(
+                behavior: HitTestBehavior.translucent,
+                onHorizontalDragUpdate: (details) {
+                  if (constraints.maxWidth <= 0) return;
+                  final currentRatio = ref.read(readerProvider).splitViewRatio;
+                  final next =
+                      (currentRatio + details.delta.dx / constraints.maxWidth)
+                          .clamp(_bmSplitMin, _bmSplitMax)
+                          .toDouble();
+                  ref
+                      .read(readerProvider.notifier)
+                      .setSplitViewRatio(next, persist: false);
+                },
+                onHorizontalDragEnd: (_) {
+                  ref
+                      .read(readerProvider.notifier)
+                      .setSplitViewRatio(
+                        ref.read(readerProvider).splitViewRatio,
+                        persist: true,
+                      );
+                },
+                child: MouseRegion(
+                  cursor: SystemMouseCursors.resizeColumn,
+                  child: Container(
+                    width: _bmSplitterWidth,
+                    color: Theme.of(context).colorScheme.outlineVariant,
+                  ),
+                ),
+              ),
+              SizedBox(width: rightWidth, child: secondaryPane),
+            ],
+          );
+        }
+
+        final topFlex = (ratio * 100).round().clamp(35, 75);
+        final bottomFlex = 100 - topFlex;
+        return Column(
+          children: [
+            Expanded(flex: topFlex, child: primaryPane),
+            Container(
+              height: _bmSplitterWidth,
+              color: Theme.of(context).colorScheme.outlineVariant,
+            ),
+            Expanded(flex: bottomFlex, child: secondaryPane),
           ],
         );
       },
@@ -2545,7 +3082,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       return [TextSpan(text: text, style: baseStyle)];
     }
 
-    final query = _searchController.text;
+    final query = RegExp.escape(_searchController.text);
     final matches = RegExp(
       query,
       caseSensitive: false,
@@ -2577,6 +3114,125 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       spans.add(TextSpan(text: text.substring(start), style: baseStyle));
     }
     return spans;
+  }
+
+  List<TextSpan> _buildHighlightedSpansForQuery(
+    String text,
+    TextStyle baseStyle,
+    TextStyle highlightStyle,
+    TextStyle currentMatchStyle,
+    String query, {
+    int? currentOccurrenceIndex,
+  }) {
+    if (query.trim().isEmpty) {
+      return [TextSpan(text: text, style: baseStyle)];
+    }
+
+    final escaped = RegExp.escape(query);
+    final matches = RegExp(
+      escaped,
+      caseSensitive: false,
+    ).allMatches(text).toList();
+    if (matches.isEmpty) {
+      return [TextSpan(text: text, style: baseStyle)];
+    }
+
+    final spans = <TextSpan>[];
+    int start = 0;
+    int occurrenceCounter = 0;
+    for (final match in matches) {
+      if (match.start > start) {
+        spans.add(
+          TextSpan(text: text.substring(start, match.start), style: baseStyle),
+        );
+      }
+      final isCurrent = occurrenceCounter == currentOccurrenceIndex;
+      spans.add(
+        TextSpan(
+          text: text.substring(match.start, match.end),
+          style: isCurrent ? currentMatchStyle : highlightStyle,
+        ),
+      );
+      occurrenceCounter++;
+      start = match.end;
+    }
+    if (start < text.length) {
+      spans.add(TextSpan(text: text.substring(start), style: baseStyle));
+    }
+    return spans;
+  }
+
+  void _computeSecondaryBibleMatches(
+    String query, {
+    bool scrollToMatch = true,
+  }) {
+    final trimmed = query.trim();
+    if (trimmed.isEmpty || _secondaryVerses.isEmpty) {
+      setState(() {
+        _secondaryMatchVerseIndices = [];
+        _secondaryTotalMatches = 0;
+        _secondaryCurrentMatchIndex = 0;
+      });
+      return;
+    }
+
+    final escaped = RegExp.escape(trimmed);
+    final pattern = RegExp(escaped, caseSensitive: false);
+    final indices = <int>[];
+    for (var i = 0; i < _secondaryVerses.length; i++) {
+      final count = pattern.allMatches(_secondaryVerses[i].text).length;
+      if (count > 0) {
+        indices.addAll(List<int>.filled(count, i));
+      }
+    }
+
+    setState(() {
+      _secondaryMatchVerseIndices = indices;
+      _secondaryTotalMatches = indices.length;
+      _secondaryCurrentMatchIndex = 0;
+    });
+
+    if (scrollToMatch && indices.isNotEmpty) {
+      _scrollToSecondaryMatch();
+    }
+  }
+
+  void _navigateSecondaryBibleMatch(int direction) {
+    if (_secondaryMatchVerseIndices.isEmpty || _secondaryVerses.isEmpty) return;
+
+    setState(() {
+      _secondaryCurrentMatchIndex =
+          (_secondaryCurrentMatchIndex + direction) %
+          _secondaryMatchVerseIndices.length;
+      if (_secondaryCurrentMatchIndex < 0) {
+        _secondaryCurrentMatchIndex = _secondaryMatchVerseIndices.length - 1;
+      }
+    });
+
+    _scrollToSecondaryMatch();
+  }
+
+  void _scrollToSecondaryMatch() {
+    if (_secondaryMatchVerseIndices.isEmpty || _secondaryVerses.isEmpty) return;
+    final verseIndex = _secondaryMatchVerseIndices[_secondaryCurrentMatchIndex];
+    if (verseIndex < 0 || verseIndex >= _secondaryVerses.length) return;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted ||
+          !_parallelSecondaryScrollController.hasClients ||
+          _secondaryVerses.isEmpty) {
+        return;
+      }
+      final clamped = verseIndex.clamp(0, _secondaryVerses.length - 1);
+      final frac = (clamped / _secondaryVerses.length).clamp(0.0, 1.0);
+      final target =
+          frac * _parallelSecondaryScrollController.position.maxScrollExtent;
+      _parallelSecondaryScrollController.animateTo(
+        target,
+        duration: const Duration(milliseconds: 260),
+        curve: Curves.easeOutCubic,
+      );
+    });
   }
 
   Widget _buildMatchMarkers(
@@ -2660,15 +3316,12 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     final isParallelMode = _isParallelActiveFor(activeTab);
     final englishParallelTab = _parallelEnglishTab;
     final bmState = ref.watch(readerProvider);
+    final isSplitViewOpen =
+        bmState.splitViewEnabled && bmState.secondaryTabs.isNotEmpty;
     final hasUnifiedSplit =
+        bmState.secondaryTabs.isNotEmpty &&
         bmState.splitViewEnabled &&
-        bmState.splitRightTabs.isNotEmpty &&
         activeTab?.type == ReaderContentType.bible;
-    final isBmMode =
-        !hasUnifiedSplit &&
-        bmState.bmMode &&
-        activeTab?.type == ReaderContentType.bible &&
-        bmState.bmMessageTabs.isNotEmpty;
 
     if (!isParallelMode &&
         (_parallelSourceTabId != null || _parallelEnglishTab != null)) {
@@ -2707,9 +3360,13 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
           child: Scaffold(
             appBar: isFullscreen
                 ? null
-                : (_isSearching
+                : ((!hasUnifiedSplit && _isSearching)
                       ? _buildSearchAppBar(context, activeTab)
-                      : _buildDefaultAppBar(context, activeTab)),
+                      : _buildDefaultAppBar(
+                          context,
+                          activeTab,
+                          isInSplitView: hasUnifiedSplit,
+                        )),
             body: activeTab == null
                 ? const Center(child: Text('No open tabs. Please open a book.'))
                 : isFullscreen
@@ -2719,14 +3376,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                         children: [
                           Expanded(
                             child: hasUnifiedSplit
-                                ? _buildUnifiedSplitContent(
+                                ? _buildReaderSplitContentV2(
                                     bibleTab: activeTab,
                                     readerState: bmState,
-                                    typography: typographyState,
-                                  )
-                                : isBmMode
-                                ? _buildBmSplitContent(
-                                    bibleTab: activeTab,
                                     typography: typographyState,
                                   )
                                 : (isParallelMode && englishParallelTab != null
@@ -2815,28 +3467,22 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                                 _searchScope != BibleSearchScope.chapter
                             ? _buildScopeSearchResults(activeTab)
                             : (hasUnifiedSplit
-                                  ? _buildUnifiedSplitContent(
+                                  ? _buildReaderSplitContentV2(
                                       bibleTab: activeTab,
                                       readerState: bmState,
                                       typography: typographyState,
                                     )
-                                  : (isBmMode
-                                        ? _buildBmSplitContent(
-                                            bibleTab: activeTab,
+                                  : (isParallelMode &&
+                                            englishParallelTab != null
+                                        ? _buildParallelContent(
+                                            primaryTab: activeTab,
+                                            secondaryTab: englishParallelTab,
                                             typography: typographyState,
                                           )
-                                        : (isParallelMode &&
-                                                  englishParallelTab != null
-                                              ? _buildParallelContent(
-                                                  primaryTab: activeTab,
-                                                  secondaryTab:
-                                                      englishParallelTab,
-                                                  typography: typographyState,
-                                                )
-                                              : _buildTabContent(
-                                                  activeTab,
-                                                  typographyState,
-                                                )))),
+                                        : _buildTabContent(
+                                            activeTab,
+                                            typographyState,
+                                          ))),
                       ),
                       SelectionActionBar(
                         isVisible:
@@ -2855,7 +3501,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                 (activeTab == null ||
                     isFullscreen ||
                     _isSearching ||
-                    _hasAnySelection)
+                    _hasAnySelection ||
+                    isSplitViewOpen)
                 ? null
                 : FloatingActionButton(
                     onPressed: _openQuickNav,
@@ -2864,7 +3511,48 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
             floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
             bottomNavigationBar:
                 (!isFullscreen && readerState.tabs.isNotEmpty && !_isSearching)
-                ? _buildBottomTabBar(context, readerState, ref)
+                ? BottomTabRail(
+                    tabs: readerState.tabs,
+                    activeIndex: readerState.activeTabIndex,
+                    onTapTab: (index) async {
+                      final tab = readerState.tabs[index];
+                      final isActive = index == readerState.activeTabIndex;
+                      if (isActive) {
+                        if (tab.type == ReaderContentType.bible) {
+                          _openQuickNav(
+                            initialLang: tab.bibleLang,
+                            initialOpenInNewTab: false,
+                          );
+                          return;
+                        }
+
+                        final sermonLang =
+                            tab.sermonLang ??
+                            ref.read(selectedSermonLangProvider) ??
+                            'en';
+                        final picked = await _pickSermonForBm(sermonLang);
+                        if (!mounted || picked == null) return;
+                        ref
+                            .read(selectedSermonLangProvider.notifier)
+                            .setLang(sermonLang);
+                        ref
+                            .read(readerProvider.notifier)
+                            .replaceCurrentTab(
+                              ReaderTab(
+                                type: ReaderContentType.sermon,
+                                title: picked.title,
+                                sermonId: picked.id,
+                                sermonLang: sermonLang,
+                              ),
+                            );
+                        return;
+                      }
+                      ref.read(readerProvider.notifier).switchTab(index);
+                    },
+                    onCloseTab: (index) =>
+                        ref.read(readerProvider.notifier).closeTab(index),
+                    onOpenNew: _openQuickNav,
+                  )
                 : null,
           ),
         ),
@@ -3353,7 +4041,11 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     );
   }
 
-  AppBar _buildDefaultAppBar(BuildContext context, ReaderTab? activeTab) {
+  AppBar _buildDefaultAppBar(
+    BuildContext context,
+    ReaderTab? activeTab, {
+    required bool isInSplitView,
+  }) {
     final splitEnabled = ref.watch(
       readerProvider.select(
         (s) => s.splitViewEnabled && s.splitRightTabs.isNotEmpty,
@@ -3561,24 +4253,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
             ),
           if (isBibleTab)
             IconButton(
-              tooltip: 'Decrease font size',
-              icon: const Text(
-                'A-',
-                style: TextStyle(fontWeight: FontWeight.w700),
-              ),
-              onPressed: () => _adjustReaderFontSize(-1),
-            ),
-          if (isBibleTab)
-            IconButton(
-              tooltip: 'Increase font size',
-              icon: const Text(
-                'A+',
-                style: TextStyle(fontWeight: FontWeight.w700),
-              ),
-              onPressed: () => _adjustReaderFontSize(1),
-            ),
-          if (isBibleTab)
-            IconButton(
               tooltip: 'Advanced Search',
               icon: const Icon(Icons.manage_search),
               onPressed: () => context.go('/search?tab=bible'),
@@ -3586,6 +4260,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
           IconButton(
             icon: const Icon(Icons.search),
             onPressed: () {
+              if (isInSplitView) {
+                context.go('/search?tab=bible');
+                return;
+              }
               _resetGlobalSearchState();
               setState(() {
                 _isSearching = true;
@@ -3602,7 +4280,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
           ),
         ],
       ],
-      bottom: isBibleTab
+      bottom: (!isInSplitView && isBibleTab)
           ? PreferredSize(
               preferredSize: Size.fromHeight(
                 MediaQuery.sizeOf(context).width >= 900 ? 44 : 40,
@@ -4145,12 +4823,17 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     required ScrollController controller,
     required String panelTitle,
     required String panelSubtitle,
+    bool showHeader = true,
     required bool showControls,
     required bool isPrimaryPane,
     VoidCallback? onPrevious,
     VoidCallback? onNext,
     VoidCallback? onAllBooks,
     String allBooksLabel = 'All Books',
+    String? searchQuery,
+    List<int>? searchMatchVerseIndices,
+    int searchCurrentMatchIndex = 0,
+    ValueChanged<List<BibleSearchResult>>? onVersesResolved,
   }) {
     final asyncVerses = ref.watch(chapterVersesProvider(tab));
     final cs = Theme.of(context).colorScheme;
@@ -4161,64 +4844,65 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       ),
       child: Column(
         children: [
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              color: cs.surfaceContainerHighest.withAlpha(160),
-              border: Border(
-                bottom: BorderSide(color: cs.outlineVariant.withAlpha(100)),
+          if (showHeader)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: cs.surfaceContainerHighest.withAlpha(160),
+                border: Border(
+                  bottom: BorderSide(color: cs.outlineVariant.withAlpha(100)),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Text(
+                    panelTitle,
+                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      panelSubtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                        color: cs.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                  if (showControls) ...[
+                    IconButton(
+                      icon: const Icon(Icons.remove),
+                      tooltip: 'Decrease text size',
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () => _adjustParallelPaneFontSize(
+                        isPrimary: isPrimaryPane,
+                        delta: -1,
+                      ),
+                    ),
+                    Text(
+                      _parallelPaneFontSize(
+                        typography,
+                        isPrimaryPane,
+                      ).toStringAsFixed(0),
+                      style: Theme.of(context).textTheme.labelMedium,
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.add),
+                      tooltip: 'Increase text size',
+                      visualDensity: VisualDensity.compact,
+                      onPressed: () => _adjustParallelPaneFontSize(
+                        isPrimary: isPrimaryPane,
+                        delta: 1,
+                      ),
+                    ),
+                  ],
+                ],
               ),
             ),
-            child: Row(
-              children: [
-                Text(
-                  panelTitle,
-                  style: Theme.of(
-                    context,
-                  ).textTheme.labelLarge?.copyWith(fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    panelSubtitle,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                      color: cs.onSurfaceVariant,
-                    ),
-                  ),
-                ),
-                if (showControls) ...[
-                  IconButton(
-                    icon: const Icon(Icons.remove),
-                    tooltip: 'Decrease text size',
-                    visualDensity: VisualDensity.compact,
-                    onPressed: () => _adjustParallelPaneFontSize(
-                      isPrimary: isPrimaryPane,
-                      delta: -1,
-                    ),
-                  ),
-                  Text(
-                    _parallelPaneFontSize(
-                      typography,
-                      isPrimaryPane,
-                    ).toStringAsFixed(0),
-                    style: Theme.of(context).textTheme.labelMedium,
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.add),
-                    tooltip: 'Increase text size',
-                    visualDensity: VisualDensity.compact,
-                    onPressed: () => _adjustParallelPaneFontSize(
-                      isPrimary: isPrimaryPane,
-                      delta: 1,
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
           if (showControls)
             Container(
               width: double.infinity,
@@ -4267,6 +4951,12 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
           Expanded(
             child: asyncVerses.when(
               data: (verses) {
+                if (onVersesResolved != null) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (!mounted) return;
+                    onVersesResolved(verses);
+                  });
+                }
                 if (verses.isEmpty) {
                   return const Center(
                     child: Text('No verses found in this chapter.'),
@@ -4284,6 +4974,23 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                       fontFamily: typography.resolvedFontFamily,
                     ) ??
                     const TextStyle();
+                final paneQuery = searchQuery?.trim() ?? '';
+                final paneMatches = searchMatchVerseIndices ?? const <int>[];
+                final paneCurrentItemIndex = paneMatches.isNotEmpty
+                    ? paneMatches[searchCurrentMatchIndex.clamp(
+                        0,
+                        paneMatches.length - 1,
+                      )]
+                    : null;
+                final highlightStyle = TextStyle(
+                  backgroundColor: Colors.yellow.withAlpha(100),
+                  color: Colors.black,
+                );
+                final currentMatchStyle = TextStyle(
+                  backgroundColor: Colors.orange.withAlpha(170),
+                  color: Colors.black,
+                  fontWeight: FontWeight.bold,
+                );
 
                 return SelectionArea(
                   child: ListView.builder(
@@ -4299,6 +5006,20 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                         verse.verse,
                       );
                       final plainText = '${verse.verse} ${verse.text}';
+                      int? currentOccurrence;
+                      if (paneMatches.isNotEmpty &&
+                          paneCurrentItemIndex == index) {
+                        currentOccurrence = paneMatches
+                            .sublist(
+                              0,
+                              searchCurrentMatchIndex.clamp(
+                                0,
+                                paneMatches.length,
+                              ),
+                            )
+                            .where((vi) => vi == index)
+                            .length;
+                      }
 
                       return GestureDetector(
                         key: ValueKey<String>('${tab.id}:${verse.verse}'),
@@ -4330,7 +5051,14 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                                         : cs.onSurfaceVariant,
                                   ),
                                 ),
-                                TextSpan(text: verse.text),
+                                ..._buildHighlightedSpansForQuery(
+                                  verse.text,
+                                  baseStyle,
+                                  highlightStyle,
+                                  currentMatchStyle,
+                                  paneQuery,
+                                  currentOccurrenceIndex: currentOccurrence,
+                                ),
                               ],
                             ),
                             onSelectionChanged: (selection, cause) {

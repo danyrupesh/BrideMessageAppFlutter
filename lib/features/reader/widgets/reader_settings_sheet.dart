@@ -62,47 +62,14 @@ class _ReaderSettingsSheetState extends ConsumerState<ReaderSettingsSheet> {
             ),
             const SizedBox(height: 24),
 
-            Text('Text Size', style: Theme.of(context).textTheme.titleMedium),
-            Row(
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.remove),
-                  onPressed: () {
-                    final newSize = (typography.fontSize - 1).clamp(12.0, 36.0);
-                    ref
-                        .read(typographyProvider.notifier)
-                        .updateFontSize(newSize);
-                  },
-                ),
-                Expanded(
-                  child: Slider(
-                    value: typography.fontSize,
-                    min: 12.0,
-                    max: 36.0,
-                    divisions: 12,
-                    onChanged: (val) => ref
-                        .read(typographyProvider.notifier)
-                        .updateFontSize(val),
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.add),
-                  onPressed: () {
-                    final newSize = (typography.fontSize + 1).clamp(12.0, 36.0);
-                    ref
-                        .read(typographyProvider.notifier)
-                        .updateFontSize(newSize);
-                  },
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  typography.fontSize.toStringAsFixed(0),
-                  style: Theme.of(context).textTheme.bodyMedium,
-                ),
-              ],
+            Text(
+              'Reader typography uses per-pane zoom controls in split view.',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
             ),
 
-            const SizedBox(height: 16),
+            const SizedBox(height: 20),
             Text('Line Height', style: Theme.of(context).textTheme.titleMedium),
             Row(
               children: [

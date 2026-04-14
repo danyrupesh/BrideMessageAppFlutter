@@ -22,6 +22,7 @@ class SermonListScreen extends ConsumerStatefulWidget {
     this.customTitle,
     this.hideFilters = false,
     this.allowedIds,
+    this.categoryFilter,
   });
 
   final bool autoResume;
@@ -30,6 +31,7 @@ class SermonListScreen extends ConsumerStatefulWidget {
   final String? customTitle;
   final bool hideFilters;
   final List<String>? allowedIds;
+  final String? categoryFilter;
 
   @override
   ConsumerState<SermonListScreen> createState() => _SermonListScreenState();
@@ -202,6 +204,9 @@ class _SermonListScreenState extends ConsumerState<SermonListScreen> {
     // Apply an initial search filter when provided (e.g. COD-specific screens).
     final initialQuery = widget.initialQuery?.trim();
     final titlePrefix = widget.titlePrefix?.trim();
+    final categoryFilter = widget.categoryFilter?.trim();
+    final hasCategoryFilter =
+        categoryFilter != null && categoryFilter.isNotEmpty;
     if (widget.allowedIds != null && widget.allowedIds!.isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
@@ -212,6 +217,19 @@ class _SermonListScreenState extends ConsumerState<SermonListScreen> {
               query: '',
               titlePrefix: null,
               allowedIds: widget.allowedIds,
+              categoryFilter: widget.categoryFilter,
+            );
+      });
+    } else if (hasCategoryFilter) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        ref
+            .read(sermonListProvider.notifier)
+            .filterSermons(
+              year: null,
+              query: '',
+              titlePrefix: null,
+              categoryFilter: categoryFilter,
             );
       });
     } else if (titlePrefix != null && titlePrefix.isNotEmpty) {
@@ -219,7 +237,12 @@ class _SermonListScreenState extends ConsumerState<SermonListScreen> {
         if (!mounted) return;
         ref
             .read(sermonListProvider.notifier)
-            .filterSermons(year: null, query: '', titlePrefix: titlePrefix);
+            .filterSermons(
+              year: null,
+              query: '',
+              titlePrefix: titlePrefix,
+              categoryFilter: widget.categoryFilter,
+            );
       });
     } else if (initialQuery != null && initialQuery.isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -227,7 +250,11 @@ class _SermonListScreenState extends ConsumerState<SermonListScreen> {
         _searchController.text = initialQuery;
         ref
             .read(sermonListProvider.notifier)
-            .filterSermons(year: null, query: initialQuery);
+            .filterSermons(
+              year: null,
+              query: initialQuery,
+              categoryFilter: widget.categoryFilter,
+            );
       });
     } else if (!widget.hideFilters) {
       // Generic Sermon Library entry: ensure we start from the default
@@ -261,6 +288,14 @@ class _SermonListScreenState extends ConsumerState<SermonListScreen> {
     final lang = ref.watch(selectedSermonLangProvider);
     final sermonDbExists = ref.watch(sermonDatabaseExistsProvider(lang));
     final totalCountAsync = ref.watch(sermonStoredCountByLangProvider(lang));
+    final categoryCountAsync = widget.categoryFilter == null
+        ? null
+        : ref.watch(
+            sermonStoredCountByLangAndCategoryProvider((
+              lang: lang,
+              category: widget.categoryFilter!,
+            )),
+          );
     final theme = Theme.of(context);
     final hasAllowedIds =
         widget.allowedIds != null && widget.allowedIds!.isNotEmpty;
@@ -269,7 +304,7 @@ class _SermonListScreenState extends ConsumerState<SermonListScreen> {
         ? (state.searchQuery.trim().isEmpty
               ? '${state.sermons.length} sermons'
               : '${state.sermons.length} shown · ${widget.allowedIds!.length} total sermons')
-        : totalCountAsync.when(
+      : (categoryCountAsync ?? totalCountAsync).when(
             data: (total) {
               if (state.selectedYear == null &&
                   state.searchQuery.trim().isEmpty) {

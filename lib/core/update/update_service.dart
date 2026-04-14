@@ -20,9 +20,9 @@ const String kApiBaseUrl = String.fromEnvironment(
   defaultValue: 'https://api.endtimebride.in',
 );
 const String kAppUpdatesManifestUrl =
-  '$kApiBaseUrl/database/updates/app_version.json';
+    '$kApiBaseUrl/database/updates/app_version.json';
 const String kDatabaseUpdatesManifestUrl =
-  '$kApiBaseUrl/database/updates/db_version.json';
+    '$kApiBaseUrl/database/updates/db_version.json';
 
 class AppUpdateInfo {
   final String targetVersion;
@@ -83,6 +83,9 @@ class DatabasePatchInfo {
 }
 
 class UpdateService {
+  static const String kPrimaryDatabasePackageId = 'bridemessage_db_en-ta';
+  static const List<String> _legacyDatabasePackageIds = ['bridemessage_db'];
+
   final Dio _dio;
 
   UpdateService({Dio? dio})
@@ -145,12 +148,23 @@ class UpdateService {
       final id = (entry['id'] ?? '').toString().trim();
       final displayName = (entry['displayName'] ?? id).toString().trim();
       final version = (entry['version'] ?? '').toString().trim();
-      final url = (entry['url'] ?? '').toString().trim();
+      final rawUrl = (entry['url'] ?? '').toString().trim();
+      final zipFileName =
+          (entry['zipFileName'] ?? entry['zip_file_name'] ?? '')
+              .toString()
+              .trim();
+      final url = _resolveDatabaseDownloadUrl(
+        rawUrl: rawUrl,
+        zipFileName: zipFileName,
+      );
       final mandatory = _parseBool(entry['mandatory']);
-        final updateMessage =
-          (entry['updateMessage'] ?? entry['notes'] ?? entry['description'] ?? '')
-            .toString()
-            .trim();
+      final updateMessage =
+          (entry['updateMessage'] ??
+                  entry['notes'] ??
+                  entry['description'] ??
+                  '')
+              .toString()
+              .trim();
       final installStrategy =
           (entry['installStrategy'] ??
                   entry['install_strategy'] ??
@@ -192,6 +206,50 @@ class UpdateService {
 
     updates.sort((a, b) => a.id.compareTo(b.id));
     return updates;
+  }
+
+  /// Returns the installed DB package version shown to users in settings.
+  ///
+  /// Priority:
+  /// 1) Stored value in SharedPreferences (`updates.db.version.<id>`)
+  /// 2) bundledVersion from manifest entry for current package id
+  /// 3) null when no local/manifest version can be determined
+  Future<String?> getCurrentDatabaseVersion() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    for (final id in [
+      kPrimaryDatabasePackageId,
+      ..._legacyDatabasePackageIds,
+    ]) {
+      final key = _dbVersionKey(id);
+      if (!prefs.containsKey(key)) continue;
+
+      final value = _getStoredDbVersion(prefs, id, defaultValue: '0');
+      if (value.isNotEmpty && value != '0') {
+        return value;
+      }
+    }
+
+    final payload = await _fetchJson(kDatabaseUpdatesManifestUrl);
+    if (payload == null) return null;
+
+    final entries = _extractDatabaseEntries(payload);
+    for (final entry in entries) {
+      final id = (entry['id'] ?? '').toString().trim();
+      final isKnownId =
+          id == kPrimaryDatabasePackageId ||
+          _legacyDatabasePackageIds.contains(id);
+      if (!isKnownId) continue;
+
+      final bundledVersion = _parseInt(
+        entry['bundledVersion'] ?? entry['defaultVersion'],
+      );
+      if (bundledVersion != null && bundledVersion > 0) {
+        return bundledVersion.toString();
+      }
+    }
+
+    return null;
   }
 
   Future<void> applyDatabaseUpdates(
@@ -582,5 +640,24 @@ class UpdateService {
           (part) => int.tryParse(part.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0,
         )
         .toList();
+  }
+
+  String _resolveDatabaseDownloadUrl({
+    required String rawUrl,
+    required String zipFileName,
+  }) {
+    final localBase = kApiBaseUrl.trim().replaceAll(RegExp(r'/$'), '');
+    final localUri = Uri.tryParse(localBase);
+    final remoteUri = Uri.tryParse(rawUrl);
+
+    // Prefer explicit local API host URL when zip filename is available.
+    // This avoids stale/prod URLs in db_version.json during dev testing.
+    if (zipFileName.isNotEmpty && localUri != null) {
+      if (remoteUri == null || remoteUri.host != localUri.host) {
+        return '$localBase/database/${Uri.encodeComponent(zipFileName)}';
+      }
+    }
+
+    return rawUrl;
   }
 }

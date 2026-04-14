@@ -80,6 +80,17 @@ final sermonStoredCountByLangProvider = FutureProvider.family<int, String>((
   return repo.getSermonCount();
 });
 
+final sermonStoredCountByLangAndCategoryProvider =
+    FutureProvider.family<int, ({String lang, String category})>((
+      ref,
+      params,
+    ) async {
+      final repo = await ref.watch(
+        sermonRepositoryByLangProvider(params.lang).future,
+      );
+      return repo.getSermonCountByCategory(params.category);
+    });
+
 final availableYearsProvider = FutureProvider<List<int>>((ref) async {
   final repoAsync = ref.watch(sermonRepositoryProvider);
   return repoAsync.when(
@@ -99,6 +110,7 @@ class SermonListState {
   final int? selectedYear;
   final String searchQuery;
   final String? titlePrefix;
+  final String? categoryFilter;
   final int offset;
   final String? loadError;
   final String sortBy;
@@ -112,6 +124,7 @@ class SermonListState {
     this.selectedYear,
     this.searchQuery = '',
     this.titlePrefix,
+    this.categoryFilter,
     this.offset = 0,
     this.loadError,
     this.sortBy = 'year_asc',
@@ -126,6 +139,7 @@ class SermonListState {
     Object? selectedYear = _unset,
     String? searchQuery,
     Object? titlePrefix = _unset,
+    Object? categoryFilter = _unset,
     int? offset,
     String? loadError,
     String? sortBy,
@@ -143,6 +157,9 @@ class SermonListState {
       titlePrefix: identical(titlePrefix, _unset)
           ? this.titlePrefix
           : titlePrefix as String?,
+        categoryFilter: identical(categoryFilter, _unset)
+          ? this.categoryFilter
+          : categoryFilter as String?,
       offset: offset ?? this.offset,
       loadError: loadError,
       sortBy: sortBy ?? this.sortBy,
@@ -223,6 +240,7 @@ class SermonListNotifier extends Notifier<SermonListState> {
         year: state.selectedYear,
         query: useTitlePrefix ? query : state.searchQuery,
         titlePrefix: titlePrefix,
+        categoryFilter: state.categoryFilter,
         sortBy: state.sortBy,
         yearFrom: state.yearFrom,
         yearTo: state.yearTo,
@@ -243,6 +261,7 @@ class SermonListNotifier extends Notifier<SermonListState> {
     int? year,
     String query = '',
     String? titlePrefix,
+    String? categoryFilter,
     String? sortBy,
     int? yearFrom,
     int? yearTo,
@@ -252,6 +271,9 @@ class SermonListNotifier extends Notifier<SermonListState> {
     final normalizedPrefix = titlePrefix != null
         ? titlePrefix.trim()
         : state.titlePrefix;
+    final normalizedCategory = categoryFilter != null
+      ? categoryFilter.trim().toLowerCase()
+      : state.categoryFilter;
     final effectivePrefix =
         (normalizedPrefix == null || normalizedPrefix.isEmpty)
         ? null
@@ -262,6 +284,9 @@ class SermonListNotifier extends Notifier<SermonListState> {
       selectedYear: year,
       searchQuery: query,
       titlePrefix: effectivePrefix,
+        categoryFilter: (normalizedCategory == null || normalizedCategory.isEmpty)
+          ? null
+          : normalizedCategory,
       offset: 0,
       sermons: [],
       loadError: null,
@@ -308,6 +333,9 @@ class SermonListNotifier extends Notifier<SermonListState> {
         year: year,
         query: useTitlePrefix ? normalizedQuery : query,
         titlePrefix: effectivePrefix,
+        categoryFilter: (normalizedCategory == null || normalizedCategory.isEmpty)
+          ? null
+          : normalizedCategory,
         sortBy: effectiveSortBy,
         yearFrom: year == null ? yearFrom : null,
         yearTo: year == null ? yearTo : null,
@@ -344,6 +372,7 @@ class SermonListNotifier extends Notifier<SermonListState> {
     required int? year,
     required String query,
     required String? titlePrefix,
+    required String? categoryFilter,
     required String sortBy,
     required int? yearFrom,
     required int? yearTo,
@@ -357,6 +386,7 @@ class SermonListNotifier extends Notifier<SermonListState> {
       year: year,
       searchQuery: query,
       titlePrefix: normalizedPrefix,
+      category: categoryFilter,
       sortBy: sortBy,
       yearFrom: yearFrom,
       yearTo: yearTo,
@@ -373,6 +403,7 @@ class SermonListNotifier extends Notifier<SermonListState> {
       year: year,
       searchQuery: query,
       titleContains: normalizedPrefix,
+      category: categoryFilter,
       sortBy: sortBy,
       yearFrom: yearFrom,
       yearTo: yearTo,

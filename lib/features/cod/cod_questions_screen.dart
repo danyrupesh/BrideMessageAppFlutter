@@ -465,7 +465,6 @@ class _CodQuestionsScreenState extends ConsumerState<CodQuestionsScreen> {
                   path: '/sermons',
                   queryParameters: {
                     'mode': 'cod',
-                    'prefix': isTamil ? 'கேள்வி' : 'Question',
                     'title': isTamil
                         ? 'COD - கேள்விகளும் பதில்களும்'
                         : 'COD - Question and Answers',

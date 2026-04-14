@@ -49,6 +49,8 @@ class ReaderState {
   final List<ReaderBmMessageTab> bmMessageTabs;
   final int bmMessageActiveIndex;
   final double bmSplitRatio;
+  final double primaryFontOffset;
+  final double secondaryFontOffset;
 
   ReaderState({
     required this.tabs,
@@ -63,7 +65,21 @@ class ReaderState {
     required this.bmMessageTabs,
     required this.bmMessageActiveIndex,
     required this.bmSplitRatio,
+    required this.primaryFontOffset,
+    required this.secondaryFontOffset,
   });
+
+  ReaderTab? get secondaryTab {
+    if (splitRightTabs.isEmpty) return null;
+    if (splitRightActiveIndex < 0 ||
+        splitRightActiveIndex >= splitRightTabs.length) {
+      return splitRightTabs.first;
+    }
+    return splitRightTabs[splitRightActiveIndex];
+  }
+
+  List<ReaderTab> get secondaryTabs => splitRightTabs;
+  int get secondaryActiveIndex => splitRightActiveIndex;
 
   ReaderTab? get activeTab {
     if (tabs.isEmpty) return null;
@@ -84,6 +100,8 @@ class ReaderState {
     List<ReaderBmMessageTab>? bmMessageTabs,
     int? bmMessageActiveIndex,
     double? bmSplitRatio,
+    double? primaryFontOffset,
+    double? secondaryFontOffset,
   }) {
     return ReaderState(
       tabs: tabs ?? this.tabs,
@@ -99,6 +117,8 @@ class ReaderState {
       bmMessageTabs: bmMessageTabs ?? this.bmMessageTabs,
       bmMessageActiveIndex: bmMessageActiveIndex ?? this.bmMessageActiveIndex,
       bmSplitRatio: bmSplitRatio ?? this.bmSplitRatio,
+      primaryFontOffset: primaryFontOffset ?? this.primaryFontOffset,
+      secondaryFontOffset: secondaryFontOffset ?? this.secondaryFontOffset,
     );
   }
 }
@@ -125,6 +145,8 @@ class ReaderNotifier extends Notifier<ReaderState> {
   static const _bmSplitDefault = 0.6;
   static const _bmSplitMin = 0.35;
   static const _bmSplitMax = 0.75;
+  static const _primaryFontOffsetKey = 'reader_primary_font_offset';
+  static const _secondaryFontOffsetKey = 'reader_secondary_font_offset';
   ReaderTab? _pendingOpenTab;
   String? _pendingOpenLang;
 
@@ -151,6 +173,8 @@ class ReaderNotifier extends Notifier<ReaderState> {
       bmMessageTabs: const [],
       bmMessageActiveIndex: 0,
       bmSplitRatio: _bmSplitDefault,
+      primaryFontOffset: 0,
+      secondaryFontOffset: 0,
     );
   }
 
@@ -173,6 +197,9 @@ class ReaderNotifier extends Notifier<ReaderState> {
     final savedBmRatio = prefs.getDouble(_bmSplitRatioKey) ?? _bmSplitDefault;
     final savedBmTabsRaw = prefs.getString(_bmTabsKey);
     final savedBmActiveIndex = prefs.getInt(_bmActiveIndexKey) ?? 0;
+    final savedPrimaryFontOffset = prefs.getDouble(_primaryFontOffsetKey) ?? 0;
+    final savedSecondaryFontOffset =
+        prefs.getDouble(_secondaryFontOffsetKey) ?? 0;
 
     var restoredTabs = <ReaderTab>[];
     var restoredIndex = 0;
@@ -307,6 +334,8 @@ class ReaderNotifier extends Notifier<ReaderState> {
       bmMessageTabs: bmTabs,
       bmMessageActiveIndex: safeBmActiveIndex,
       bmSplitRatio: savedBmRatio.clamp(_bmSplitMin, _bmSplitMax),
+      primaryFontOffset: savedPrimaryFontOffset,
+      secondaryFontOffset: savedSecondaryFontOffset,
     );
     _applyPendingOpenTab();
     await prefs.setBool(_restoreTabsKey, true);
@@ -335,6 +364,12 @@ class ReaderNotifier extends Notifier<ReaderState> {
   }
 
   Future<void> persistBmState() => _persistBmState();
+
+  Future<void> _persistFontOffsets() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(_primaryFontOffsetKey, state.primaryFontOffset);
+    await prefs.setDouble(_secondaryFontOffsetKey, state.secondaryFontOffset);
+  }
 
   void _applyPendingOpenTab() {
     final pending = _pendingOpenTab;
@@ -561,6 +596,49 @@ class ReaderNotifier extends Notifier<ReaderState> {
       splitViewEnabled: true,
     );
     unawaited(_persistSplitState());
+  }
+
+  void openSecondaryTab(ReaderTab tab, {bool openInNewTab = true}) {
+    upsertSplitRightTab(tab: tab, openInNewTab: openInNewTab);
+  }
+
+  void closeSecondaryTab(int index) {
+    closeSplitRightTab(index);
+  }
+
+  void setActiveSecondaryTab(int index) {
+    setActiveSplitRightTab(index);
+  }
+
+  void closeSecondaryPane() {
+    state = state.copyWith(
+      splitViewEnabled: false,
+      splitRightTabs: const [],
+      splitRightActiveIndex: 0,
+      bmMode: false,
+      bmMessageTabs: const [],
+      bmMessageActiveIndex: 0,
+    );
+    unawaited(_persistSplitState());
+    unawaited(_persistBmState());
+  }
+
+  void adjustPrimaryFontOffset(double delta) {
+    final next = (state.primaryFontOffset + delta)
+        .clamp(-20.0, 20.0)
+        .toDouble();
+    if (next == state.primaryFontOffset) return;
+    state = state.copyWith(primaryFontOffset: next);
+    unawaited(_persistFontOffsets());
+  }
+
+  void adjustSecondaryFontOffset(double delta) {
+    final next = (state.secondaryFontOffset + delta)
+        .clamp(-20.0, 20.0)
+        .toDouble();
+    if (next == state.secondaryFontOffset) return;
+    state = state.copyWith(secondaryFontOffset: next);
+    unawaited(_persistFontOffsets());
   }
 
   void closeSplitRightTab(int index) {

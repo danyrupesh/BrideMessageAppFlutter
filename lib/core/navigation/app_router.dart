@@ -10,6 +10,7 @@ import '../../features/search/search_help_screen.dart';
 import '../../features/sermons/sermons_screen.dart';
 import '../../features/sermons/sermon_reader_screen.dart';
 import '../../features/settings/settings_screen.dart';
+import '../../features/database_management/screens/manage_databases_screen.dart';
 import '../../features/songs/songs_gate_screen.dart';
 import '../../features/songs/song_detail_screen.dart';
 import '../../features/cod/cod_questions_screen.dart';
@@ -110,7 +111,8 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           return SermonListScreen(
             autoResume: resume,
             initialQuery: mode == 'cod' || isSevenSeals ? null : prefix,
-            titlePrefix: mode == 'cod' ? prefix : null,
+            titlePrefix: isSevenSeals ? prefix : null,
+            categoryFilter: mode == 'cod' ? 'cod' : null,
             customTitle: title,
             hideFilters: mode == 'cod' || isSevenSeals,
             allowedIds: isSevenSeals ? sevenSealsIds : null,
@@ -207,6 +209,10 @@ final appRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/settings',
         builder: (context, state) => const SettingsScreen(),
+      ),
+      GoRoute(
+        path: '/manage-databases',
+        builder: (context, state) => const ManageDatabasesScreen(),
       ),
       GoRoute(
         path: '/search-help',

@@ -23,6 +23,19 @@ class DatabaseManagementScreen extends ConsumerStatefulWidget {
 class _DatabaseManagementScreenState
     extends ConsumerState<DatabaseManagementScreen> {
   bool _isCheckingLatestDb = false;
+  String? _currentDbVersion;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCurrentDbVersion();
+  }
+
+  Future<void> _loadCurrentDbVersion() async {
+    final version = await UpdateService().getCurrentDatabaseVersion();
+    if (!mounted) return;
+    setState(() => _currentDbVersion = version);
+  }
 
   Future<void> _checkLatestDb() async {
     if (_isCheckingLatestDb) return;
@@ -153,6 +166,7 @@ class _DatabaseManagementScreenState
       }
       await ref.read(hasInstalledContentProvider.notifier).refresh();
       await ref.read(installedDbListProvider.notifier).refreshList();
+      await _loadCurrentDbVersion();
       await AppRestartHelper.restartAfterDatabaseUpgrade();
       return;
     } catch (e) {
@@ -203,6 +217,7 @@ class _DatabaseManagementScreenState
                     },
                     onCheckLatestDb: _checkLatestDb,
                     isCheckingLatestDb: _isCheckingLatestDb,
+                    currentDbVersion: _currentDbVersion,
                   ),
                   const SizedBox(height: 24),
                   Card(
@@ -247,6 +262,7 @@ class _DatabaseManagementScreenState
                   },
                   onCheckLatestDb: _checkLatestDb,
                   isCheckingLatestDb: _isCheckingLatestDb,
+                  currentDbVersion: _currentDbVersion,
                 ),
                 const SizedBox(height: 16),
                 Text(
@@ -369,11 +385,13 @@ class _ImportHeader extends StatelessWidget {
     required this.onImport,
     required this.onCheckLatestDb,
     required this.isCheckingLatestDb,
+    required this.currentDbVersion,
   });
 
   final VoidCallback onImport;
   final VoidCallback onCheckLatestDb;
   final bool isCheckingLatestDb;
+  final String? currentDbVersion;
 
   @override
   Widget build(BuildContext context) {
@@ -396,6 +414,13 @@ class _ImportHeader extends StatelessWidget {
               style: Theme.of(
                 context,
               ).textTheme.bodyMedium?.copyWith(color: cs.onSurfaceVariant),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Current DB version: ${currentDbVersion == null ? 'Not available' : 'v$currentDbVersion'}',
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
             ),
             const SizedBox(height: 12),
             Wrap(

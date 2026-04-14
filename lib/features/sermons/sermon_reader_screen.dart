@@ -1745,7 +1745,6 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
       final uri = Uri(
         path: '/sermons',
         queryParameters: const {
-          'prefix': 'கேள்வி',
           'title': 'COD - கேள்விகளும் பதில்களும்',
           'mode': 'cod',
           'lang': 'ta',
@@ -1757,7 +1756,6 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
       final uri = Uri(
         path: '/sermons',
         queryParameters: const {
-          'prefix': 'Question',
           'title': 'COD - Question and Answers',
           'mode': 'cod',
           'lang': 'en',

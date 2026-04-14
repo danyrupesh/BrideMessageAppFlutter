@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/database/metadata/installed_content_provider.dart';
 import 'providers/downloader_provider.dart';
+import 'providers/database_discovery_provider.dart';
+import 'services/selective_database_importer.dart';
 
 const String kApiBaseUrl = String.fromEnvironment(
   'API_BASE_URL',
@@ -15,10 +17,7 @@ const String kApiBaseUrl = String.fromEnvironment(
 class OnboardingScreen extends ConsumerStatefulWidget {
   final bool showImportDirectly;
 
-  const OnboardingScreen({
-    super.key,
-    this.showImportDirectly = false,
-  });
+  const OnboardingScreen({super.key, this.showImportDirectly = false});
 
   @override
   ConsumerState<OnboardingScreen> createState() => _OnboardingScreenState();
@@ -57,6 +56,24 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
           onImportComplete: () {
             ref.read(hasInstalledContentProvider.notifier).refresh();
           },
+          onDownloadFromServer: () async {
+            try {
+              final dbInfo = await ref
+                  .read(databaseDiscoveryProvider)
+                  .databaseInfo(kApiBaseUrl, 'bridemessage_db_en-ta');
+              if (mounted) {
+                ref
+                    .read(downloaderProvider.notifier)
+                    .startDownload(dbInfo.downloadUrl);
+              }
+            } catch (e) {
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Failed to fetch download link: $e')),
+                );
+              }
+            }
+          },
         ),
       );
     }
@@ -66,6 +83,24 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
       onSkip: () {
         ref.read(hasInstalledContentProvider.notifier).skipForSession();
         context.go('/');
+      },
+      onDownloadFromServer: () async {
+        try {
+          final dbInfo = await ref
+              .read(databaseDiscoveryProvider)
+              .databaseInfo(kApiBaseUrl, 'bridemessage_db_en-ta');
+          if (mounted) {
+            ref
+                .read(downloaderProvider.notifier)
+                .startDownload(dbInfo.downloadUrl);
+          }
+        } catch (e) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Failed to fetch download link: $e')),
+            );
+          }
+        }
       },
     );
   }
@@ -77,10 +112,12 @@ class _MainImportOptions extends StatelessWidget {
   const _MainImportOptions({
     required this.onImportDatabase,
     required this.onSkip,
+    required this.onDownloadFromServer,
   });
 
   final VoidCallback onImportDatabase;
   final VoidCallback onSkip;
+  final VoidCallback onDownloadFromServer;
 
   @override
   Widget build(BuildContext context) {
@@ -164,7 +201,7 @@ class _MainImportOptions extends StatelessWidget {
                               ),
                               const SizedBox(height: 2),
                               Text(
-                                'Bible versions & sermon collections',
+                                'Full bundle: Bible, Sermons, and COD databases',
                                 style: Theme.of(context).textTheme.bodyMedium
                                     ?.copyWith(color: cs.onSurfaceVariant),
                               ),
@@ -217,11 +254,13 @@ class _ImportDialog extends ConsumerWidget {
     required this.state,
     required this.onDismiss,
     required this.onImportComplete,
+    required this.onDownloadFromServer,
   });
 
   final DownloaderState state;
   final VoidCallback onDismiss;
   final VoidCallback onImportComplete;
+  final VoidCallback onDownloadFromServer;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -267,7 +306,7 @@ class _ImportDialog extends ConsumerWidget {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          'Choose download or import option',
+                          'Choose server download or select a full ZIP bundle from device',
                           style: Theme.of(context).textTheme.bodyMedium,
                         ),
                       ],
@@ -281,11 +320,7 @@ class _ImportDialog extends ConsumerWidget {
 
           // Download from server
           FilledButton.icon(
-            onPressed: () => ref
-                .read(downloaderProvider.notifier)
-                .startDownload(
-                  '$kApiBaseUrl/database/bridemessage_db_en-ta.zip',
-                ),
+            onPressed: onDownloadFromServer,
             icon: const Icon(Icons.cloud_download_outlined),
             label: const Text('Download from Server (~200MB)'),
             style: FilledButton.styleFrom(
@@ -356,6 +391,20 @@ class _ImportDialog extends ConsumerWidget {
                     context,
                   ).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600),
                 ),
+                const SizedBox(height: 4),
+                Text(
+                  'Must include: bible_en_kjv.db, bible_ta_bsi.db, sermons_en.db, sermons_ta.db, cod_english.db, cod_tamil.db',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Security: ZIP must include signed manifest (manifest.json + manifest.sig/signature.ed25519).',
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),
+                ),
               ],
             ),
           ),
@@ -419,11 +468,13 @@ class _ImportDialog extends ConsumerWidget {
               color: cs.primaryContainer,
               borderRadius: BorderRadius.circular(12),
             ),
-            child: Text(
-              state.statusMessage,
-              style: Theme.of(context).textTheme.bodyMedium,
-              textAlign: TextAlign.center,
-            ),
+            child: state.report == null
+                ? Text(
+                    state.statusMessage,
+                    style: Theme.of(context).textTheme.bodyMedium,
+                    textAlign: TextAlign.center,
+                  )
+                : _buildImportReport(context, cs, state.report!),
           ),
           const SizedBox(height: 32),
           FilledButton(
@@ -460,13 +511,20 @@ class _ImportDialog extends ConsumerWidget {
               color: cs.errorContainer,
               borderRadius: BorderRadius.circular(12),
             ),
-            child: Text(
-              state.error!,
-              style: Theme.of(
-                context,
-              ).textTheme.bodyMedium?.copyWith(color: cs.onErrorContainer),
-              textAlign: TextAlign.center,
-            ),
+            child: state.report == null
+                ? Text(
+                    state.error!,
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: cs.onErrorContainer,
+                    ),
+                    textAlign: TextAlign.center,
+                  )
+                : _buildImportReport(
+                    context,
+                    cs,
+                    state.report!,
+                    errorText: state.error,
+                  ),
           ),
           const SizedBox(height: 32),
           OutlinedButton.icon(
@@ -498,6 +556,65 @@ class _ImportDialog extends ConsumerWidget {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildImportReport(
+    BuildContext context,
+    ColorScheme cs,
+    ImportReport report, {
+    String? errorText,
+  }) {
+    final textTheme = Theme.of(context).textTheme;
+
+    Widget buildSection(String title, List<String> items, Color color) {
+      if (items.isEmpty) {
+        return const SizedBox.shrink();
+      }
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: textTheme.labelLarge?.copyWith(
+              fontWeight: FontWeight.bold,
+              color: color,
+            ),
+          ),
+          const SizedBox(height: 6),
+          ...items.map(
+            (line) => Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Text(line, style: textTheme.bodySmall),
+            ),
+          ),
+        ],
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (errorText != null && errorText.isNotEmpty) ...[
+          Text(errorText, style: textTheme.bodyMedium),
+          const SizedBox(height: 10),
+        ],
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            Chip(label: Text('Imported: ${report.importedCount}')),
+            Chip(label: Text('Failed: ${report.failedCount}')),
+            Chip(label: Text('Skipped: ${report.skippedCount}')),
+          ],
+        ),
+        const SizedBox(height: 10),
+        buildSection('Imported', report.imported, cs.primary),
+        if (report.imported.isNotEmpty) const SizedBox(height: 8),
+        buildSection('Failed', report.failed, cs.error),
+        if (report.failed.isNotEmpty) const SizedBox(height: 8),
+        buildSection('Skipped', report.skipped, cs.onSurfaceVariant),
+      ],
     );
   }
 }

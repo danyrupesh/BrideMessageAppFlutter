@@ -14,6 +14,7 @@ class DownloaderState {
   final String statusMessage;
   final bool isComplete;
   final String? error;
+  final ImportReport? report;
 
   const DownloaderState({
     this.isActive = false,
@@ -21,6 +22,7 @@ class DownloaderState {
     this.statusMessage = '',
     this.isComplete = false,
     this.error,
+    this.report,
   });
 
   DownloaderState copyWith({
@@ -29,6 +31,7 @@ class DownloaderState {
     String? statusMessage,
     bool? isComplete,
     String? error,
+    ImportReport? report,
   }) {
     return DownloaderState(
       isActive: isActive ?? this.isActive,
@@ -36,6 +39,7 @@ class DownloaderState {
       statusMessage: statusMessage ?? this.statusMessage,
       isComplete: isComplete ?? this.isComplete,
       error: error,
+      report: report ?? this.report,
     );
   }
 }
@@ -149,9 +153,14 @@ class DownloaderNotifier extends Notifier<DownloaderState> {
           isComplete: true,
           statusMessage: result.message,
           progress: 1.0,
+          report: result.report,
         );
       } else {
-        state = DownloaderState(error: result.message, statusMessage: 'Failed');
+        state = DownloaderState(
+          error: result.message,
+          statusMessage: 'Failed',
+          report: result.report,
+        );
       }
     } on DioException catch (e) {
       final reason = e.message ?? 'Network stream interrupted.';
@@ -189,9 +198,14 @@ class DownloaderNotifier extends Notifier<DownloaderState> {
         isComplete: true,
         statusMessage: result.message,
         progress: 1.0,
+        report: result.report,
       );
     } else {
-      state = DownloaderState(error: result.message, statusMessage: 'Failed');
+      state = DownloaderState(
+        error: result.message,
+        statusMessage: 'Failed',
+        report: result.report,
+      );
     }
   }
 
