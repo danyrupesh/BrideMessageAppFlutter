@@ -1236,9 +1236,50 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
         return Column(
           children: [
             Expanded(flex: topFlex, child: biblePane),
-            Container(
-              height: _bmSplitterWidth,
-              color: Theme.of(context).colorScheme.outlineVariant,
+            GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onVerticalDragUpdate: (details) {
+                final height = constraints.maxHeight;
+                if (height <= 0) return;
+                final currentRatio = ratio / 100.0;
+                final next = ((currentRatio + details.delta.dy / height).clamp(
+                  _bmSplitMin,
+                  _bmSplitMax,
+                )).toDouble();
+                ref
+                    .read(readerProvider.notifier)
+                    .setBmSplitRatio(next, persist: false);
+              },
+              onVerticalDragEnd: (_) {
+                unawaited(ref.read(readerProvider.notifier).persistBmState());
+              },
+              onDoubleTap: () {
+                ref
+                    .read(readerProvider.notifier)
+                    .setBmSplitRatio(_bmSplitDefault);
+              },
+              child: Center(
+                child: Container(
+                  width: 48,
+                  height: _bmSplitterWidth * 2.5,
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.outlineVariant,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: Theme.of(context).colorScheme.outline,
+                      width: 1.2,
+                    ),
+                  ),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: const [
+                      Icon(Icons.drag_handle, size: 18),
+                      SizedBox(height: 2),
+                      Icon(Icons.drag_handle, size: 18),
+                    ],
+                  ),
+                ),
+              ),
             ),
             Expanded(flex: bottomFlex, child: messagePane),
           ],

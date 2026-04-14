@@ -24,6 +24,8 @@ import '../reader/providers/reader_provider.dart';
 import '../reader/providers/typography_provider.dart';
 import '../reader/widgets/quick_navigation_sheet.dart';
 import '../reader/widgets/reader_settings_sheet.dart';
+import '../reader/widgets/pane_header.dart';
+import '../reader/widgets/reading_pane.dart';
 import '../onboarding/onboarding_screen.dart';
 import '../../core/database/models/bible_search_result.dart';
 import '../../core/database/models/sermon_models.dart';
@@ -229,6 +231,8 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
 
   // ── Scroll controller (preserves position across fullscreen toggle) ────────
   final ScrollController _scrollController = ScrollController();
+  final ScrollController _splitPrimaryScrollController = ScrollController();
+  final ScrollController _splitSecondaryScrollController = ScrollController();
 
   // ── In-page search ────────────────────────────────────────────────────────
   bool _isSearching = false;
@@ -276,9 +280,30 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
   static const double _bmSplitMax = 0.75;
   static const double _bmSplitterWidth = 8.0;
   static const String _bmSplitRatioKey = 'sermon_bm_split_ratio';
+  static const String _splitPrimaryFontOffsetKey =
+      'sermon_split_primary_font_offset';
+  static const String _splitSecondaryFontOffsetKey =
+      'sermon_split_secondary_font_offset';
   double _bmSplitRatio = _bmSplitDefault;
-  double _bmBibleZoom = 1.0;
-  double _bmSermonZoom = 1.0;
+  double _splitPrimaryFontOffset = 0.0;
+  double _splitSecondaryFontOffset = 0.0;
+  final TextEditingController _primaryMiniSearchController =
+      TextEditingController();
+  final TextEditingController _secondaryMiniSearchController =
+      TextEditingController();
+  final FocusNode _primaryMiniSearchFocusNode = FocusNode();
+  final FocusNode _secondaryMiniSearchFocusNode = FocusNode();
+  bool _primaryMiniSearchActive = false;
+  bool _secondaryMiniSearchActive = false;
+  List<int> _primaryMatchIndices = [];
+  int _primaryCurrentMatchIndex = 0;
+  int _primaryTotalMatches = 0;
+  List<int> _secondaryMatchIndices = [];
+  int _secondaryCurrentMatchIndex = 0;
+  int _secondaryTotalMatches = 0;
+  List<BibleSearchResult> _bmCurrentVerses = [];
+  List<GlobalKey> _bmVerseKeys = [];
+  String? _bmVerseSignature;
   bool _bmDefaultBiblePending = false;
   final FocusNode _searchFieldFocusNode = FocusNode();
   late final bool Function(KeyEvent) _searchKeyHandler;
@@ -302,32 +327,57 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
       return true;
     };
     HardwareKeyboard.instance.addHandler(_searchKeyHandler);
-    _loadBmSplitRatio();
+    unawaited(_loadBmSplitPreferences());
   }
 
   @override
   void dispose() {
     _scrollController.dispose();
+    _splitPrimaryScrollController.dispose();
+    _splitSecondaryScrollController.dispose();
     _bmBibleScrollController.dispose();
     _searchController.dispose();
+    _primaryMiniSearchController.dispose();
+    _secondaryMiniSearchController.dispose();
     _searchFieldFocusNode.dispose();
+    _primaryMiniSearchFocusNode.dispose();
+    _secondaryMiniSearchFocusNode.dispose();
     _allSermonSearchDebounce?.cancel();
     HardwareKeyboard.instance.removeHandler(_searchKeyHandler);
     super.dispose();
   }
 
-  Future<void> _loadBmSplitRatio() async {
+  Future<void> _loadBmSplitPreferences() async {
     final prefs = await SharedPreferences.getInstance();
-    final stored = prefs.getDouble(_bmSplitRatioKey);
-    if (!mounted || stored == null) return;
+    if (!mounted) return;
+    final storedRatio = prefs.getDouble(_bmSplitRatioKey);
+    final storedPrimaryOffset = prefs.getDouble(_splitPrimaryFontOffsetKey);
+    final storedSecondaryOffset = prefs.getDouble(_splitSecondaryFontOffsetKey);
     setState(() {
-      _bmSplitRatio = stored.clamp(_bmSplitMin, _bmSplitMax);
+      if (storedRatio != null) {
+        _bmSplitRatio = storedRatio.clamp(_bmSplitMin, _bmSplitMax);
+      }
+      if (storedPrimaryOffset != null) {
+        _splitPrimaryFontOffset = storedPrimaryOffset;
+      }
+      if (storedSecondaryOffset != null) {
+        _splitSecondaryFontOffset = storedSecondaryOffset;
+      }
     });
   }
 
   Future<void> _persistBmSplitRatio() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setDouble(_bmSplitRatioKey, _bmSplitRatio);
+  }
+
+  Future<void> _persistSplitFontOffsets() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(_splitPrimaryFontOffsetKey, _splitPrimaryFontOffset);
+    await prefs.setDouble(
+      _splitSecondaryFontOffsetKey,
+      _splitSecondaryFontOffset,
+    );
   }
 
   Future<void> _ensureBmDefaultBibleTab() async {
