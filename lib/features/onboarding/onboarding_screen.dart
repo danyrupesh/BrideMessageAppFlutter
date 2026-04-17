@@ -478,7 +478,14 @@ class _ImportDialog extends ConsumerWidget {
           ),
           const SizedBox(height: 32),
           FilledButton(
-            onPressed: onImportComplete,
+            onPressed: () {
+              onImportComplete();
+              ref.read(hasInstalledContentProvider.notifier).skipForSession();
+              ref.read(downloaderProvider.notifier).reset();
+              if (context.mounted) {
+                context.go('/');
+              }
+            },
             style: FilledButton.styleFrom(
               minimumSize: const Size(double.infinity, 50),
             ),
@@ -548,6 +555,20 @@ class _ImportDialog extends ConsumerWidget {
             ),
           ),
           const SizedBox(height: 12),
+          FilledButton(
+            onPressed: () {
+              ref.read(hasInstalledContentProvider.notifier).skipForSession();
+              ref.read(downloaderProvider.notifier).reset();
+              if (context.mounted) {
+                context.go('/');
+              }
+            },
+            style: FilledButton.styleFrom(
+              minimumSize: const Size(double.infinity, 50),
+            ),
+            child: const Text('Open App anyway'),
+          ),
+          const SizedBox(height: 8),
           TextButton(
             onPressed: () {
               ref.read(downloaderProvider.notifier).reset();

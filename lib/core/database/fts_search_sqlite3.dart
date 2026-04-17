@@ -24,6 +24,7 @@ Future<List<BibleSearchResult>> searchBibleFts({
   required int limit,
   required int offset,
   List<String>? bookFilters,
+  int? bookIndex,
   int? chapterFrom,
   int? chapterTo,
   String scope = 'both',
@@ -52,6 +53,10 @@ Future<List<BibleSearchResult>> searchBibleFts({
       final placeholders = List.filled(bookFilters.length, '?').join(',');
       sql += ' AND v.book IN ($placeholders)';
       args.addAll(bookFilters);
+    }
+    if (bookIndex != null) {
+      sql += ' AND v.book_index = ?';
+      args.add(bookIndex);
     }
 
     if (chapterFrom != null && chapterTo != null) {
@@ -98,6 +103,7 @@ Future<int> countBibleFts({
   required String dbPath,
   required String matchPattern,
   List<String>? bookFilters,
+  int? bookIndex,
   int? chapterFrom,
   int? chapterTo,
   String scope = 'both',
@@ -105,53 +111,39 @@ Future<int> countBibleFts({
   if (!await File(dbPath).exists()) return 0;
   final db = sqlite3.open(dbPath, mode: OpenMode.readOnly);
   try {
-    var sql = 'SELECT COUNT(*) FROM bible_fts WHERE bible_fts MATCH ?';
+    var sql = '''
+      SELECT COUNT(*)
+      FROM bible_fts
+      INNER JOIN bible_verses v ON bible_fts.rowid = v.id
+      WHERE bible_fts MATCH ?
+    ''';
     var args = <Object?>[matchPattern];
     if (bookFilters != null && bookFilters.isNotEmpty) {
-      sql = '''
-        SELECT COUNT(*) 
-        FROM bible_fts 
-        INNER JOIN bible_verses v ON bible_fts.rowid = v.id 
-        WHERE bible_fts MATCH ?
-      ''';
+      sql += ' AND v.book IN (${List.filled(bookFilters.length, '?').join(',')})';
+      args.addAll(bookFilters);
+    }
+    if (bookIndex != null) {
+      sql += ' AND v.book_index = ?';
+      args.add(bookIndex);
+    }
 
-      if (bookFilters.isNotEmpty) {
-        sql +=
-            ' AND v.book IN (${List.filled(bookFilters.length, '?').join(',')})';
-        args.addAll(bookFilters);
-      }
+    if (chapterFrom != null && chapterTo != null) {
+      final from = chapterFrom <= chapterTo ? chapterFrom : chapterTo;
+      final to = chapterFrom <= chapterTo ? chapterTo : chapterFrom;
+      sql += ' AND v.chapter BETWEEN ? AND ?';
+      args.addAll([from, to]);
+    } else if (chapterFrom != null) {
+      sql += ' AND v.chapter = ?';
+      args.add(chapterFrom);
+    } else if (chapterTo != null) {
+      sql += ' AND v.chapter = ?';
+      args.add(chapterTo);
+    }
 
-      if (chapterFrom != null && chapterTo != null) {
-        final from = chapterFrom <= chapterTo ? chapterFrom : chapterTo;
-        final to = chapterFrom <= chapterTo ? chapterTo : chapterFrom;
-        sql += ' AND v.chapter BETWEEN ? AND ?';
-        args.addAll([from, to]);
-      } else if (chapterFrom != null) {
-        sql += ' AND v.chapter = ?';
-        args.add(chapterFrom);
-      } else if (chapterTo != null) {
-        sql += ' AND v.chapter = ?';
-        args.add(chapterTo);
-      }
-
-      if (scope == 'oldTest') {
-        sql += ' AND v.book_index <= 39';
-      } else if (scope == 'newTest') {
-        sql += ' AND v.book_index > 39';
-      }
-    } else if (scope != 'both') {
-      // Need a JOIN just to filter by scope if there are no filters but there is a scope
-      sql = '''
-        SELECT COUNT(*) 
-        FROM bible_fts 
-        INNER JOIN bible_verses v ON bible_fts.rowid = v.id 
-        WHERE bible_fts MATCH ?
-      ''';
-      if (scope == 'oldTest') {
-        sql += ' AND v.book_index <= 39';
-      } else if (scope == 'newTest') {
-        sql += ' AND v.book_index > 39';
-      }
+    if (scope == 'oldTest') {
+      sql += ' AND v.book_index <= 39';
+    } else if (scope == 'newTest') {
+      sql += ' AND v.book_index > 39';
     }
 
     final result = db.select(sql, args);
@@ -174,6 +166,8 @@ Future<List<SermonSearchResult>> searchSermonFts({
   required int offset,
   String sortOrder = 'relevance',
   String? titlePrefix,
+  int? yearFrom,
+  int? yearTo,
 }) async {
   if (!await File(dbPath).exists()) return [];
   final db = sqlite3.open(dbPath, mode: OpenMode.readOnly);
@@ -212,6 +206,14 @@ Future<List<SermonSearchResult>> searchSermonFts({
       sql += ' AND s.title LIKE ?';
       args.add('$titlePrefix%');
     }
+    if (yearFrom != null) {
+      sql += ' AND s.year >= ?';
+      args.add(yearFrom);
+    }
+    if (yearTo != null) {
+      sql += ' AND s.year <= ?';
+      args.add(yearTo);
+    }
 
     if (sortOrder == 'relevance') {
       sql +=
@@ -244,6 +246,8 @@ Future<int> countSermonFts({
   required String languageCode,
   required String matchPattern,
   String? titlePrefix,
+  int? yearFrom,
+  int? yearTo,
 }) async {
   if (!await File(dbPath).exists()) return 0;
   final db = sqlite3.open(dbPath, mode: OpenMode.readOnly);
@@ -260,6 +264,14 @@ Future<int> countSermonFts({
     if (titlePrefix != null && titlePrefix.isNotEmpty) {
       sql += ' AND s.title LIKE ?';
       args.add('$titlePrefix%');
+    }
+    if (yearFrom != null) {
+      sql += ' AND s.year >= ?';
+      args.add(yearFrom);
+    }
+    if (yearTo != null) {
+      sql += ' AND s.year <= ?';
+      args.add(yearTo);
     }
     final result = db.select(sql, args);
     if (result.isEmpty) return 0;

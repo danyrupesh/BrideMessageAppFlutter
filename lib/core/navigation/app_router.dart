@@ -20,6 +20,8 @@ import '../../features/reader/providers/reader_provider.dart';
 import '../../features/reader/models/reader_tab.dart';
 import '../../features/sermons/providers/sermon_provider.dart';
 import '../../features/sermons/providers/sermon_flow_provider.dart';
+import '../../features/tracts/tracts_screen.dart';
+import '../../features/tracts/tract_reader_screen.dart';
 
 final GlobalKey<NavigatorState> appRootNavigatorKey =
     GlobalKey<NavigatorState>();
@@ -239,6 +241,21 @@ final appRouterProvider = Provider<GoRouter>((ref) {
             scrollToAnswerParagraphId: paraId,
             highlightQuery: (qRaw != null && qRaw.isNotEmpty) ? qRaw : null,
           );
+        },
+      ),
+      GoRoute(
+        path: '/tracts',
+        builder: (context, state) {
+          final lang = state.uri.queryParameters['lang'] ?? 'en';
+          return TractsScreen(lang: lang);
+        },
+      ),
+      GoRoute(
+        path: '/tract-reader',
+        builder: (context, state) {
+          final id = state.uri.queryParameters['id'] ?? '';
+          final q = state.uri.queryParameters['q'];
+          return TractReaderScreen(id: id, searchQuery: q);
         },
       ),
     ],

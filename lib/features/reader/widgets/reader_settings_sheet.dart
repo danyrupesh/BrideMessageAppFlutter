@@ -7,9 +7,10 @@ import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/theme_provider.dart';
 
 class ReaderSettingsSheet extends ConsumerStatefulWidget {
-  const ReaderSettingsSheet({super.key});
+  final String lang;
+  const ReaderSettingsSheet({super.key, this.lang = 'en'});
 
-  static void show(BuildContext context) {
+  static void show(BuildContext context, {String lang = 'en'}) {
     showResponsiveBottomSheet(
       context: context,
       isScrollControlled: true,
@@ -17,7 +18,7 @@ class ReaderSettingsSheet extends ConsumerStatefulWidget {
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
       maxWidth: 600,
-      builder: (context) => const ReaderSettingsSheet(),
+      builder: (context) => ReaderSettingsSheet(lang: lang),
     );
   }
 
@@ -29,7 +30,8 @@ class ReaderSettingsSheet extends ConsumerStatefulWidget {
 class _ReaderSettingsSheetState extends ConsumerState<ReaderSettingsSheet> {
   @override
   Widget build(BuildContext context) {
-    final typography = ref.watch(typographyProvider);
+    final lang = widget.lang;
+    final typography = ref.watch(typographyProvider(lang));
     final themeSettings = ref.watch(themeProvider);
     final bottomInset = MediaQuery.of(context).padding.bottom;
 
@@ -80,9 +82,8 @@ class _ReaderSettingsSheetState extends ConsumerState<ReaderSettingsSheet> {
                       1.0,
                       2.5,
                     );
-                    ref
-                        .read(typographyProvider.notifier)
-                        .updateLineHeight(newHeight);
+                    final notifier = lang == 'ta' ? ref.read(taTypographyProvider.notifier) : ref.read(enTypographyProvider.notifier);
+                    notifier.updateLineHeight(newHeight);
                   },
                 ),
                 Expanded(
@@ -91,9 +92,12 @@ class _ReaderSettingsSheetState extends ConsumerState<ReaderSettingsSheet> {
                     min: 1.0,
                     max: 2.5,
                     divisions: 15,
-                    onChanged: (val) => ref
-                        .read(typographyProvider.notifier)
-                        .updateLineHeight(val),
+                    onChanged: (val) {
+                      final notifier = lang == 'ta'
+                          ? ref.read(taTypographyProvider.notifier)
+                          : ref.read(enTypographyProvider.notifier);
+                      notifier.updateLineHeight(val);
+                    },
                   ),
                 ),
                 IconButton(
@@ -103,9 +107,8 @@ class _ReaderSettingsSheetState extends ConsumerState<ReaderSettingsSheet> {
                       1.0,
                       2.5,
                     );
-                    ref
-                        .read(typographyProvider.notifier)
-                        .updateLineHeight(newHeight);
+                    final notifier = lang == 'ta' ? ref.read(taTypographyProvider.notifier) : ref.read(enTypographyProvider.notifier);
+                    notifier.updateLineHeight(newHeight);
                   },
                 ),
                 const SizedBox(width: 8),
@@ -127,9 +130,8 @@ class _ReaderSettingsSheetState extends ConsumerState<ReaderSettingsSheet> {
                       10.0,
                       22.0,
                     );
-                    ref
-                        .read(typographyProvider.notifier)
-                        .updateTitleFontSize(newSize);
+                    final notifier = lang == 'ta' ? ref.read(taTypographyProvider.notifier) : ref.read(enTypographyProvider.notifier);
+                    notifier.updateTitleFontSize(newSize);
                   },
                 ),
                 Expanded(
@@ -138,9 +140,12 @@ class _ReaderSettingsSheetState extends ConsumerState<ReaderSettingsSheet> {
                     min: 10.0,
                     max: 22.0,
                     divisions: 12,
-                    onChanged: (val) => ref
-                        .read(typographyProvider.notifier)
-                        .updateTitleFontSize(val),
+                    onChanged: (val) {
+                      final notifier = lang == 'ta'
+                          ? ref.read(taTypographyProvider.notifier)
+                          : ref.read(enTypographyProvider.notifier);
+                      notifier.updateTitleFontSize(val);
+                    },
                   ),
                 ),
                 IconButton(
@@ -150,9 +155,8 @@ class _ReaderSettingsSheetState extends ConsumerState<ReaderSettingsSheet> {
                       10.0,
                       22.0,
                     );
-                    ref
-                        .read(typographyProvider.notifier)
-                        .updateTitleFontSize(newSize);
+                    final notifier = lang == 'ta' ? ref.read(taTypographyProvider.notifier) : ref.read(enTypographyProvider.notifier);
+                    notifier.updateTitleFontSize(newSize);
                   },
                 ),
                 const SizedBox(width: 8),
@@ -214,7 +218,7 @@ class _ReaderSettingsSheetState extends ConsumerState<ReaderSettingsSheet> {
               ),
               value: typography.isFullscreen,
               onChanged: (_) =>
-                  ref.read(typographyProvider.notifier).toggleFullscreen(),
+                  ref.read(typographyGlobalProvider.notifier).toggleFullscreen(),
             ),
             const SizedBox(height: 8),
           ],
@@ -400,18 +404,18 @@ class _ReaderSettingsSheetState extends ConsumerState<ReaderSettingsSheet> {
     if (selection == customToken) {
       final custom = await _openCustomFontDialog(context);
       if (custom == null || custom.trim().isEmpty) return;
-      ref.read(typographyProvider.notifier).updateFontFamily(custom.trim());
+      ref.read(typographyGlobalProvider.notifier).updateFontFamily(custom.trim());
       return;
     }
 
     if (selection == systemLabel) {
       ref
-          .read(typographyProvider.notifier)
+          .read(typographyGlobalProvider.notifier)
           .updateFontFamily(TypographySettings.systemFontFamily);
       return;
     }
 
-    ref.read(typographyProvider.notifier).updateFontFamily(selection);
+    ref.read(typographyGlobalProvider.notifier).updateFontFamily(selection);
   }
 
   Future<String?> _openCustomFontDialog(BuildContext context) async {

@@ -1,44 +1,56 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import '../providers/search_provider.dart';
 import '../../common/widgets/chips.dart';
 
-class SearchFilters extends ConsumerWidget {
-  const SearchFilters({super.key});
+/// Dialog widget that exposes all search filter controls.
+/// Shown via [showSearchFiltersSheet] as a centered popup dialog.
+class SearchFiltersSheet extends ConsumerWidget {
+  const SearchFiltersSheet({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(searchProvider);
     final notifier = ref.read(searchProvider.notifier);
     final isSongs = state.activeTab == SearchTab.songs;
+    final theme = Theme.of(context);
 
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-          child: SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
+    return Dialog(
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+      ),
+      // Constrain max width — dialog fits content, doesn't span the full screen
+      insetPadding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
+      child: IntrinsicWidth(
+        stepWidth: 56,
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ── Search Mode ─────────────────────────────────────────────────
+            Text('Search Mode', style: theme.textTheme.labelLarge),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 6,
               children: [
                 PillToggleChip(
                   label: 'Smart (all words)',
                   selected: state.searchType == SearchType.all,
                   onTap: () => notifier.updateSearchType(SearchType.all),
                 ),
-                const SizedBox(width: 8),
                 PillToggleChip(
                   label: 'Exact phrase',
                   selected: state.searchType == SearchType.exact,
                   onTap: () => notifier.updateSearchType(SearchType.exact),
                 ),
-                const SizedBox(width: 8),
                 PillToggleChip(
                   label: 'Any word',
                   selected: state.searchType == SearchType.any,
                   onTap: () => notifier.updateSearchType(SearchType.any),
                 ),
-                const SizedBox(width: 8),
                 PillToggleChip(
                   label: 'Prefix (auto)',
                   selected: state.searchType == SearchType.prefix,
@@ -46,127 +58,79 @@ class SearchFilters extends ConsumerWidget {
                 ),
               ],
             ),
-          ),
-        ),
-        if (!isSongs) ...[
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0),
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
+
+            // ── Ranking (non-songs only) ─────────────────────────────────
+            if (!isSongs) ...[
+              const SizedBox(height: 20),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('Ranking', style: theme.textTheme.labelLarge),
+                  const SizedBox(width: 6),
+                  Tooltip(
+                    message:
+                        'Ranking only changes result order, not which results appear.',
+                    child: Icon(
+                      Icons.info_outline,
+                      size: 15,
+                      color: theme.colorScheme.outline,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 6,
                 children: [
                   PillToggleChip(
                     label: 'Standard rank',
                     selected: state.matchMode == MatchMode.exactMatch,
-                    onTap: () => notifier.updateMatchMode(MatchMode.exactMatch),
+                    onTap: () =>
+                        notifier.updateMatchMode(MatchMode.exactMatch),
                   ),
-                  const SizedBox(width: 8),
                   PillToggleChip(
                     label: 'Accurate rank',
                     selected: state.matchMode == MatchMode.accurate,
                     onTap: () => notifier.updateMatchMode(MatchMode.accurate),
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.info_outline, size: 18),
-                    tooltip:
-                        'Ranking only: changes result order, not which verses appear.',
-                    onPressed: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text(
-                            'Standard/Accurate rank only change result order, not which verses appear.',
-                          ),
-                        ),
-                      );
-                    },
-                  ),
                 ],
               ),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                'Ranking only: changes result order, not which verses appear.',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(context).textTheme.bodySmall?.color
-                          ?.withOpacity(0.7),
-                    ),
+            ],
+
+            // ── Songs: Lyrics toggle ─────────────────────────────────────
+            if (isSongs) ...[
+              const SizedBox(height: 20),
+              Text('Options', style: theme.textTheme.labelLarge),
+              const SizedBox(height: 8),
+              PillToggleChip(
+                label: 'Search Lyrics',
+                icon: Icons.library_music,
+                selected: state.searchLyrics,
+                onTap: notifier.toggleSearchLyrics,
+              ),
+            ],
+
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.tonal(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Done'),
               ),
             ),
+          ],
           ),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-            child: Row(
-              children: [
-                Expanded(
-                  child: SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: [
-                        PillToggleChip(
-                          label: 'EN',
-                          icon: Icons.book_outlined,
-                          selected: state.languageCode == 'en',
-                          onTap: () {
-                            if (state.languageCode != 'en') {
-                              notifier.toggleLanguage();
-                            }
-                          },
-                        ),
-                        const SizedBox(width: 8),
-                        PillToggleChip(
-                          label: 'TA',
-                          icon: Icons.book_outlined,
-                          selected: state.languageCode == 'ta',
-                          onTap: () {
-                            if (state.languageCode != 'ta') {
-                              notifier.toggleLanguage();
-                            }
-                          },
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.help_outline),
-                  onPressed: () => context.push('/search-help'),
-                ),
-              ],
-            ),
-          ),
-        ],
-        if (isSongs)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-            child: Row(
-              children: [
-                Expanded(
-                  child: SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: [
-                        PillToggleChip(
-                          label: 'Lyrics',
-                          icon: Icons.library_music,
-                          selected: state.searchLyrics,
-                          onTap: notifier.toggleSearchLyrics,
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.help_outline),
-                  onPressed: () => context.push('/search-help'),
-                ),
-              ],
-            ),
-          ),
-      ],
+        ),
+      ),
     );
   }
+}
+
+/// Convenience function to show the filters as a centered popup dialog.
+void showSearchFiltersSheet(BuildContext context) {
+  showDialog(
+    context: context,
+    builder: (_) => const SearchFiltersSheet(),
+  );
 }

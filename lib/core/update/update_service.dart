@@ -331,7 +331,7 @@ class UpdateService {
                 ),
               );
 
-          _throwIfCancelled(cancelToken, path: patchDownloadUrl!);
+          _throwIfCancelled(cancelToken, path: patchDownloadUrl);
 
           final patchResult = await patchApplier.applySqlChangelogBundle(
             zipPath: zipPath,
@@ -396,6 +396,13 @@ class UpdateService {
           await hymnsImporter.installFromZip(
             zipPath: zipPath,
             onProgress: (_, message) => onStatus?.call(message),
+          );
+        } else if (update.id == 'tracts_en' || update.id == 'tracts_ta') {
+          await _installTractsFromZip(
+            zipPath: zipPath,
+            id: update.id,
+            importer: importer,
+            onStatus: onStatus,
           );
         } else {
           final result = await importer.importAllFromZip(
@@ -567,6 +574,12 @@ class UpdateService {
       return false;
     }
 
+    if (id == 'tracts_en' || id == 'tracts_ta') {
+      final dbDir = await DatabaseManager().getDatabaseDirectoryPath();
+      final fileName = id == 'tracts_en' ? 'tracts_en.db' : 'tracts_ta.db';
+      return File(p.join(dbDir.path, fileName)).exists();
+    }
+
     // Unknown IDs are treated as installed so custom manifests can still work.
     return true;
   }
@@ -596,6 +609,48 @@ class UpdateService {
       return false;
     } catch (_) {
       return false;
+    }
+  }
+
+  Future<void> _installTractsFromZip({
+    required String zipPath,
+    required String id,
+    required SelectiveDatabaseImporter importer,
+    void Function(String message)? onStatus,
+  }) async {
+    final archive = ZipDecoder().decodeBytes(await File(zipPath).readAsBytes());
+    final expectedDbName = id == 'tracts_en' ? 'tracts_en.db' : 'tracts_ta.db';
+    final lang = id == 'tracts_en' ? 'en' : 'ta';
+    final entry = archive.firstWhere(
+      (f) => f.isFile && p.basename(f.name).toLowerCase() == expectedDbName,
+      orElse: () => ArchiveFile('', 0, []),
+    );
+    if (entry.name.isEmpty) {
+      throw StateError('ZIP does not contain $expectedDbName');
+    }
+
+    final tempRoot = await getTemporaryDirectory();
+    final tempDbFile = File(
+      p.join(
+        tempRoot.path,
+        'tract_import_${lang}_${DateTime.now().millisecondsSinceEpoch}.db',
+      ),
+    );
+    await tempDbFile.writeAsBytes(entry.content as List<int>, flush: true);
+    try {
+      final result = await importer.importTractsDatabase(
+        sourceFile: tempDbFile,
+        languageCode: lang,
+        displayName: lang == 'ta' ? 'Tamil Tracts' : 'English Tracts',
+        onProgress: (_, message) => onStatus?.call(message),
+      );
+      if (!result.success) {
+        throw StateError(result.message);
+      }
+    } finally {
+      if (await tempDbFile.exists()) {
+        await tempDbFile.delete();
+      }
     }
   }
 

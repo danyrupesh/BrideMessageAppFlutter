@@ -22,99 +22,100 @@ class BottomTabRail extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Material(
-      elevation: 8,
+      elevation: 0,
       color: theme.colorScheme.surface,
-      child: SafeArea(
-        top: false,
-        child: Container(
-          decoration: BoxDecoration(
-            border: Border(
-              top: BorderSide(
-                color: theme.colorScheme.outlineVariant.withAlpha(80),
-              ),
+      child: Container(
+        decoration: BoxDecoration(
+          border: Border(
+            bottom: BorderSide(
+              color: theme.colorScheme.outlineVariant.withAlpha(80),
             ),
           ),
-          child: SizedBox(
-            height: 50,
-            child: Row(
-              children: [
-                Expanded(
-                  child: ListView.builder(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: tabs.length,
-                    itemBuilder: (context, index) {
-                      final tab = tabs[index];
-                      final isActive = index == activeIndex;
-                      final label = tab.type == ReaderContentType.bible
-                          ? '${tab.book ?? ''} ${tab.chapter ?? ''}'.trim()
-                          : tab.title;
-                      return GestureDetector(
-                        onTap: () => onTapTab(index),
-                        child: Container(
-                          margin: const EdgeInsets.symmetric(
-                            horizontal: 4,
-                            vertical: 4,
-                          ),
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
-                          decoration: BoxDecoration(
+        ),
+        child: SizedBox(
+          height: 48,
+          child: Row(
+            children: [
+              Expanded(
+                child: ListView.builder(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: tabs.length,
+                  itemBuilder: (context, index) {
+                    final tab = tabs[index];
+                    final isActive = index == activeIndex;
+                    final label = tab.type == ReaderContentType.bible
+                        ? '${tab.book ?? ''} ${tab.chapter ?? ''}'.trim()
+                        : tab.title;
+                    return GestureDetector(
+                      onTap: () => onTapTab(index),
+                      child: Container(
+                        margin: const EdgeInsets.symmetric(
+                          horizontal: 4,
+                          vertical: 6,
+                        ),
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        decoration: BoxDecoration(
+                          color: isActive
+                              ? theme.colorScheme.primaryContainer
+                              : Colors.transparent,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
                             color: isActive
-                                ? theme.colorScheme.primaryContainer
-                                : Colors.transparent,
-                            borderRadius: BorderRadius.circular(16),
-                            border: Border.all(
-                              color: isActive
-                                  ? theme.colorScheme.primary
-                                  : theme.colorScheme.outline.withAlpha(128),
-                            ),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Container(
-                                width: 8,
-                                height: 8,
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  color: _dotColor(tab),
-                                ),
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                _short(label),
-                                style: TextStyle(
-                                  fontWeight: isActive
-                                      ? FontWeight.bold
-                                      : FontWeight.normal,
-                                  color: isActive
-                                      ? theme.colorScheme.onPrimaryContainer
-                                      : theme.colorScheme.onSurface,
-                                ),
-                              ),
-                              const SizedBox(width: 4),
-                              InkWell(
-                                onTap: () => onCloseTab(index),
-                                child: Icon(
-                                  Icons.close,
-                                  size: 16,
-                                  color: isActive
-                                      ? theme.colorScheme.onPrimaryContainer
-                                      : theme.colorScheme.onSurface,
-                                ),
-                              ),
-                            ],
+                                ? theme.colorScheme.primary
+                                : theme.colorScheme.outline.withAlpha(80),
                           ),
                         ),
-                      );
-                    },
-                  ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: 8,
+                              height: 8,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: _dotColor(tab),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              _short(label),
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: isActive
+                                    ? FontWeight.bold
+                                    : FontWeight.normal,
+                                color: isActive
+                                    ? theme.colorScheme.onPrimaryContainer
+                                    : theme.colorScheme.onSurface,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            InkWell(
+                              onTap: () => onCloseTab(index),
+                              child: Icon(
+                                Icons.close,
+                                size: 16,
+                                color: isActive
+                                    ? theme.colorScheme.onPrimaryContainer
+                                    : theme.colorScheme.onSurface.withAlpha(150),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    );
+                  },
                 ),
-                TextButton.icon(
+              ),
+              Padding(
+                padding: const EdgeInsets.only(right: 4),
+                child: IconButton(
                   onPressed: onOpenNew,
-                  icon: const Icon(Icons.add),
-                  label: const Text('Open'),
+                  icon: const Icon(Icons.add, size: 20),
+                  tooltip: 'Open new tab',
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
       ),

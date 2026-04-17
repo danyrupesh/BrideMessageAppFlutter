@@ -14,6 +14,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/services/pdf_export_service.dart';
 import '../../core/utils/desktop_file_saver.dart';
+import '../../core/utils/tamil_normalizer.dart';
 import '../../core/widgets/responsive_bottom_sheet.dart';
 import '../../core/widgets/selection_action_bar.dart';
 import 'providers/sermon_flow_provider.dart';
@@ -32,6 +33,7 @@ import '../../core/database/models/sermon_models.dart';
 import '../../core/database/models/sermon_search_result.dart';
 import '../search/providers/search_provider.dart' show SearchType;
 import '../common/widgets/fts_highlight_text.dart';
+import '../help/widgets/help_button.dart';
 
 class _NextMatchIntent extends Intent {
   const _NextMatchIntent();
@@ -45,33 +47,47 @@ class _AppBarChip extends StatelessWidget {
   final String label;
   final IconData? icon;
   final VoidCallback onTap;
+  final bool isWide;
 
-  const _AppBarChip({required this.label, required this.onTap, this.icon});
+  const _AppBarChip({
+    required this.label,
+    required this.onTap,
+    this.icon,
+    this.isWide = false,
+  });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
+    final fontSize = isWide ? 15.0 : 13.0;
+    final horizontalPadding = isWide ? 14.0 : 10.0;
+    final verticalPadding = isWide ? 8.0 : 6.0;
+
     return InkWell(
-      borderRadius: BorderRadius.circular(18),
+      borderRadius: BorderRadius.circular(20),
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        padding: EdgeInsets.symmetric(
+          horizontal: horizontalPadding,
+          vertical: verticalPadding,
+        ),
         decoration: BoxDecoration(
           color: cs.primaryContainer.withAlpha(160),
-          borderRadius: BorderRadius.circular(18),
+          borderRadius: BorderRadius.circular(20),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             if (icon != null) ...[
-              Icon(icon, size: 16, color: cs.primary),
-              const SizedBox(width: 4),
+              Icon(icon, size: isWide ? 20 : 16, color: cs.primary),
+              SizedBox(width: isWide ? 6 : 4),
             ],
             Text(
               label,
-              style: theme.textTheme.labelSmall?.copyWith(
-                fontWeight: FontWeight.w600,
+              style: theme.textTheme.labelMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+                fontSize: fontSize,
                 color: cs.onPrimaryContainer,
               ),
             ),
@@ -273,7 +289,6 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
   // ── UI state ──────────────────────────────────────────────────────────────
   bool _fabExpanded = false;
   bool _hideBottomTabs = false;
-  final ScrollController _bmBibleScrollController = ScrollController();
   static const double _bmWideBreakpoint = 900.0;
   static const double _bmSplitDefault = 0.6;
   static const double _bmSplitMin = 0.35;
@@ -287,6 +302,8 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
   double _bmSplitRatio = _bmSplitDefault;
   double _splitPrimaryFontOffset = 0.0;
   double _splitSecondaryFontOffset = 0.0;
+  final Map<String, Future<List<SermonParagraphEntity>>>
+      _bmSecondarySermonFutureCache = {};
   final TextEditingController _primaryMiniSearchController =
       TextEditingController();
   final TextEditingController _secondaryMiniSearchController =
@@ -302,6 +319,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
   int _secondaryCurrentMatchIndex = 0;
   int _secondaryTotalMatches = 0;
   List<BibleSearchResult> _bmCurrentVerses = [];
+  List<SermonParagraphEntity> _bmSecondaryParagraphs = [];
   List<GlobalKey> _bmVerseKeys = [];
   String? _bmVerseSignature;
   bool _bmDefaultBiblePending = false;
@@ -335,16 +353,27 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     _scrollController.dispose();
     _splitPrimaryScrollController.dispose();
     _splitSecondaryScrollController.dispose();
-    _bmBibleScrollController.dispose();
     _searchController.dispose();
     _primaryMiniSearchController.dispose();
     _secondaryMiniSearchController.dispose();
     _searchFieldFocusNode.dispose();
     _primaryMiniSearchFocusNode.dispose();
     _secondaryMiniSearchFocusNode.dispose();
+    _bmSecondarySermonFutureCache.clear();
     _allSermonSearchDebounce?.cancel();
     HardwareKeyboard.instance.removeHandler(_searchKeyHandler);
     super.dispose();
+  }
+
+  Future<List<SermonParagraphEntity>> _getBmSecondarySermonFuture({
+    required String sermonLang,
+    required String sermonId,
+  }) {
+    final cacheKey = '$sermonLang::$sermonId';
+    return _bmSecondarySermonFutureCache.putIfAbsent(cacheKey, () async {
+      final repo = await ref.read(sermonRepositoryByLangProvider(sermonLang).future);
+      return repo.getParagraphsForSermon(sermonId);
+    });
   }
 
   Future<void> _loadBmSplitPreferences() async {
@@ -441,16 +470,68 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     }
   }
 
-  void _adjustBmBibleZoom(double delta) {
-    setState(() {
-      _bmBibleZoom = (_bmBibleZoom + delta).clamp(0.7, 1.8);
-    });
+  double _primaryPaneFontSize(TypographySettings typography) {
+    return (typography.fontSize + _splitPrimaryFontOffset).clamp(12.0, 56.0);
   }
 
-  void _adjustBmSermonZoom(double delta) {
+  double _secondaryPaneFontSize(TypographySettings typography) {
+    return (typography.fontSize + _splitSecondaryFontOffset).clamp(12.0, 56.0);
+  }
+
+  void _adjustPrimarySplitFont(double delta) {
+    final activeTab = ref.read(sermonFlowProvider).activeTab;
+    final lang = activeTab?.bibleLang ?? ref.read(selectedSermonLangProvider) ?? 'en';
     setState(() {
-      _bmSermonZoom = (_bmSermonZoom + delta).clamp(0.7, 1.8);
+      final current = _primaryPaneFontSize(ref.read(typographyProvider(lang)));
+      final next = (current + delta).clamp(12.0, 56.0);
+      _splitPrimaryFontOffset = next - ref.read(typographyProvider(lang)).fontSize;
     });
+    unawaited(_persistSplitFontOffsets());
+  }
+
+  void _adjustSecondarySplitFont(double delta) {
+    final flow = ref.read(sermonFlowProvider);
+    final group = flow.bmBibleGroup;
+    final activeSec = group.tabs.isNotEmpty ? group.tabs[group.activeIndex.clamp(0, group.tabs.length - 1)] : null;
+    final lang = activeSec?.bibleLang ?? activeSec?.sermonLang ?? 'en';
+    
+    setState(() {
+      final current = _secondaryPaneFontSize(ref.read(typographyProvider(lang)));
+      final next = (current + delta).clamp(12.0, 56.0);
+      _splitSecondaryFontOffset = next - ref.read(typographyProvider(lang)).fontSize;
+    });
+    unawaited(_persistSplitFontOffsets());
+  }
+
+  List<int> _computeMatchIndices(List<String> texts, String query) {
+    if (query.trim().isEmpty || texts.isEmpty) return [];
+    final pattern = RegExp(query, caseSensitive: false);
+    final indices = <int>[];
+    for (var i = 0; i < texts.length; i++) {
+      final count = pattern.allMatches(texts[i]).length;
+      for (var j = 0; j < count; j++) {
+        indices.add(i);
+      }
+    }
+    return indices;
+  }
+
+  int? _currentOccurrenceForItemWithState({
+    required List<int> matchIndices,
+    required int currentMatchIndex,
+    required int itemIndex,
+  }) {
+    if (matchIndices.isEmpty) return null;
+    if (currentMatchIndex < 0 || currentMatchIndex >= matchIndices.length) {
+      return null;
+    }
+    if (matchIndices[currentMatchIndex] != itemIndex) return null;
+
+    var count = 0;
+    for (var i = 0; i < currentMatchIndex; i++) {
+      if (matchIndices[i] == itemIndex) count++;
+    }
+    return count;
   }
 
   Future<void> _openAdjacentBmBiblePassage(int direction) async {
@@ -807,29 +888,6 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     );
   }
 
-  Future<void> _onSermonSplitViewSourceSelected(String value) async {
-    switch (value) {
-      case 'bible_en':
-        ref.read(sermonFlowProvider.notifier).setBmMode(true);
-        await _openQuickNav(forcedInitialLang: 'en');
-        break;
-      case 'bible_ta':
-        ref.read(sermonFlowProvider.notifier).setBmMode(true);
-        await _openQuickNav(forcedInitialLang: 'ta');
-        break;
-      case 'sermon_en':
-        ref.read(selectedSermonLangProvider.notifier).setLang('en');
-        ref.read(sermonFlowProvider.notifier).setBmMode(false);
-        break;
-      case 'sermon_ta':
-        ref.read(selectedSermonLangProvider.notifier).setLang('ta');
-        ref.read(sermonFlowProvider.notifier).setBmMode(false);
-        break;
-      case 'split_off':
-        ref.read(sermonFlowProvider.notifier).setBmMode(false);
-        break;
-    }
-  }
 
   // ── All-Sermons FTS search ────────────────────────────────────────────────
 
@@ -963,14 +1021,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
       });
       return;
     }
-    final pattern = RegExp(query, caseSensitive: false);
-    final indices = <int>[];
-    for (var i = 0; i < texts.length; i++) {
-      final count = pattern.allMatches(texts[i]).length;
-      for (var j = 0; j < count; j++) {
-        indices.add(i);
-      }
-    }
+    final indices = _computeMatchIndices(texts, query);
     setState(() {
       _matchVerseIndices = indices;
       _totalMatches = indices.length;
@@ -998,24 +1049,61 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
   }
 
   void _adjustReaderFontSize(double delta) {
-    final typography = ref.read(typographyProvider);
+    final activeTab = ref.read(sermonFlowProvider).activeTab;
+    final lang = activeTab?.type == ReaderContentType.bible
+        ? (activeTab?.bibleLang ?? ref.read(selectedBibleLangProvider))
+        : ref.read(selectedSermonLangProvider);
+    final stableLang = lang ?? 'en';
+    final typography = ref.read(typographyProvider(stableLang));
     final next = (typography.fontSize + delta).clamp(12.0, 56.0).toDouble();
-    ref.read(typographyProvider.notifier).updateFontSize(next);
+    if (stableLang == 'ta') {
+      ref.read(taTypographyProvider.notifier).updateFontSize(next);
+    } else {
+      ref.read(enTypographyProvider.notifier).updateFontSize(next);
+    }
   }
 
   int? _currentOccurrenceForItem(int itemIndex) {
-    if (_matchVerseIndices.isEmpty) return null;
-    if (_currentMatchIndex < 0 ||
-        _currentMatchIndex >= _matchVerseIndices.length) {
-      return null;
-    }
-    if (_matchVerseIndices[_currentMatchIndex] != itemIndex) return null;
+    return _currentOccurrenceForItemWithState(
+      matchIndices: _matchVerseIndices,
+      currentMatchIndex: _currentMatchIndex,
+      itemIndex: itemIndex,
+    );
+  }
 
-    var count = 0;
-    for (var i = 0; i < _currentMatchIndex; i++) {
-      if (_matchVerseIndices[i] == itemIndex) count++;
+  Future<void> _openAdjacentSecondarySermon({
+    required ReaderTab currentTab,
+    required int direction,
+  }) async {
+    final sermonId = currentTab.sermonId;
+    if (sermonId == null || sermonId.isEmpty) return;
+    final String lang =
+        (currentTab.sermonLang ?? ref.read(selectedSermonLangProvider)) == 'ta'
+        ? 'ta'
+        : 'en';
+    final repo = await ref.read(sermonRepositoryByLangProvider(lang).future);
+    final adjacent = await repo.getAdjacentSermon(sermonId, direction);
+    if (!mounted) return;
+    if (adjacent == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            direction > 0 ? 'No next sermon.' : 'No previous sermon.',
+          ),
+        ),
+      );
+      return;
     }
-    return count;
+    ref
+        .read(sermonFlowProvider.notifier)
+        .upsertBmBibleTab(
+          bibleTab: currentTab.copyWith(
+            title: adjacent.title,
+            sermonId: adjacent.id,
+            sermonLang: lang,
+          ),
+          openInNewTab: false,
+        );
   }
 
   /// Height of [_buildSermonNavRow] (padding + compact buttons); keep in sync with UI.
@@ -1236,6 +1324,304 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
           instantScroll: instantScroll,
         );
       });
+    });
+  }
+
+  Future<SermonEntity?> _pickSermonForSecondaryPane(String lang) async {
+    SermonEntity? picked;
+    await showResponsiveBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      maxWidth: 720,
+      builder: (ctx) => SermonQuickNavSheet(
+        lang: lang,
+        onSelected: (sermon) {
+          picked = sermon;
+        },
+      ),
+    );
+    return picked;
+  }
+
+  Future<void> _openSecondaryBiblePicker({
+    required String lang,
+    required bool openInNewTab,
+  }) async {
+    final result = await showResponsiveBottomSheet<Map<String, dynamic>>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      maxWidth: 980,
+      builder: (_) => QuickNavigationSheet(initialLang: lang),
+    );
+    if (result == null) return;
+    final verse = result['verse'] as int?;
+    final rightTab = ReaderTab(
+      type: ReaderContentType.bible,
+      title: "${result['book']} ${result['chapter']}",
+      book: result['book'] as String,
+      chapter: result['chapter'] as int,
+      verse: verse,
+      bibleLang: result['lang'] as String? ?? lang,
+    );
+    final added = ref
+        .read(sermonFlowProvider.notifier)
+        .upsertBmBibleTab(bibleTab: rightTab, openInNewTab: openInNewTab);
+    if (!added && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Split view tab limit reached (20).')),
+      );
+    }
+  }
+
+  Future<void> _openSecondarySermonPicker({
+    required String lang,
+    required bool openInNewTab,
+  }) async {
+    final sermon = await _pickSermonForSecondaryPane(lang);
+    if (sermon == null) return;
+    final rightTab = ReaderTab(
+      type: ReaderContentType.sermon,
+      title: sermon.title,
+      sermonId: sermon.id,
+      sermonLang: lang,
+    );
+    final added = ref
+        .read(sermonFlowProvider.notifier)
+        .upsertBmBibleTab(bibleTab: rightTab, openInNewTab: openInNewTab);
+    if (!added && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Split view tab limit reached (20).')),
+      );
+    }
+  }
+
+  Future<void> _onSecondaryPaneSourceSelected(
+    String value, {
+    required bool openInNewTab,
+  }) async {
+    switch (value) {
+      case 'bible_en':
+        await _openSecondaryBiblePicker(lang: 'en', openInNewTab: openInNewTab);
+        break;
+      case 'bible_ta':
+        await _openSecondaryBiblePicker(lang: 'ta', openInNewTab: openInNewTab);
+        break;
+      case 'sermon_en':
+        await _openSecondarySermonPicker(
+          lang: 'en',
+          openInNewTab: openInNewTab,
+        );
+        break;
+      case 'sermon_ta':
+        await _openSecondarySermonPicker(
+          lang: 'ta',
+          openInNewTab: openInNewTab,
+        );
+        break;
+    }
+    if (!mounted) return;
+    setState(() {
+      _secondaryMiniSearchController.clear();
+      _secondaryMatchIndices = [];
+      _secondaryTotalMatches = 0;
+      _secondaryCurrentMatchIndex = 0;
+    });
+  }
+
+  void _computePrimaryPaneMatches(String query, {bool scrollToMatch = true}) {
+    final indices = _computeMatchIndices(
+      _currentParagraphs.map((paragraph) => paragraph.text).toList(),
+      query,
+    );
+    setState(() {
+      _primaryMatchIndices = indices;
+      _primaryTotalMatches = indices.length;
+      _primaryCurrentMatchIndex = 0;
+    });
+    if (indices.isNotEmpty && scrollToMatch) {
+      _scrollPrimaryPaneToCurrentMatch();
+    }
+  }
+
+  void _navigatePrimaryPaneMatch(int direction) {
+    if (_primaryMatchIndices.isEmpty) return;
+    setState(() {
+      _primaryCurrentMatchIndex =
+          (_primaryCurrentMatchIndex + direction) % _primaryMatchIndices.length;
+      if (_primaryCurrentMatchIndex < 0) {
+        _primaryCurrentMatchIndex = _primaryMatchIndices.length - 1;
+      }
+    });
+    _scrollPrimaryPaneToCurrentMatch();
+  }
+
+  void _scrollPrimaryPaneToCurrentMatch({bool instantScroll = false}) {
+    if (_primaryMatchIndices.isEmpty) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _scrollToSermonOccurrenceByState(
+        controller: _splitPrimaryScrollController,
+        paragraphs: _currentParagraphs,
+        query: _primaryMiniSearchController.text,
+        matchIndices: _primaryMatchIndices,
+        currentMatchIndex: _primaryCurrentMatchIndex,
+        instantScroll: instantScroll,
+      );
+    });
+  }
+
+  bool _scrollToSermonOccurrenceByState({
+    required ScrollController controller,
+    required List<SermonParagraphEntity> paragraphs,
+    required String query,
+    required List<int> matchIndices,
+    required int currentMatchIndex,
+    bool instantScroll = false,
+  }) {
+    if (!controller.hasClients ||
+        matchIndices.isEmpty ||
+        paragraphs.isEmpty ||
+        currentMatchIndex < 0 ||
+        currentMatchIndex >= matchIndices.length ||
+        query.trim().isEmpty) {
+      return false;
+    }
+
+    final paragraphIndex = matchIndices[currentMatchIndex];
+    if (paragraphIndex < 0 || paragraphIndex >= paragraphs.length) {
+      return false;
+    }
+
+    final occurrenceIndex = _currentOccurrenceForItemWithState(
+      matchIndices: matchIndices,
+      currentMatchIndex: currentMatchIndex,
+      itemIndex: paragraphIndex,
+    );
+    if (occurrenceIndex == null) return false;
+
+    final pattern = RegExp(query, caseSensitive: false);
+    var totalChars = 0;
+    var charsBeforeTargetParagraph = 0;
+    for (var i = 0; i < paragraphs.length; i++) {
+      final textLength = paragraphs[i].text.length;
+      if (i < paragraphIndex) {
+        charsBeforeTargetParagraph += textLength;
+        if (i < paragraphs.length - 1) {
+          charsBeforeTargetParagraph += 1;
+        }
+      }
+      totalChars += textLength;
+      if (i < paragraphs.length - 1) {
+        totalChars += 1;
+      }
+    }
+    if (totalChars <= 0) return false;
+
+    final matches = pattern.allMatches(paragraphs[paragraphIndex].text).toList();
+    if (matches.isEmpty) return false;
+    final safeOccurrence = occurrenceIndex.clamp(0, matches.length - 1);
+    final globalCharOffset =
+        charsBeforeTargetParagraph + matches[safeOccurrence].start;
+    final ratio = (globalCharOffset / totalChars).clamp(0.0, 1.0);
+    final target = ratio * controller.position.maxScrollExtent;
+
+    if (instantScroll) {
+      controller.jumpTo(target);
+    } else {
+      controller.animateTo(
+        target,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+      );
+    }
+    return true;
+  }
+
+  void _computeSecondaryPaneMatches(String query, {bool scrollToMatch = true}) {
+    final flowState = ref.read(sermonFlowProvider);
+    final group = flowState.bmBibleGroup;
+    final activeSecondary = group.tabs.isEmpty
+        ? null
+        : group.tabs[group.activeIndex.clamp(0, group.tabs.length - 1)];
+    final texts = activeSecondary?.type == ReaderContentType.sermon
+        ? _bmSecondaryParagraphs.map((paragraph) => paragraph.text).toList()
+        : _bmCurrentVerses.map((verse) => verse.text).toList();
+    final indices = _computeMatchIndices(
+      texts,
+      query,
+    );
+    setState(() {
+      _secondaryMatchIndices = indices;
+      _secondaryTotalMatches = indices.length;
+      _secondaryCurrentMatchIndex = 0;
+    });
+    if (indices.isNotEmpty && scrollToMatch) {
+      _scrollSecondaryPaneToCurrentMatch();
+    }
+  }
+
+  void _navigateSecondaryPaneMatch(int direction) {
+    if (_secondaryMatchIndices.isEmpty) return;
+    setState(() {
+      _secondaryCurrentMatchIndex =
+          (_secondaryCurrentMatchIndex + direction) %
+          _secondaryMatchIndices.length;
+      if (_secondaryCurrentMatchIndex < 0) {
+        _secondaryCurrentMatchIndex = _secondaryMatchIndices.length - 1;
+      }
+    });
+    _scrollSecondaryPaneToCurrentMatch();
+  }
+
+  void _scrollSecondaryPaneToCurrentMatch() {
+    if (_secondaryMatchIndices.isEmpty) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      final flowState = ref.read(sermonFlowProvider);
+      if (flowState.bmBibleGroup.tabs.isEmpty) return;
+      final activeSecondary = flowState.bmBibleGroup.tabs[
+        flowState.bmBibleGroup.activeIndex.clamp(
+          0,
+          flowState.bmBibleGroup.tabs.length - 1,
+        )
+      ];
+      if (activeSecondary.type == ReaderContentType.sermon) {
+        _scrollToSermonOccurrenceByState(
+          controller: _splitSecondaryScrollController,
+          paragraphs: _bmSecondaryParagraphs,
+          query: _secondaryMiniSearchController.text,
+          matchIndices: _secondaryMatchIndices,
+          currentMatchIndex: _secondaryCurrentMatchIndex,
+        );
+        return;
+      }
+      final verseIndex = _secondaryMatchIndices[_secondaryCurrentMatchIndex];
+      if (verseIndex < 0 || verseIndex >= _bmVerseKeys.length) return;
+      final targetContext = _bmVerseKeys[verseIndex].currentContext;
+      if (targetContext != null) {
+        await Scrollable.ensureVisible(
+          targetContext,
+          duration: const Duration(milliseconds: 250),
+          curve: Curves.easeOutCubic,
+          alignment: 0.12,
+          alignmentPolicy: ScrollPositionAlignmentPolicy.explicit,
+        );
+        return;
+      }
+      if (!_splitSecondaryScrollController.hasClients) return;
+      final max = _splitSecondaryScrollController.position.maxScrollExtent;
+      if (max <= 0 || _bmCurrentVerses.isEmpty) return;
+      final fraction = (verseIndex / _bmCurrentVerses.length).clamp(0.0, 1.0);
+      final target = fraction * max;
+      _splitSecondaryScrollController.animateTo(
+        target,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+      );
     });
   }
 
@@ -1485,7 +1871,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     final flowState = ref.read(sermonFlowProvider);
     final activeTab = flowState.activeTab;
     final lang = ref.read(selectedSermonLangProvider);
-    final typography = ref.read(typographyProvider);
+    final typography = ref.read(typographyProvider(lang));
 
     SermonEntity sermon;
 
@@ -1518,12 +1904,12 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     }
 
     final paragraphs = _currentParagraphs
-        .map(
-          (p) => <String, dynamic>{
-            'paragraphNumber': p.paragraphNumber,
-            'text': p.text,
-          },
-        )
+        .asMap()
+        .entries
+        .map((entry) => <String, dynamic>{
+              'paragraphNumber': entry.value.paragraphNumber ?? (entry.key + 1),
+              'text': entry.value.text,
+            })
         .toList(growable: false);
 
     return <String, dynamic>{
@@ -1557,6 +1943,16 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     return cleaned.isEmpty ? 'Document' : cleaned;
   }
 
+  String _resolvePdfTitle({
+    required String rawTitle,
+    required String langCode,
+  }) {
+    if (langCode == 'ta') {
+      return normalizeTamil(rawTitle.trim());
+    }
+    return rawTitle.trim();
+  }
+
   Future<void> _withPdfProgress(Future<void> Function() task) async {
     if (!mounted) return;
     showDialog<void>(
@@ -1588,9 +1984,17 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
         ).showSnackBar(SnackBar(content: Text(message)));
         return;
       }
-      final rawTitle =
-          ref.read(sermonFlowProvider).activeTab?.title ?? 'Sermon';
-      final safeTitle = _sanitizePdfName(rawTitle);
+      final activeTab = ref.read(sermonFlowProvider).activeTab;
+      final rawTitle = activeTab?.title ?? 'Sermon';
+      final langCode = (activeTab?.sermonLang ??
+                  ref.read(selectedSermonLangProvider) ??
+                  'en') ==
+              'ta'
+          ? 'ta'
+          : 'en';
+      final safeTitle = _sanitizePdfName(
+        _resolvePdfTitle(rawTitle: rawTitle, langCode: langCode),
+      );
       await Printing.layoutPdf(onLayout: (_) async => bytes, name: safeTitle);
     });
   }
@@ -1611,9 +2015,17 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
         return;
       }
 
-      final rawTitle =
-          ref.read(sermonFlowProvider).activeTab?.title ?? 'Sermon';
-      final safeTitle = _sanitizePdfName(rawTitle);
+      final activeTab = ref.read(sermonFlowProvider).activeTab;
+      final rawTitle = activeTab?.title ?? 'Sermon';
+      final langCode = (activeTab?.sermonLang ??
+                  ref.read(selectedSermonLangProvider) ??
+                  'en') ==
+              'ta'
+          ? 'ta'
+          : 'en';
+      final safeTitle = _sanitizePdfName(
+        _resolvePdfTitle(rawTitle: rawTitle, langCode: langCode),
+      );
       final filename = '$safeTitle.pdf';
 
       // Desktop: native Save dialog + Open folder.
@@ -1864,13 +2276,13 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     TextStyle baseStyle,
     TextStyle highlightStyle,
     TextStyle currentMatchStyle, {
+    required String query,
+    required bool enabled,
     int? currentOccurrenceIndex,
   }) {
-    // Don't highlight while browsing All-Sermons results — text not visible.
-    if (!_isSearching || _searchAllSermons || _searchController.text.isEmpty) {
+    if (!enabled || query.isEmpty) {
       return [TextSpan(text: text, style: baseStyle)];
     }
-    final query = _searchController.text;
     final matches = RegExp(
       query,
       caseSensitive: false,
@@ -1943,27 +2355,18 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     );
   }
 
-  // ── Build ─────────────────────────────────────────────────────────────────
-
   @override
   Widget build(BuildContext context) {
+
     final flowState = ref.watch(sermonFlowProvider);
-    final typographyState = ref.watch(typographyProvider);
     final activeTab = flowState.activeTab;
     final sermonLang = ref.watch(selectedSermonLangProvider);
     final bibleLangFallback = ref.watch(selectedBibleLangProvider);
     final readerTypographyLang = activeTab?.type == ReaderContentType.bible
         ? (activeTab?.bibleLang ?? bibleLangFallback)
         : sermonLang;
-    if (_lastTypographyLang != readerTypographyLang) {
-      _lastTypographyLang = readerTypographyLang;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        ref
-            .read(typographyProvider.notifier)
-            .setReaderContentLanguage(readerTypographyLang);
-      });
-    }
+    final typographyState = ref.watch(typographyProvider(readerTypographyLang));
+
     final isFullscreen = typographyState.isFullscreen;
     final openedFromSearch = activeTab?.openedFromSearch ?? false;
 
@@ -2136,7 +2539,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
                 child: InkWell(
                   borderRadius: BorderRadius.circular(20),
                   onTap: () =>
-                      ref.read(typographyProvider.notifier).toggleFullscreen(),
+                      ref.read(typographyGlobalProvider.notifier).toggleFullscreen(),
                   child: const Padding(
                     padding: EdgeInsets.all(8),
                     child: Icon(
@@ -2443,6 +2846,104 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     );
   }
 
+  Widget _buildSplitViewPopupMenu(
+    BuildContext context,
+    BoxConstraints constraints,
+    bool splitEnabled,
+    ThemeData theme, {
+    String? label,
+  }) {
+    final icon = Icon(
+      Icons.splitscreen,
+      size: constraints.maxWidth >= 900 ? 28 : 24,
+      color: splitEnabled ? theme.colorScheme.primary : null,
+    );
+
+    if (label != null) {
+      return PopupMenuButton<String>(
+        tooltip: label,
+        onSelected: _onSermonSplitViewSourceSelected,
+        itemBuilder: (context) => _buildSplitViewItems(constraints),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              icon,
+              const SizedBox(width: 8),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: constraints.maxWidth >= 900 ? 15 : 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return PopupMenuButton<String>(
+      tooltip: 'Split View',
+      icon: icon,
+      onSelected: _onSermonSplitViewSourceSelected,
+      itemBuilder: (context) => _buildSplitViewItems(constraints),
+    );
+  }
+
+  List<PopupMenuEntry<String>> _buildSplitViewItems(
+    BoxConstraints constraints,
+  ) {
+    final itemStyle = TextStyle(
+      fontSize: constraints.maxWidth >= 900 ? 16 : 14,
+    );
+    return [
+      PopupMenuItem<String>(
+        value: 'bible_en',
+        child: Text('Bible English', style: itemStyle),
+      ),
+      PopupMenuItem<String>(
+        value: 'bible_ta',
+        child: Text('Bible Tamil', style: itemStyle),
+      ),
+      PopupMenuItem<String>(
+        value: 'sermon_en',
+        child: Text('Sermon English', style: itemStyle),
+      ),
+      PopupMenuItem<String>(
+        value: 'sermon_ta',
+        child: Text('Sermon Tamil', style: itemStyle),
+      ),
+      const PopupMenuDivider(),
+      PopupMenuItem<String>(
+        value: 'split_off',
+        child: Text('Disable Split View', style: itemStyle),
+      ),
+    ];
+  }
+
+  Future<void> _onSermonSplitViewSourceSelected(String value) async {
+    if (value == 'split_off') {
+      ref.read(sermonFlowProvider.notifier).setBmMode(false);
+      return;
+    }
+
+    // Toggle BM mode if not enabled.
+    if (!ref.read(sermonFlowProvider).bmMode) {
+      ref.read(sermonFlowProvider.notifier).setBmMode(true);
+    }
+
+    if (value == 'bible_ta' || value == 'bible_en') {
+      final lang = value == 'bible_ta' ? 'ta' : 'en';
+      await _openQuickNav(forcedInitialLang: lang);
+    } else if (value == 'sermon_ta' || value == 'sermon_en') {
+      // For now, we open the quick nav for sermons.
+      // Language switching in SermonQuickNavSheet follows the global sermon lang.
+      await _openSermonQuickNav();
+    }
+  }
+
   AppBar _buildDefaultAppBar(
     BuildContext context,
     ReaderTab? activeTab,
@@ -2464,6 +2965,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     final isSermonTab =
         flowState.activeTab?.type == ReaderContentType.sermon &&
         activeTab?.sermonId != null;
+    final isWideScreen = MediaQuery.sizeOf(context).width >= 900;
 
     // Subtitle metadata for the sermon tab.
     Widget titleWidget;
@@ -2502,7 +3004,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
             overflow: TextOverflow.ellipsis,
             style: theme.textTheme.titleMedium?.copyWith(
               fontWeight: FontWeight.bold,
-              fontSize: typography.titleFontSize,
+              fontSize: (isWideScreen ? 24.0 : 18.0) + (typography.titleFontSize - (isWideScreen ? 18.0 : 13.0)).clamp(0, 10),
             ),
           ),
           if (subtitle != null)
@@ -2524,9 +3026,8 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
             Expanded(
               child: Text(
                 activeTab?.title ?? 'Bible Reference',
-                maxLines: 1,
+                maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                softWrap: false,
               ),
             ),
             const Icon(Icons.arrow_drop_down),
@@ -2541,7 +3042,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     }
 
     return AppBar(
-      toolbarHeight: isOnBibleTab ? kToolbarHeight : 76.0,
+      toolbarHeight: isWideScreen ? 64.0 : (isOnBibleTab ? 72.0 : 92.0),
       titleSpacing: 0,
       leading: IconButton(
         icon: const Icon(Icons.arrow_back),
@@ -2562,20 +3063,63 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
             mainAxisAlignment: MainAxisAlignment.start,
             mainAxisSize: MainAxisSize.max,
             children: [
-              Expanded(child: titleWidget),
+              Flexible(child: titleWidget),
+              const SizedBox(width: 24),
+              // Split View Controls
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 8.0,
+                  vertical: 2.0,
+                ),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(20),
+                  color: theme.colorScheme.surfaceVariant.withAlpha(80),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _buildSplitViewPopupMenu(
+                      context,
+                      constraints,
+                      flowState.bmMode,
+                      theme,
+                      label: 'Split View',
+                    ),
+                    if (flowState.bmMode) ...[
+                      const SizedBox(width: 8),
+                      TextButton(
+                        style: TextButton.styleFrom(
+                          foregroundColor: theme.colorScheme.error,
+                          textStyle:
+                              const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        onPressed: () {
+                          ref
+                              .read(sermonFlowProvider.notifier)
+                              .setBmMode(false);
+                        },
+                        child: const Text('Disable Split View'),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const Spacer(),
               const SizedBox(width: 16),
               Wrap(
-                spacing: 8,
+                spacing: 12,
                 children: [
                   _AppBarChip(
                     label: codLabel,
                     icon: Icons.article_outlined,
                     onTap: () => _openCodList(context),
+                    isWide: true,
                   ),
                   _AppBarChip(
                     label: sealsLabel,
                     icon: Icons.layers_outlined,
                     onTap: () => _openSevenSealsList(context),
+                    isWide: true,
                   ),
                 ],
               ),
@@ -2612,6 +3156,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
               ),
               onPressed: () => _adjustReaderFontSize(1),
             ),
+          const HelpButton(topicId: 'reader'),
           if (!openedFromSearch) ...[
             IconButton(
               icon: const Icon(Icons.search),
@@ -2958,6 +3503,8 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
                               baseStyle,
                               highlightStyle,
                               currentMatchStyle,
+                              query: _searchController.text,
+                              enabled: _isSearching && !_searchAllSermons,
                               currentOccurrenceIndex: currentOccurrence,
                             ),
                           ],
@@ -3033,6 +3580,17 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
                 } else {
                   _clearMatches();
                 }
+                if (_primaryMiniSearchActive &&
+                    _primaryMiniSearchController.text.trim().isNotEmpty) {
+                  _computePrimaryPaneMatches(
+                    _primaryMiniSearchController.text,
+                    scrollToMatch: false,
+                  );
+                } else {
+                  _primaryMatchIndices = [];
+                  _primaryTotalMatches = 0;
+                  _primaryCurrentMatchIndex = 0;
+                }
               });
             });
           }
@@ -3054,12 +3612,6 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
           }
 
           final cs = Theme.of(context).colorScheme;
-          final sermonList = _buildSermonParagraphList(
-            paragraphs,
-            typography,
-            cs,
-          );
-
           return Column(
             children: [
               _buildSermonNavRow(flowState),
@@ -3068,9 +3620,10 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
                     ? _buildBmSplitContent(
                         flowState: flowState,
                         typography: typography,
-                        sermonList: sermonList,
+                        sermonParagraphs: paragraphs,
+                        colorScheme: cs,
                       )
-                    : sermonList,
+                    : _buildSermonParagraphList(paragraphs, typography, cs),
               ),
             ],
           );
@@ -3198,8 +3751,8 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
   // ── In-content navigation row (Previous | B | M | Next) ──────────────────
 
   Widget _buildSermonNavRow(SermonFlowState flowState) {
+    if (flowState.bmMode) return const SizedBox.shrink();
     final theme = Theme.of(context);
-    final bmMode = flowState.bmMode;
     return Container(
       decoration: BoxDecoration(
         border: Border(
@@ -3210,11 +3763,11 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
       ),
       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
       child: Row(
-        mainAxisAlignment: bmMode
+        mainAxisAlignment: flowState.bmMode
             ? MainAxisAlignment.center
             : MainAxisAlignment.spaceBetween,
         children: [
-          if (!bmMode)
+          if (!flowState.bmMode)
             TextButton.icon(
               icon: const Icon(Icons.chevron_left, size: 18),
               label: const Text('Previous'),
@@ -3224,56 +3777,9 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
               ),
               onPressed: () => _openAdjacentSermon(-1),
             ),
-          if (!_isSearching)
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                PopupMenuButton<String>(
-                  tooltip: 'Split View',
-                  icon: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.splitscreen,
-                        size: 18,
-                        color: bmMode
-                            ? theme.colorScheme.primary
-                            : theme.colorScheme.onSurface,
-                      ),
-                      const SizedBox(width: 4),
-                      Text('Split View', style: theme.textTheme.labelMedium),
-                    ],
-                  ),
-                  onSelected: (value) async {
-                    await _onSermonSplitViewSourceSelected(value);
-                  },
-                  itemBuilder: (context) => const [
-                    PopupMenuItem<String>(
-                      value: 'bible_en',
-                      child: Text('Bible English'),
-                    ),
-                    PopupMenuItem<String>(
-                      value: 'bible_ta',
-                      child: Text('Bible Tamil'),
-                    ),
-                    PopupMenuItem<String>(
-                      value: 'sermon_en',
-                      child: Text('Sermon English'),
-                    ),
-                    PopupMenuItem<String>(
-                      value: 'sermon_ta',
-                      child: Text('Sermon Tamil'),
-                    ),
-                    PopupMenuDivider(),
-                    PopupMenuItem<String>(
-                      value: 'split_off',
-                      child: Text('Disable Split View'),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          if (!bmMode)
+          if (!_isSearching && !flowState.bmMode)
+            const SizedBox.shrink(), // Placeholder since we removed Split View from here
+          if (!flowState.bmMode)
             TextButton.icon(
               icon: const Icon(Icons.chevron_right, size: 18),
               label: const Text('Next'),
@@ -3293,7 +3799,8 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
 
   Widget _buildBottomTabBar(BuildContext context, SermonFlowState state) {
     final theme = Theme.of(context);
-    final typography = ref.watch(typographyProvider);
+    final lang = ref.watch(selectedSermonLangProvider);
+    final typography = ref.watch(typographyProvider(lang));
     final activeTab = state.activeTab;
     final isOnBibleTab = activeTab?.type == ReaderContentType.bible;
     final visibleIndices = <int>[];
@@ -3554,7 +4061,16 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     ColorScheme cs,
   ) {
     // Delegate to the unified sermon body builder.
-    return _buildSermonBody(paragraphs, typography, cs);
+    return _buildSermonBody(
+      paragraphs,
+      typography,
+      cs,
+      scrollController: _scrollController,
+      searchQuery: _searchController.text,
+      searchEnabled: _isSearching && !_searchAllSermons,
+      matchIndices: _matchVerseIndices,
+      currentMatchIndex: _currentMatchIndex,
+    );
   }
 
   String _shortenTitle(String title) {
@@ -3566,9 +4082,16 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     List<SermonParagraphEntity> paragraphs,
     TypographySettings typography,
     ColorScheme cs,
-  ) {
-    final sermonFontSize = (typography.fontSize * _bmSermonZoom)
-        .clamp(12.0, 42.0)
+    {
+    required ScrollController scrollController,
+    required String searchQuery,
+    required bool searchEnabled,
+    required List<int> matchIndices,
+    required int currentMatchIndex,
+    double? fontSizeOverride,
+  }) {
+    final sermonFontSize = (fontSizeOverride ?? typography.fontSize)
+        .clamp(12.0, 56.0)
         .toDouble();
     final baseStyle =
         Theme.of(context).textTheme.bodyLarge?.copyWith(
@@ -3592,7 +4115,11 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
 
     for (var i = 0; i < paragraphs.length; i++) {
       final paragraph = paragraphs[i];
-      final currentOccurrence = _currentOccurrenceForItem(i);
+      final currentOccurrence = _currentOccurrenceForItemWithState(
+        matchIndices: matchIndices,
+        currentMatchIndex: currentMatchIndex,
+        itemIndex: i,
+      );
       final displayParagraphNumber = paragraph.paragraphNumber ?? (i + 1);
       final paragraphPrefix = '$displayParagraphNumber ';
 
@@ -3615,6 +4142,8 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
           baseStyle,
           highlightStyle,
           currentMatchStyle,
+          query: searchQuery,
+          enabled: searchEnabled,
           currentOccurrenceIndex: currentOccurrence,
         ),
       );
@@ -3643,7 +4172,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
           // Hide the platform menu; we show our own overlay automatically.
           contextMenuBuilder: (context, state) => const SizedBox.shrink(),
           child: SingleChildScrollView(
-            controller: _scrollController,
+            controller: scrollController,
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: Builder(
               builder: (innerContext) {
@@ -3711,11 +4240,11 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
               width: 6,
               child: _buildMatchMarkers(
                 paragraphs.length,
-                _matchVerseIndices,
-                _matchVerseIndices.isNotEmpty
-                    ? _matchVerseIndices[_currentMatchIndex]
+                matchIndices,
+                matchIndices.isNotEmpty
+                    ? matchIndices[currentMatchIndex]
                     : null,
-                enabled: _isSearching && !_searchAllSermons,
+                enabled: searchEnabled,
               ),
             ),
           ),
@@ -3727,57 +4256,313 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
   Widget _buildBmSplitContent({
     required SermonFlowState flowState,
     required TypographySettings typography,
-    required Widget sermonList,
+    required List<SermonParagraphEntity> sermonParagraphs,
+    required ColorScheme colorScheme,
   }) {
     final theme = Theme.of(context);
+    final activeSermonTab = flowState.activeTab;
+    if (activeSermonTab == null) {
+      return const Center(child: Text('No sermon loaded.'));
+    }
     final bmGroup = flowState.bmBibleGroup;
-    final bibleTab = bmGroup.tabs.isEmpty
+    final activeSecondaryTab = bmGroup.tabs.isEmpty
         ? null
         : bmGroup.tabs[bmGroup.activeIndex.clamp(0, bmGroup.tabs.length - 1)];
+    final hasSecondaryTabs = bmGroup.tabs.isNotEmpty;
 
-    final bibleHeader = _buildBmBibleHeader(group: bmGroup);
-    final sermonHeader = _buildBmSermonHeader(flowState: flowState);
-    final hasBibleTabs = bmGroup.tabs.isNotEmpty;
-    final clampedBibleIndex = hasBibleTabs
-        ? bmGroup.activeIndex.clamp(0, bmGroup.tabs.length - 1)
-        : 0;
-
-    final bibleToolbar = _buildBmPaneNavToolbar(
-      previousTooltip: 'Previous chapter',
-      allLabel: 'All Books',
-      allTooltip: 'Choose Bible chapter',
-      allIcon: Icons.menu_book_outlined,
-      onPrevious: hasBibleTabs ? () => _openAdjacentBmBiblePassage(-1) : null,
-      onAll: () {
-        if (!hasBibleTabs) {
-          _openQuickNav();
-          return;
-        }
-        _openQuickNavForBibleTab(bmIndex: clampedBibleIndex, isBm: true);
-      },
-      onNext: hasBibleTabs ? () => _openAdjacentBmBiblePassage(1) : null,
+    final primaryPane = Column(
+      children: [
+        PaneHeader(
+          tab: activeSermonTab,
+          isPrimary: true,
+          displayFontSize: _primaryPaneFontSize(typography),
+          isSearchActive: _primaryMiniSearchActive,
+          onOpenPicker: _openSermonQuickNav,
+          onPrev: () => _openAdjacentSermon(-1),
+          onNext: () => _openAdjacentSermon(1),
+          onDecreaseFont: () => _adjustPrimarySplitFont(-1),
+          onIncreaseFont: () => _adjustPrimarySplitFont(1),
+          onToggleSearch: () {
+            setState(() {
+              _primaryMiniSearchActive = !_primaryMiniSearchActive;
+              if (!_primaryMiniSearchActive) {
+                _primaryMiniSearchController.clear();
+                _primaryMatchIndices = [];
+                _primaryTotalMatches = 0;
+                _primaryCurrentMatchIndex = 0;
+              }
+            });
+            if (_primaryMiniSearchActive &&
+                _primaryMiniSearchController.text.trim().isNotEmpty) {
+              _computePrimaryPaneMatches(_primaryMiniSearchController.text);
+            }
+          },
+          onSourceSelected: (value) => _onSermonSplitViewSourceSelected(value),
+        ),
+        Expanded(
+          child: ReadingPane(
+            child: _buildSermonBody(
+              sermonParagraphs,
+              typography,
+              colorScheme,
+              scrollController: _splitPrimaryScrollController,
+              searchQuery: _primaryMiniSearchController.text,
+              searchEnabled: _primaryMiniSearchActive,
+              matchIndices: _primaryMatchIndices,
+              currentMatchIndex: _primaryCurrentMatchIndex,
+              fontSizeOverride: _primaryPaneFontSize(typography),
+            ),
+            isSearchActive: _primaryMiniSearchActive,
+            searchController: _primaryMiniSearchController,
+            searchFocusNode: _primaryMiniSearchFocusNode,
+            matchCounterText: _primaryTotalMatches > 0
+                ? '${_primaryCurrentMatchIndex + 1}/$_primaryTotalMatches'
+                : '0/0',
+            onSearchChanged: (value) => _computePrimaryPaneMatches(value),
+            onPrevMatch: _primaryTotalMatches > 0
+                ? () => _navigatePrimaryPaneMatch(-1)
+                : null,
+            onNextMatch: _primaryTotalMatches > 0
+                ? () => _navigatePrimaryPaneMatch(1)
+                : null,
+            onCloseSearch: () {
+              setState(() {
+                _primaryMiniSearchActive = false;
+                _primaryMiniSearchController.clear();
+                _primaryMatchIndices = [];
+                _primaryTotalMatches = 0;
+                _primaryCurrentMatchIndex = 0;
+              });
+            },
+          ),
+        ),
+      ],
     );
 
-    final sermonToolbar = _buildBmPaneNavToolbar(
-      previousTooltip: 'Previous sermon',
-      allLabel: 'All Sermons',
-      allTooltip: 'Choose sermon',
-      allIcon: Icons.import_contacts,
-      onPrevious: () => _openAdjacentSermon(-1),
-      onAll: _openSermonQuickNav,
-      onNext: () => _openAdjacentSermon(1),
+    final rightTabsRow = SizedBox(
+      height: 40,
+      child: Row(
+        children: [
+          Expanded(
+            child: ListView.builder(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              itemCount: bmGroup.tabs.length,
+              itemBuilder: (context, index) {
+                final tab = bmGroup.tabs[index];
+                final isActive = index == bmGroup.activeIndex;
+                return Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 4,
+                    vertical: 4,
+                  ),
+                  child: GestureDetector(
+                    onDoubleTap: () async {
+                      if (tab.type == ReaderContentType.bible) {
+                        await _openQuickNavForBibleTab(
+                          bmIndex: index,
+                          isBm: true,
+                        );
+                        return;
+                      }
+                      await _onSecondaryPaneSourceSelected(
+                        (tab.sermonLang ?? 'en') == 'ta'
+                            ? 'sermon_ta'
+                            : 'sermon_en',
+                        openInNewTab: false,
+                      );
+                    },
+                    onLongPress: _isDesktopPlatform
+                        ? null
+                        : () async {
+                              if (tab.type == ReaderContentType.bible) {
+                                await _openQuickNavForBibleTab(
+                                  bmIndex: index,
+                                  isBm: true,
+                                );
+                                return;
+                              }
+                              await _onSecondaryPaneSourceSelected(
+                                (tab.sermonLang ?? 'en') == 'ta'
+                                    ? 'sermon_ta'
+                                    : 'sermon_en',
+                                openInNewTab: false,
+                              );
+                            },
+                    child: FilterChip(
+                      selected: isActive,
+                      showCheckmark: isActive,
+                      label: Text(tab.title),
+                      onSelected: (_) => ref
+                          .read(sermonFlowProvider.notifier)
+                          .setBmBibleActive(index),
+                      onDeleted: bmGroup.tabs.length <= 1
+                          ? null
+                          : () => ref
+                                .read(sermonFlowProvider.notifier)
+                                .closeBmBibleTab(index),
+                      deleteIcon: const Icon(Icons.close, size: 16),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          PopupMenuButton<String>(
+            tooltip: 'Add module',
+            icon: const Icon(Icons.add),
+            onSelected: (value) async {
+              await _onSecondaryPaneSourceSelected(value, openInNewTab: true);
+            },
+            itemBuilder: (context) => const [
+              PopupMenuItem(
+                value: 'bible_en',
+                child: Text('English Bible (KJV)'),
+              ),
+              PopupMenuItem(
+                value: 'bible_ta',
+                child: Text('Tamil Bible (BSI)'),
+              ),
+              PopupMenuItem(
+                value: 'sermon_en',
+                child: Text('English Sermons'),
+              ),
+              PopupMenuItem(
+                value: 'sermon_ta',
+                child: Text('Tamil Sermons'),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
 
-    final biblePanel = _buildBmPanel(
-      header: bibleHeader,
-      topToolbar: bibleToolbar,
-      child: _buildBmBibleContent(bibleTab, typography),
+    final fallbackSecondaryTab = ReaderTab(
+      type: ReaderContentType.bible,
+      title: 'Genesis 1',
+      book: 'Genesis',
+      chapter: 1,
+      bibleLang: ref.read(selectedBibleLangProvider),
     );
+    final resolvedSecondaryTab = activeSecondaryTab ?? fallbackSecondaryTab;
 
-    final sermonPanel = _buildBmPanel(
-      header: sermonHeader,
-      topToolbar: sermonToolbar,
-      child: sermonList,
+    final secondaryLang = resolvedSecondaryTab.bibleLang ?? resolvedSecondaryTab.sermonLang ?? 'en';
+    final secondaryTypography = ref.watch(typographyProvider(secondaryLang));
+
+    final secondaryPane = Column(
+      children: [
+        PaneHeader(
+          tab: resolvedSecondaryTab,
+          isPrimary: false,
+          showSourcePicker: true,
+          displayFontSize: _secondaryPaneFontSize(secondaryTypography),
+          isSearchActive: _secondaryMiniSearchActive,
+          onOpenPicker: () async {
+            if (resolvedSecondaryTab.type == ReaderContentType.bible) {
+              final lang = (resolvedSecondaryTab.bibleLang ?? 'en') == 'ta'
+                  ? 'ta'
+                  : 'en';
+              await _openSecondaryBiblePicker(lang: lang, openInNewTab: false);
+              return;
+            }
+            final lang = (resolvedSecondaryTab.sermonLang ?? 'en') == 'ta'
+                ? 'ta'
+                : 'en';
+            await _openSecondarySermonPicker(lang: lang, openInNewTab: false);
+          },
+          onPrev: hasSecondaryTabs
+              ? () async {
+                    if (resolvedSecondaryTab.type == ReaderContentType.bible) {
+                      await _openAdjacentBmBiblePassage(-1);
+                      return;
+                    }
+                    await _openAdjacentSecondarySermon(
+                      currentTab: resolvedSecondaryTab,
+                      direction: -1,
+                    );
+                  }
+              : null,
+          onNext: hasSecondaryTabs
+              ? () async {
+                    if (resolvedSecondaryTab.type == ReaderContentType.bible) {
+                      await _openAdjacentBmBiblePassage(1);
+                      return;
+                    }
+                    await _openAdjacentSecondarySermon(
+                      currentTab: resolvedSecondaryTab,
+                      direction: 1,
+                    );
+                  }
+              : null,
+          onDecreaseFont: () => _adjustSecondarySplitFont(-1),
+          onIncreaseFont: () => _adjustSecondarySplitFont(1),
+          onSourceSelected: (value) async {
+            await _onSecondaryPaneSourceSelected(value, openInNewTab: false);
+          },
+          onToggleSearch: () {
+            setState(() {
+              _secondaryMiniSearchActive = !_secondaryMiniSearchActive;
+              if (!_secondaryMiniSearchActive) {
+                _secondaryMiniSearchController.clear();
+                _secondaryMatchIndices = [];
+                _secondaryTotalMatches = 0;
+                _secondaryCurrentMatchIndex = 0;
+              }
+            });
+            if (_secondaryMiniSearchActive &&
+                _secondaryMiniSearchController.text.trim().isNotEmpty) {
+              _computeSecondaryPaneMatches(_secondaryMiniSearchController.text);
+            }
+          },
+        ),
+        rightTabsRow,
+        Expanded(
+          child: ReadingPane(
+            child: resolvedSecondaryTab.type == ReaderContentType.bible
+                ? _buildBmBibleContent(
+                    resolvedSecondaryTab,
+                    secondaryTypography,
+                    controller: _splitSecondaryScrollController,
+                    searchQuery: _secondaryMiniSearchController.text,
+                    searchEnabled: _secondaryMiniSearchActive,
+                    matchIndices: _secondaryMatchIndices,
+                    currentMatchIndex: _secondaryCurrentMatchIndex,
+                    fontSizeOverride: _secondaryPaneFontSize(secondaryTypography),
+                  )
+                : _buildBmSecondarySermonContent(
+                    resolvedSecondaryTab,
+                    secondaryTypography,
+                    searchQuery: _secondaryMiniSearchController.text,
+                    searchEnabled: _secondaryMiniSearchActive,
+                    matchIndices: _secondaryMatchIndices,
+                    currentMatchIndex: _secondaryCurrentMatchIndex,
+                    fontSizeOverride: _secondaryPaneFontSize(secondaryTypography),
+                  ),
+            isSearchActive: _secondaryMiniSearchActive,
+            searchController: _secondaryMiniSearchController,
+            searchFocusNode: _secondaryMiniSearchFocusNode,
+            matchCounterText: _secondaryTotalMatches > 0
+                ? '${_secondaryCurrentMatchIndex + 1}/$_secondaryTotalMatches'
+                : '0/0',
+            onSearchChanged: (value) => _computeSecondaryPaneMatches(value),
+            onPrevMatch: _secondaryTotalMatches > 0
+                ? () => _navigateSecondaryPaneMatch(-1)
+                : null,
+            onNextMatch: _secondaryTotalMatches > 0
+                ? () => _navigateSecondaryPaneMatch(1)
+                : null,
+            onCloseSearch: () {
+              setState(() {
+                _secondaryMiniSearchActive = false;
+                _secondaryMiniSearchController.clear();
+                _secondaryMatchIndices = [];
+                _secondaryTotalMatches = 0;
+                _secondaryCurrentMatchIndex = 0;
+              });
+            },
+          ),
+        ),
+      ],
     );
 
     return LayoutBuilder(
@@ -3799,7 +4584,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
           );
           return Row(
             children: [
-              SizedBox(width: leftWidth, child: sermonPanel),
+              SizedBox(width: leftWidth, child: primaryPane),
               MouseRegion(
                 cursor: SystemMouseCursors.resizeColumn,
                 child: GestureDetector(
@@ -3832,7 +4617,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
                   ),
                 ),
               ),
-              SizedBox(width: rightWidth, child: biblePanel),
+              SizedBox(width: rightWidth, child: secondaryPane),
             ],
           );
         }
@@ -3851,7 +4636,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
 
         return Column(
           children: [
-            SizedBox(height: topHeight, child: sermonPanel),
+            SizedBox(height: topHeight, child: primaryPane),
             MouseRegion(
               cursor: SystemMouseCursors.resizeRow,
               child: GestureDetector(
@@ -3923,7 +4708,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
                 ),
               ),
             ),
-            SizedBox(height: bottomHeight, child: biblePanel),
+            SizedBox(height: bottomHeight, child: secondaryPane),
           ],
         );
       },
@@ -3978,7 +4763,8 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
 
   Widget _buildBmBibleHeader({required BmBibleGroup? group}) {
     final theme = Theme.of(context);
-    final typography = ref.watch(typographyProvider);
+    final lang = ref.watch(selectedSermonLangProvider);
+    final typography = ref.watch(typographyProvider(lang));
     final tabs = group?.tabs ?? const <ReaderTab>[];
     final activeIndex = group?.activeIndex ?? 0;
     return Row(
@@ -4037,17 +4823,17 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
           icon: const Icon(Icons.remove),
           tooltip: 'Decrease Bible text size',
           visualDensity: VisualDensity.compact,
-          onPressed: () => _adjustBmBibleZoom(-0.1),
+          onPressed: () => _adjustSecondarySplitFont(-1),
         ),
         Text(
-          '${(_bmBibleZoom * 100).round()}%',
+          _secondaryPaneFontSize(typography).toStringAsFixed(0),
           style: theme.textTheme.labelSmall,
         ),
         IconButton(
           icon: const Icon(Icons.add),
           tooltip: 'Increase Bible text size',
           visualDensity: VisualDensity.compact,
-          onPressed: () => _adjustBmBibleZoom(0.1),
+          onPressed: () => _adjustSecondarySplitFont(1),
         ),
         IconButton(
           icon: const Icon(Icons.add),
@@ -4061,7 +4847,8 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
 
   Widget _buildBmSermonHeader({required SermonFlowState flowState}) {
     final theme = Theme.of(context);
-    final typography = ref.watch(typographyProvider);
+    final lang = ref.watch(selectedSermonLangProvider);
+    final typography = ref.watch(typographyProvider(lang));
     final sermonIndices = <int>[];
     for (var i = 0; i < flowState.tabs.length; i++) {
       if (flowState.tabs[i].type == ReaderContentType.sermon) {
@@ -4110,17 +4897,17 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
           icon: const Icon(Icons.remove),
           tooltip: 'Decrease sermon text size',
           visualDensity: VisualDensity.compact,
-          onPressed: () => _adjustBmSermonZoom(-0.1),
+          onPressed: () => _adjustPrimarySplitFont(-1),
         ),
         Text(
-          '${(_bmSermonZoom * 100).round()}%',
+          _primaryPaneFontSize(typography).toStringAsFixed(0),
           style: theme.textTheme.labelSmall,
         ),
         IconButton(
           icon: const Icon(Icons.add),
           tooltip: 'Increase sermon text size',
           visualDensity: VisualDensity.compact,
-          onPressed: () => _adjustBmSermonZoom(0.1),
+          onPressed: () => _adjustPrimarySplitFont(1),
         ),
         IconButton(
           icon: const Icon(Icons.info_outline),
@@ -4312,7 +5099,8 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     required VoidCallback onClose,
   }) {
     final theme = Theme.of(context);
-    final typography = ref.watch(typographyProvider);
+    final lang = ref.watch(selectedSermonLangProvider);
+    final typography = ref.watch(typographyProvider(lang));
     final bg = isActive
         ? theme.colorScheme.primaryContainer
         : theme.colorScheme.surface;
@@ -4364,6 +5152,14 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
   Widget _buildBmBibleContent(
     ReaderTab? bibleTab,
     TypographySettings typography,
+    {
+    required ScrollController controller,
+    required String searchQuery,
+    required bool searchEnabled,
+    required List<int> matchIndices,
+    required int currentMatchIndex,
+    double? fontSizeOverride,
+  }
   ) {
     if (bibleTab == null || bibleTab.book == null || bibleTab.chapter == null) {
       return Center(
@@ -4391,8 +5187,30 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
         if (verses.isEmpty) {
           return const Center(child: Text('No verses found in this chapter.'));
         }
+
+        final signature =
+            '${bibleTab.id}:${bibleTab.book}:${bibleTab.chapter}:${bibleTab.bibleLang ?? 'en'}:${verses.length}';
+        if (_bmVerseSignature != signature) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            setState(() {
+              _bmVerseSignature = signature;
+              _bmCurrentVerses = verses;
+              _bmVerseKeys = List.generate(verses.length, (_) => GlobalKey());
+              _bmSecondaryParagraphs = [];
+            });
+            if (_secondaryMiniSearchActive &&
+                _secondaryMiniSearchController.text.trim().isNotEmpty) {
+              _computeSecondaryPaneMatches(
+                _secondaryMiniSearchController.text,
+                scrollToMatch: false,
+              );
+            }
+          });
+        }
+
         final cs = Theme.of(context).colorScheme;
-        final bibleFontSize = (typography.fontSize * _bmBibleZoom).clamp(
+        final bibleFontSize = (fontSizeOverride ?? typography.fontSize).clamp(
           12.0,
           56.0,
         );
@@ -4406,7 +5224,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
 
         return SelectionArea(
           child: ListView.builder(
-            controller: _bmBibleScrollController,
+            controller: controller,
             padding: const EdgeInsets.symmetric(
               horizontal: 16.0,
               vertical: 8.0,
@@ -4414,8 +5232,17 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
             itemCount: verses.length,
             itemBuilder: (context, index) {
               final verse = verses[index];
+              final key = index < _bmVerseKeys.length
+                  ? _bmVerseKeys[index]
+                  : GlobalKey();
               final isSelected = _selectedVerseNumbers.contains(verse.verse);
+              final currentOccurrence = _currentOccurrenceForItemWithState(
+                matchIndices: matchIndices,
+                currentMatchIndex: currentMatchIndex,
+                itemIndex: index,
+              );
               return GestureDetector(
+                key: key,
                 onTap: () => _toggleVerseSelection(verse.verse),
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 150),
@@ -4444,7 +5271,19 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
                                 : cs.onSurfaceVariant,
                           ),
                         ),
-                        TextSpan(text: verse.text),
+                        ..._buildHighlightedSpans(
+                          verse.text,
+                          baseStyle,
+                          baseStyle,
+                          TextStyle(
+                            backgroundColor: Colors.yellow.shade300,
+                            color: Colors.black,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          query: searchQuery,
+                          enabled: searchEnabled,
+                          currentOccurrenceIndex: currentOccurrence,
+                        ),
                       ],
                     ),
                   ),
@@ -4456,6 +5295,82 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
       },
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (err, _) => _buildLoadError(err),
+    );
+  }
+
+  Widget _buildBmSecondarySermonContent(
+    ReaderTab sermonTab,
+    TypographySettings typography, {
+    required String searchQuery,
+    required bool searchEnabled,
+    required List<int> matchIndices,
+    required int currentMatchIndex,
+    double? fontSizeOverride,
+  }) {
+    final sermonId = sermonTab.sermonId;
+    if (sermonId == null || sermonId.isEmpty) {
+      return const Center(child: Text('No sermon selected.'));
+    }
+    final String lang =
+        (sermonTab.sermonLang ?? ref.watch(selectedSermonLangProvider)) == 'ta'
+        ? 'ta'
+        : 'en';
+    final paragraphsFuture = _getBmSecondarySermonFuture(
+      sermonLang: lang,
+      sermonId: sermonId,
+    );
+    return FutureBuilder<List<SermonParagraphEntity>>(
+      future: paragraphsFuture,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snapshot.hasError) {
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text(
+                snapshot.error.toString(),
+                textAlign: TextAlign.center,
+              ),
+            ),
+          );
+        }
+        final paragraphs = snapshot.data ?? const <SermonParagraphEntity>[];
+        if (paragraphs.isEmpty) {
+          return const Center(child: Text('No paragraphs found for sermon.'));
+        }
+        final signature = '${sermonId}_${lang}_${paragraphs.length}';
+        if (_bmVerseSignature != signature) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted) return;
+            setState(() {
+              _bmVerseSignature = signature;
+              _bmSecondaryParagraphs = paragraphs;
+              _bmCurrentVerses = [];
+              _bmVerseKeys = [];
+            });
+            if (_secondaryMiniSearchActive &&
+                _secondaryMiniSearchController.text.trim().isNotEmpty) {
+              _computeSecondaryPaneMatches(
+                _secondaryMiniSearchController.text,
+                scrollToMatch: false,
+              );
+            }
+          });
+        }
+        return _buildSermonBody(
+          paragraphs,
+          typography,
+          Theme.of(context).colorScheme,
+          scrollController: _splitSecondaryScrollController,
+          searchQuery: searchQuery,
+          searchEnabled: searchEnabled,
+          matchIndices: matchIndices,
+          currentMatchIndex: currentMatchIndex,
+          fontSizeOverride: fontSizeOverride,
+        );
+      },
     );
   }
 

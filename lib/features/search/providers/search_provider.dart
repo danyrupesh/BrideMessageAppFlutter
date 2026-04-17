@@ -30,6 +30,8 @@ enum SortOrder { bookOrder, relevance }
 // ─── State ────────────────────────────────────────────────────────────────────
 
 class SearchState {
+  static const _unset = Object();
+
   final String query;
   final bool isLoading;
   final bool isLoadingMore;
@@ -49,6 +51,11 @@ class SearchState {
   final SortOrder sortOrder;
   final String languageCode;
   final bool searchLyrics;
+  final int? bibleBookIndex;
+  final int? bibleChapterFrom;
+  final int? bibleChapterTo;
+  final int? sermonYearFrom;
+  final int? sermonYearTo;
 
   SearchState({
     this.query = '',
@@ -70,6 +77,11 @@ class SearchState {
     this.sortOrder = SortOrder.bookOrder,
     this.languageCode = 'en',
     this.searchLyrics = false,
+    this.bibleBookIndex,
+    this.bibleChapterFrom,
+    this.bibleChapterTo,
+    this.sermonYearFrom,
+    this.sermonYearTo,
   });
 
   SearchState copyWith({
@@ -92,6 +104,11 @@ class SearchState {
     SortOrder? sortOrder,
     String? languageCode,
     bool? searchLyrics,
+    Object? bibleBookIndex = _unset,
+    Object? bibleChapterFrom = _unset,
+    Object? bibleChapterTo = _unset,
+    Object? sermonYearFrom = _unset,
+    Object? sermonYearTo = _unset,
   }) {
     return SearchState(
       query: query ?? this.query,
@@ -113,6 +130,21 @@ class SearchState {
       sortOrder: sortOrder ?? this.sortOrder,
       languageCode: languageCode ?? this.languageCode,
       searchLyrics: searchLyrics ?? this.searchLyrics,
+      bibleBookIndex: identical(bibleBookIndex, _unset)
+          ? this.bibleBookIndex
+          : bibleBookIndex as int?,
+      bibleChapterFrom: identical(bibleChapterFrom, _unset)
+          ? this.bibleChapterFrom
+          : bibleChapterFrom as int?,
+      bibleChapterTo: identical(bibleChapterTo, _unset)
+          ? this.bibleChapterTo
+          : bibleChapterTo as int?,
+      sermonYearFrom: identical(sermonYearFrom, _unset)
+          ? this.sermonYearFrom
+          : sermonYearFrom as int?,
+      sermonYearTo: identical(sermonYearTo, _unset)
+          ? this.sermonYearTo
+          : sermonYearTo as int?,
     );
   }
 }
@@ -152,6 +184,20 @@ final sermonRepoForLangProvider =
       return SermonRepository(DatabaseManager(), langCode, code);
     });
 
+final bibleBooksForLangProvider =
+    FutureProvider.family<List<Map<String, dynamic>>, String>((ref, language) async {
+      final repo = await ref.watch(bibleRepoForLangProvider(language).future);
+      if (repo == null) return const [];
+      return repo.getDistinctBooks();
+    });
+
+final sermonYearsForLangProvider =
+    FutureProvider.family<List<int>, String>((ref, language) async {
+      final repo = await ref.watch(sermonRepoForLangProvider(language).future);
+      if (repo == null) return const [];
+      return repo.getAvailableYears();
+    });
+
 // ─── Search notifier ──────────────────────────────────────────────────────────
 
 class SearchNotifier extends Notifier<SearchState> {
@@ -187,6 +233,88 @@ class SearchNotifier extends Notifier<SearchState> {
   void updateSortOrder(SortOrder order) {
     if (state.sortOrder == order) return;
     state = state.copyWith(sortOrder: order);
+    if (state.query.length > 2) _executeSearch(state.query);
+  }
+
+  void updateBibleBookIndex(int? bookIndex) {
+    if (state.bibleBookIndex == bookIndex) return;
+    state = state.copyWith(
+      bibleBookIndex: bookIndex,
+      bibleChapterFrom: null,
+      bibleChapterTo: null,
+    );
+    if (state.query.length > 2) _executeSearch(state.query);
+  }
+
+  void updateBibleChapterFrom(int? chapterFrom) {
+    final normalized = _normalizeRange(chapterFrom, state.bibleChapterTo);
+    if (state.bibleChapterFrom == normalized.$1 &&
+        state.bibleChapterTo == normalized.$2) {
+      return;
+    }
+    state = state.copyWith(
+      bibleChapterFrom: normalized.$1,
+      bibleChapterTo: normalized.$2,
+    );
+    if (state.query.length > 2) _executeSearch(state.query);
+  }
+
+  void updateBibleChapterTo(int? chapterTo) {
+    final normalized = _normalizeRange(state.bibleChapterFrom, chapterTo);
+    if (state.bibleChapterFrom == normalized.$1 &&
+        state.bibleChapterTo == normalized.$2) {
+      return;
+    }
+    state = state.copyWith(
+      bibleChapterFrom: normalized.$1,
+      bibleChapterTo: normalized.$2,
+    );
+    if (state.query.length > 2) _executeSearch(state.query);
+  }
+
+  void clearBibleChapterRange() {
+    if (state.bibleBookIndex == null &&
+        state.bibleChapterFrom == null &&
+        state.bibleChapterTo == null) {
+      return;
+    }
+    state = state.copyWith(
+      bibleBookIndex: null,
+      bibleChapterFrom: null,
+      bibleChapterTo: null,
+    );
+    if (state.query.length > 2) _executeSearch(state.query);
+  }
+
+  void updateSermonYearFrom(int? yearFrom) {
+    final normalized = _normalizeRange(yearFrom, state.sermonYearTo);
+    if (state.sermonYearFrom == normalized.$1 &&
+        state.sermonYearTo == normalized.$2) {
+      return;
+    }
+    state = state.copyWith(
+      sermonYearFrom: normalized.$1,
+      sermonYearTo: normalized.$2,
+    );
+    if (state.query.length > 2) _executeSearch(state.query);
+  }
+
+  void updateSermonYearTo(int? yearTo) {
+    final normalized = _normalizeRange(state.sermonYearFrom, yearTo);
+    if (state.sermonYearFrom == normalized.$1 &&
+        state.sermonYearTo == normalized.$2) {
+      return;
+    }
+    state = state.copyWith(
+      sermonYearFrom: normalized.$1,
+      sermonYearTo: normalized.$2,
+    );
+    if (state.query.length > 2) _executeSearch(state.query);
+  }
+
+  void clearSermonYearRange() {
+    if (state.sermonYearFrom == null && state.sermonYearTo == null) return;
+    state = state.copyWith(sermonYearFrom: null, sermonYearTo: null);
     if (state.query.length > 2) _executeSearch(state.query);
   }
 
@@ -278,6 +406,9 @@ class SearchNotifier extends Notifier<SearchState> {
             accurateMatch: state.matchMode == MatchMode.accurate,
             scope: state.bibleScope.name,
             sortOrder: state.sortOrder.name,
+            bookIndex: state.bibleBookIndex,
+            chapterFrom: state.bibleChapterFrom,
+            chapterTo: state.bibleChapterTo,
           );
           if (state.query == query) {
             state = state.copyWith(bibleResults: bibleMatches);
@@ -297,6 +428,8 @@ class SearchNotifier extends Notifier<SearchState> {
             prefixOnly: isPrefix,
             accurateMatch: state.matchMode == MatchMode.accurate,
             sortOrder: state.sortOrder.name,
+            yearFrom: state.sermonYearFrom,
+            yearTo: state.sermonYearTo,
           );
           if (state.query == query) {
             state = state.copyWith(sermonResults: sermonMatches);
@@ -325,9 +458,18 @@ class SearchNotifier extends Notifier<SearchState> {
               accurateMatch: state.matchMode == MatchMode.accurate,
               scope: state.bibleScope.name,
               sortOrder: state.sortOrder.name,
+              bookIndex: state.bibleBookIndex,
+              chapterFrom: state.bibleChapterFrom,
+              chapterTo: state.bibleChapterTo,
             ),
             if (!append)
-              repo.countSearchResults(query, scope: state.bibleScope.name),
+              repo.countSearchResults(
+                query,
+                scope: state.bibleScope.name,
+                bookIndex: state.bibleBookIndex,
+                chapterFrom: state.bibleChapterFrom,
+                chapterTo: state.bibleChapterTo,
+              ),
           ]);
           final matches = payload.first as List<BibleSearchResult>;
           final total = append
@@ -368,6 +510,8 @@ class SearchNotifier extends Notifier<SearchState> {
               prefixOnly: isPrefix,
               accurateMatch: state.matchMode == MatchMode.accurate,
               sortOrder: state.sortOrder.name,
+              yearFrom: state.sermonYearFrom,
+              yearTo: state.sermonYearTo,
             ),
             if (!append)
               repo.countSearchResults(
@@ -375,6 +519,8 @@ class SearchNotifier extends Notifier<SearchState> {
                 exactMatch: isExact,
                 anyWord: isAny,
                 prefixOnly: isPrefix,
+                yearFrom: state.sermonYearFrom,
+                yearTo: state.sermonYearTo,
               ),
           ]);
           final matches = payload.first as List<SermonSearchResult>;
@@ -526,6 +672,13 @@ class SearchNotifier extends Notifier<SearchState> {
       case SearchType.prefix:
         return CodSearchMatchMode.allWords;
     }
+  }
+
+  (int?, int?) _normalizeRange(int? from, int? to) {
+    if (from != null && to != null && from > to) {
+      return (to, from);
+    }
+    return (from, to);
   }
 
   SermonSearchResult _codAnswerHitToSermonResult(

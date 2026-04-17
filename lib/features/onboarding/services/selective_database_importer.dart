@@ -62,6 +62,8 @@ enum _ImportTarget {
   bibleTa,
   sermonEn,
   sermonTa,
+  tractEn,
+  tractTa,
   codEnglish,
   codTamil,
 }
@@ -134,6 +136,16 @@ class SelectiveDatabaseImporter {
       target: _ImportTarget.sermonTa,
       required: true,
       label: 'Tamil Sermons',
+    ),
+    _ImportSpec(
+      target: _ImportTarget.tractEn,
+      required: false,
+      label: 'English Tracts',
+    ),
+    _ImportSpec(
+      target: _ImportTarget.tractTa,
+      required: false,
+      label: 'Tamil Tracts',
     ),
     _ImportSpec(
       target: _ImportTarget.codEnglish,
@@ -295,6 +307,37 @@ class SelectiveDatabaseImporter {
     } catch (e, st) {
       debugPrint('importCodDatabase error: $e\n$st');
       return ImportResult.failure('COD import failed: $e');
+    }
+  }
+
+  Future<ImportResult> importTractsDatabase({
+    required File sourceFile,
+    required String languageCode,
+    required String displayName,
+    required void Function(double, String) onProgress,
+  }) async {
+    try {
+      onProgress(0.1, 'Validating $displayName database...');
+      if (!_validateTracts(sourceFile.path)) {
+        return ImportResult.failure(
+          'Invalid Tracts database: missing tracts table.',
+        );
+      }
+
+      onProgress(0.3, 'Installing $displayName...');
+      final dbDir = await _dbManager.getDatabaseDirectoryPath();
+      final targetDbFileName = 'tracts_$languageCode.db';
+      final targetPath = p.join(dbDir.path, targetDbFileName);
+
+      await _dbManager.closeDatabase(targetDbFileName);
+      await _dbManager.deleteDatabaseFiles(targetDbFileName);
+      await sourceFile.copy(targetPath);
+
+      onProgress(1.0, 'Import complete!');
+      return ImportResult.success('$displayName installed successfully.');
+    } catch (e, st) {
+      debugPrint('importTractsDatabase error: $e\n$st');
+      return ImportResult.failure('Tracts import failed: $e');
     }
   }
 
@@ -460,6 +503,24 @@ class SelectiveDatabaseImporter {
               onProgress: (p, m) =>
                   onProgress(baseProgress + p * (0.75 / ordered.length), m),
             );
+          } else if (spec.target == _ImportTarget.tractEn) {
+            onProgress(baseProgress, 'Importing English Tracts...');
+            result = await importTractsDatabase(
+              sourceFile: tempFile,
+              languageCode: 'en',
+              displayName: 'English Tracts',
+              onProgress: (p, m) =>
+                  onProgress(baseProgress + p * (0.75 / ordered.length), m),
+            );
+          } else if (spec.target == _ImportTarget.tractTa) {
+            onProgress(baseProgress, 'Importing Tamil Tracts...');
+            result = await importTractsDatabase(
+              sourceFile: tempFile,
+              languageCode: 'ta',
+              displayName: 'Tamil Tracts',
+              onProgress: (p, m) =>
+                  onProgress(baseProgress + p * (0.75 / ordered.length), m),
+            );
           } else if (spec.target == _ImportTarget.codTamil) {
             onProgress(baseProgress, 'Importing Tamil COD...');
             result = await importCodDatabase(
@@ -571,6 +632,12 @@ class SelectiveDatabaseImporter {
     if (fileName == 'sermons_ta.db' || fileName == 'sermon_ta.db') {
       return _ImportTarget.sermonTa;
     }
+    if (fileName == 'tracts_en.db' || fileName == 'tract_en.db') {
+      return _ImportTarget.tractEn;
+    }
+    if (fileName == 'tracts_ta.db' || fileName == 'tract_ta.db') {
+      return _ImportTarget.tractTa;
+    }
     if (fileName == 'cod_english.db' || fileName == 'cod_en.db') {
       return _ImportTarget.codEnglish;
     }
@@ -599,6 +666,8 @@ class SelectiveDatabaseImporter {
       case 'bible_ta_bsi.db':
       case 'sermons_en.db':
       case 'sermons_ta.db':
+      case 'tracts_en.db':
+      case 'tracts_ta.db':
       case 'cod_english.db':
       case 'cod_tamil.db':
         return true;
@@ -885,6 +954,10 @@ class SelectiveDatabaseImporter {
         return 'sermons_en.db';
       case _ImportTarget.sermonTa:
         return 'sermons_ta.db';
+      case _ImportTarget.tractEn:
+        return 'tracts_en.db';
+      case _ImportTarget.tractTa:
+        return 'tracts_ta.db';
       case _ImportTarget.codEnglish:
         return 'cod_english.db';
       case _ImportTarget.codTamil:
@@ -994,6 +1067,23 @@ class SelectiveDatabaseImporter {
             .map((r) => (r.columnAt(0) as String).toLowerCase())
             .toSet();
         return tables.contains('questions') && tables.contains('answers');
+      } finally {
+        db.close();
+      }
+    } catch (_) {
+      return false;
+    }
+  }
+
+  bool _validateTracts(String dbPath) {
+    try {
+      final db = sql.sqlite3.open(dbPath, mode: sql.OpenMode.readOnly);
+      try {
+        final tables = db
+            .select("SELECT name FROM sqlite_master WHERE type='table'")
+            .map((r) => (r.columnAt(0) as String).toLowerCase())
+            .toSet();
+        return tables.contains('tracts');
       } finally {
         db.close();
       }

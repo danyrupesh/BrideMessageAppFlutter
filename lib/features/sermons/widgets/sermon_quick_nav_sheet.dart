@@ -8,8 +8,9 @@ import '../../../core/database/models/sermon_models.dart';
 /// Mirrors the Android "Quick Navigation" drawer (PFA2 screenshot).
 class SermonQuickNavSheet extends ConsumerStatefulWidget {
   final void Function(SermonEntity sermon) onSelected;
+  final String? lang;
 
-  const SermonQuickNavSheet({super.key, required this.onSelected});
+  const SermonQuickNavSheet({super.key, required this.onSelected, this.lang});
 
   @override
   ConsumerState<SermonQuickNavSheet> createState() =>
@@ -23,6 +24,13 @@ class _SermonQuickNavSheetState extends ConsumerState<SermonQuickNavSheet> {
   Timer? _debounce;
   List<SermonEntity>? _searchResults;
   bool _searchLoading = false;
+  List<SermonEntity> _forcedLangSermons = const [];
+  bool _forcedLangLoading = false;
+  bool _forcedLangHasMore = true;
+  int _forcedLangOffset = 0;
+  String? _forcedLangError;
+
+  bool get _useForcedLang => widget.lang != null;
 
   @override
   void initState() {
@@ -33,9 +41,16 @@ class _SermonQuickNavSheetState extends ConsumerState<SermonQuickNavSheet> {
       if (!_listScrollController.hasClients) return;
       if (_listScrollController.position.pixels >=
           _listScrollController.position.maxScrollExtent - 200) {
-        ref.read(sermonListProvider.notifier).loadMore();
+        if (_useForcedLang) {
+          _loadForcedLangMore();
+        } else {
+          ref.read(sermonListProvider.notifier).loadMore();
+        }
       }
     });
+    if (_useForcedLang) {
+      _loadForcedLangInitial();
+    }
   }
 
   @override
@@ -46,11 +61,59 @@ class _SermonQuickNavSheetState extends ConsumerState<SermonQuickNavSheet> {
     super.dispose();
   }
 
+  Future<void> _loadForcedLangInitial() async {
+    if (!_useForcedLang) return;
+    setState(() {
+      _forcedLangLoading = true;
+      _forcedLangError = null;
+      _forcedLangOffset = 0;
+      _forcedLangHasMore = true;
+      _forcedLangSermons = const [];
+    });
+    try {
+      final repo = await ref.read(sermonRepositoryByLangProvider(widget.lang!).future);
+      final results = await repo.getSermonsPage(limit: 50, offset: 0);
+      if (!mounted) return;
+      setState(() {
+        _forcedLangSermons = results;
+        _forcedLangOffset = results.length;
+        _forcedLangHasMore = results.length == 50;
+        _forcedLangLoading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _forcedLangError = e.toString();
+        _forcedLangLoading = false;
+      });
+    }
+  }
+
+  Future<void> _loadForcedLangMore() async {
+    if (!_useForcedLang || _forcedLangLoading || !_forcedLangHasMore) return;
+    setState(() => _forcedLangLoading = true);
+    try {
+      final repo = await ref.read(sermonRepositoryByLangProvider(widget.lang!).future);
+      final results = await repo.getSermonsPage(limit: 50, offset: _forcedLangOffset);
+      if (!mounted) return;
+      setState(() {
+        _forcedLangSermons = [..._forcedLangSermons, ...results];
+        _forcedLangOffset += results.length;
+        _forcedLangHasMore = results.length == 50;
+        _forcedLangLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _forcedLangLoading = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final listState = ref.watch(sermonListProvider);
-    final effectiveList = _searchResults ?? listState.sermons;
+    final listState = _useForcedLang ? null : ref.watch(sermonListProvider);
+    final defaultList = _useForcedLang ? _forcedLangSermons : listState!.sermons;
+    final effectiveList = _searchResults ?? defaultList;
     final screenWidth = MediaQuery.of(context).size.width;
     final screenHeight = MediaQuery.of(context).size.height;
     final isWide = screenWidth >= 700;
@@ -96,9 +159,10 @@ class _SermonQuickNavSheetState extends ConsumerState<SermonQuickNavSheet> {
 
   Widget _buildSheetContent(
     ThemeData theme,
-    SermonListState listState,
+    SermonListState? listState,
     List<SermonEntity> effectiveList,
   ) {
+    final isLoading = _useForcedLang ? _forcedLangLoading : listState!.isLoading;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -183,13 +247,16 @@ class _SermonQuickNavSheetState extends ConsumerState<SermonQuickNavSheet> {
                   }
                   setState(() => _searchLoading = true);
                   try {
-                    final repo =
-                        await ref.read(sermonRepositoryProvider.future);
+                    final repo = _useForcedLang
+                        ? await ref.read(
+                            sermonRepositoryByLangProvider(widget.lang!).future,
+                          )
+                        : await ref.read(sermonRepositoryProvider.future);
                     final results = await repo.getSermonsPage(
                       limit: 50,
                       offset: 0,
                       searchQuery: _query,
-                      year: listState.selectedYear,
+                      year: listState?.selectedYear,
                     );
                     if (mounted) {
                       setState(() {
@@ -215,14 +282,16 @@ class _SermonQuickNavSheetState extends ConsumerState<SermonQuickNavSheet> {
 
         // Sermon list
         Expanded(
-          child: (listState.isLoading && effectiveList.isEmpty) ||
+          child: (isLoading && effectiveList.isEmpty) ||
                   _searchLoading
               ? const Center(child: CircularProgressIndicator())
               : effectiveList.isEmpty
                   ? Center(
                       child: Text(
                         _query.isEmpty
-                            ? 'No sermons available.'
+                            ? (_forcedLangError == null
+                                  ? 'No sermons available.'
+                                  : 'Unable to load sermons.')
                             : 'No results for "$_query".',
                         style: TextStyle(
                           color: theme.colorScheme.onSurfaceVariant,
@@ -232,7 +301,7 @@ class _SermonQuickNavSheetState extends ConsumerState<SermonQuickNavSheet> {
                   : ListView.builder(
                       controller: _listScrollController,
                       itemCount:
-                          effectiveList.length + (listState.isLoading ? 1 : 0),
+                          effectiveList.length + (isLoading ? 1 : 0),
                       itemBuilder: (context, index) {
                         if (index == effectiveList.length) {
                           return const Padding(

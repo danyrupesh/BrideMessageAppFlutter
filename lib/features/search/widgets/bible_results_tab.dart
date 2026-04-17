@@ -26,6 +26,7 @@ class BibleResultsTab extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(searchProvider);
     final notifier = ref.read(searchProvider.notifier);
+    final booksAsync = ref.watch(bibleBooksForLangProvider(state.languageCode));
     final bibleDbExists = ref.watch(
       bibleDatabaseExistsByLangProvider(state.languageCode),
     );
@@ -126,6 +127,16 @@ class BibleResultsTab extends ConsumerWidget {
     }
 
     final results = state.bibleResults;
+    final books = booksAsync.asData?.value ?? const <Map<String, dynamic>>[];
+    Map<String, dynamic>? selectedBook;
+    for (final book in books) {
+      if (book['book_index'] == state.bibleBookIndex) {
+        selectedBook = book;
+        break;
+      }
+    }
+    final chapterCount = (selectedBook?['chapters'] as int?) ?? 0;
+    final chapterOptions = List<int>.generate(chapterCount, (index) => index + 1);
 
     if (results.isEmpty && !state.isLoading) {
       return Center(child: Text('No results found for "${state.query}"'));
@@ -162,6 +173,111 @@ class BibleResultsTab extends ConsumerWidget {
               selected: state.bibleScope == BibleScope.newTest,
               onTap: () => notifier.updateBibleScope(BibleScope.newTest),
             ),
+          ],
+        ),
+      ),
+    );
+    children.add(
+      Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Chapter range',
+              style: Theme.of(context).textTheme.labelLarge,
+            ),
+            const SizedBox(height: 8),
+            DropdownButtonFormField<int?>(
+              isExpanded: true,
+              value: state.bibleBookIndex,
+              decoration: const InputDecoration(
+                labelText: 'Book',
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+              items: [
+                const DropdownMenuItem<int?>(
+                  value: null,
+                  child: Text('All books'),
+                ),
+                ...books.map(
+                  (book) => DropdownMenuItem<int?>(
+                    value: book['book_index'] as int,
+                    child: Text(book['book'] as String),
+                  ),
+                ),
+              ],
+              onChanged: books.isEmpty ? null : notifier.updateBibleBookIndex,
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: DropdownButtonFormField<int?>(
+                    isExpanded: true,
+                    value: state.bibleChapterFrom,
+                    decoration: const InputDecoration(
+                      labelText: 'From chapter',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                    items: [
+                      const DropdownMenuItem<int?>(
+                        value: null,
+                        child: Text('Any'),
+                      ),
+                      ...chapterOptions.map(
+                        (chapter) => DropdownMenuItem<int?>(
+                          value: chapter,
+                          child: Text(chapter.toString()),
+                        ),
+                      ),
+                    ],
+                    onChanged: selectedBook == null
+                        ? null
+                        : notifier.updateBibleChapterFrom,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: DropdownButtonFormField<int?>(
+                    isExpanded: true,
+                    value: state.bibleChapterTo,
+                    decoration: const InputDecoration(
+                      labelText: 'To chapter',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                    items: [
+                      const DropdownMenuItem<int?>(
+                        value: null,
+                        child: Text('Any'),
+                      ),
+                      ...chapterOptions.map(
+                        (chapter) => DropdownMenuItem<int?>(
+                          value: chapter,
+                          child: Text(chapter.toString()),
+                        ),
+                      ),
+                    ],
+                    onChanged: selectedBook == null
+                        ? null
+                        : notifier.updateBibleChapterTo,
+                  ),
+                ),
+              ],
+            ),
+            if (state.bibleBookIndex != null ||
+                state.bibleChapterFrom != null ||
+                state.bibleChapterTo != null)
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: notifier.clearBibleChapterRange,
+                  child: const Text('Clear range'),
+                ),
+              ),
           ],
         ),
       ),

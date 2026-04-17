@@ -123,6 +123,29 @@ class _QuickNavigationSheetState extends ConsumerState<QuickNavigationSheet>
     );
   }
 
+  void _onBackToBook() {
+    setState(() {
+      _selectedBook = null;
+      _selectedChapter = null;
+    });
+    _pageController.animateToPage(
+      0,
+      duration: const Duration(milliseconds: 280),
+      curve: Curves.easeInOut,
+    );
+  }
+
+  void _onBackToChapter() {
+    setState(() {
+      _selectedChapter = null;
+    });
+    _pageController.animateToPage(
+      1,
+      duration: const Duration(milliseconds: 280),
+      curve: Curves.easeInOut,
+    );
+  }
+
   void _onVerseSelected(int verse) {
     Navigator.pop(context, {
       'book': _selectedBook!['name'],
@@ -401,11 +424,7 @@ class _QuickNavigationSheetState extends ConsumerState<QuickNavigationSheet>
           bookColor: bookColor,
           bookName: bookName,
           chapter: null,
-          onChangeBook: () => _pageController.animateToPage(
-            0,
-            duration: const Duration(milliseconds: 280),
-            curve: Curves.easeInOut,
-          ),
+          onChangeBook: _onBackToBook,
         ),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
@@ -494,16 +513,8 @@ class _QuickNavigationSheetState extends ConsumerState<QuickNavigationSheet>
           bookColor: bookColor,
           bookName: bookName,
           chapter: _selectedChapter,
-          onChangeBook: () => _pageController.animateToPage(
-            0,
-            duration: const Duration(milliseconds: 280),
-            curve: Curves.easeInOut,
-          ),
-          onChangeChapter: () => _pageController.animateToPage(
-            1,
-            duration: const Duration(milliseconds: 280),
-            curve: Curves.easeInOut,
-          ),
+          onChangeBook: _onBackToBook,
+          onChangeChapter: _onBackToChapter,
         ),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),

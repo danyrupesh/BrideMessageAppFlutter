@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../help/widgets/help_button.dart';
 
 import '../common/widgets/cards.dart';
 import '../common/widgets/chips.dart';
@@ -95,6 +96,7 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
                   ),
               ]
             : [
+                const HelpButton(topicId: 'songs'),
                 IconButton(
                   icon: const Icon(Icons.manage_search),
                   tooltip: 'Advanced Search',

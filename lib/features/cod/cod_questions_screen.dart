@@ -1,3 +1,4 @@
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -5,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/database/models/cod_models.dart';
 import '../onboarding/onboarding_screen.dart';
 import 'providers/cod_provider.dart';
+import '../help/widgets/help_button.dart';
 
 class CodQuestionsScreen extends ConsumerStatefulWidget {
   final String lang;
@@ -20,6 +22,7 @@ class _CodQuestionsScreenState extends ConsumerState<CodQuestionsScreen> {
 
   late final TextEditingController _questionSearchController;
   late final TextEditingController _topicStripSearchController;
+  late final ScrollController _topicsScrollController;
 
   String? _search;
   String? _topicSearch;
@@ -33,12 +36,14 @@ class _CodQuestionsScreenState extends ConsumerState<CodQuestionsScreen> {
     super.initState();
     _questionSearchController = TextEditingController();
     _topicStripSearchController = TextEditingController();
+    _topicsScrollController = ScrollController();
   }
 
   @override
   void dispose() {
     _questionSearchController.dispose();
     _topicStripSearchController.dispose();
+    _topicsScrollController.dispose();
     super.dispose();
   }
 
@@ -449,6 +454,7 @@ class _CodQuestionsScreenState extends ConsumerState<CodQuestionsScreen> {
           overflow: TextOverflow.ellipsis,
         ),
         actions: [
+          const HelpButton(topicId: 'cod'),
           Padding(
             padding: const EdgeInsets.only(right: 12),
             child: FilledButton(
@@ -740,88 +746,154 @@ class _CodQuestionsScreenState extends ConsumerState<CodQuestionsScreen> {
                       ),
                     ),
                   ),
-                  if (filteredTopics.isEmpty)
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(12, 2, 12, 8),
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        child: Text(
-                          isTamil
-                              ? 'தலைப்புகள் கிடைக்கவில்லை'
-                              : 'No matching topics',
-                          style: TextStyle(color: cs.onSurfaceVariant),
-                        ),
-                      ),
-                    )
-                  else
-                    SizedBox(
-                      height: 48,
-                      child: ListView.separated(
-                        scrollDirection: Axis.horizontal,
-                        padding: const EdgeInsets.symmetric(horizontal: 12),
-                        itemCount: filteredTopics.length,
-                        separatorBuilder: (context, index) =>
-                            const SizedBox(width: 8),
-                        itemBuilder: (context, index) {
-                          final topic = filteredTopics[index];
-                          final selected = _topicSlug == topic.topicSlug;
-
-                          return Material(
-                            key: ValueKey('list_topic_${topic.topicSlug}'),
-                            color: Colors.transparent,
-                            borderRadius: BorderRadius.circular(12),
-                            child: Container(
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(12),
-                                color: selected
-                                    ? cs.primaryContainer
-                                    : cs.surfaceContainerLowest,
-                                border: Border.all(
-                                  color: selected ? cs.primary : cs.outline,
-                                  width: selected ? 3 : 2,
+                  Builder(
+                    builder: (context) {
+                      final isWide = MediaQuery.sizeOf(context).width >= 900;
+                      return SizedBox(
+                        height: isWide ? 64 : 54,
+                        child: Row(
+                          children: [
+                            IconButton(
+                              icon: const Icon(Icons.arrow_left),
+                              tooltip: isTamil ? 'இடது' : 'Scroll left',
+                              onPressed: () {
+                                final offset = (_topicsScrollController.offset -
+                                        200)
+                                    .clamp(
+                                        0.0,
+                                        _topicsScrollController
+                                            .position.maxScrollExtent);
+                                _topicsScrollController.animateTo(
+                                  offset,
+                                  duration: const Duration(milliseconds: 300),
+                                  curve: Curves.easeOut,
+                                );
+                              },
+                            ),
+                            Expanded(
+                              child: ScrollConfiguration(
+                                behavior:
+                                    ScrollConfiguration.of(context).copyWith(
+                                  dragDevices: {
+                                    PointerDeviceKind.touch,
+                                    PointerDeviceKind.mouse,
+                                    PointerDeviceKind.trackpad,
+                                  },
                                 ),
-                              ),
-                              child: InkWell(
-                                borderRadius: BorderRadius.circular(12),
-                                onTap: () {
-                                  setState(() {
-                                    _topicSlug = selected
-                                        ? null
-                                        : topic.topicSlug;
-                                    _resetQuestionPagination();
-                                  });
-                                },
-                                child: ConstrainedBox(
-                                  constraints: const BoxConstraints(
-                                    maxWidth: 220,
-                                  ),
-                                  child: Padding(
+                                child: Scrollbar(
+                                  controller: _topicsScrollController,
+                                  thumbVisibility: true,
+                                  child: ListView.separated(
+                                    controller: _topicsScrollController,
+                                    scrollDirection: Axis.horizontal,
                                     padding: const EdgeInsets.symmetric(
                                       horizontal: 12,
-                                      vertical: 10,
+                                      vertical: 4,
                                     ),
-                                    child: Text(
-                                      topic.topicTitle,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                        fontWeight: selected
-                                            ? FontWeight.w700
-                                            : FontWeight.w500,
-                                        color: selected
-                                            ? cs.onPrimaryContainer
-                                            : cs.onSurface,
-                                        fontSize: selected ? 14 : 13,
-                                      ),
-                                    ),
+                                    itemCount: filteredTopics.length,
+                                    separatorBuilder: (context, index) =>
+                                        const SizedBox(width: 8),
+                                    itemBuilder: (context, index) {
+                                      final topic = filteredTopics[index];
+                                      final selected =
+                                          _topicSlug == topic.topicSlug;
+
+                                      return Material(
+                                        key: ValueKey(
+                                          'list_topic_${topic.topicSlug}',
+                                        ),
+                                        color: Colors.transparent,
+                                        borderRadius:
+                                            BorderRadius.circular(12),
+                                        child: Container(
+                                          decoration: BoxDecoration(
+                                            borderRadius:
+                                                BorderRadius.circular(12),
+                                            color: selected
+                                                ? cs.primaryContainer
+                                                : cs.surfaceContainerLowest,
+                                            border: Border.all(
+                                              color: selected
+                                                  ? cs.primary
+                                                  : cs.outline,
+                                              width: selected ? 3 : 2,
+                                            ),
+                                          ),
+                                          child: InkWell(
+                                            borderRadius:
+                                                BorderRadius.circular(12),
+                                            onTap: () {
+                                              setState(() {
+                                                _topicSlug = selected
+                                                    ? null
+                                                    : topic.topicSlug;
+                                                _resetQuestionPagination();
+                                              });
+                                            },
+                                            child: ConstrainedBox(
+                                              constraints: BoxConstraints(
+                                                maxWidth: isWide ? 280 : 220,
+                                              ),
+                                              child: Padding(
+                                                padding: EdgeInsets.symmetric(
+                                                  horizontal:
+                                                      isWide ? 16 : 12,
+                                                  vertical: isWide ? 10 : 8,
+                                                ),
+                                                child: Center(
+                                                  child: Text(
+                                                    topic.topicTitle,
+                                                    maxLines: 1,
+                                                    overflow:
+                                                        TextOverflow.ellipsis,
+                                                    style: TextStyle(
+                                                      fontWeight: selected
+                                                          ? FontWeight.w700
+                                                          : FontWeight.w500,
+                                                      color: selected
+                                                          ? cs.onPrimaryContainer
+                                                          : cs.onSurface,
+                                                      fontSize: isWide
+                                                          ? (selected
+                                                              ? 16
+                                                              : 15)
+                                                          : (selected
+                                                              ? 14
+                                                              : 13),
+                                                    ),
+                                                  ),
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      );
+                                    },
                                   ),
                                 ),
                               ),
                             ),
-                          );
-                        },
-                      ),
-                    ),
+                            IconButton(
+                              icon: const Icon(Icons.arrow_right),
+                              tooltip: isTamil ? 'வலது' : 'Scroll right',
+                              onPressed: () {
+                                final maxExtent = _topicsScrollController
+                                    .position.maxScrollExtent;
+                                final offset =
+                                    (_topicsScrollController.offset + 200)
+                                        .clamp(0.0, maxExtent);
+                                _topicsScrollController.animateTo(
+                                  offset,
+                                  duration: const Duration(milliseconds: 300),
+                                  curve: Curves.easeOut,
+                                );
+                              },
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
                 ],
               );
             },

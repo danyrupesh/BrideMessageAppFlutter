@@ -120,17 +120,11 @@ class _CodAnswerScreenState extends ConsumerState<CodAnswerScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    ref.read(typographyProvider.notifier).setReaderContentLanguage(widget.lang);
   }
 
   @override
   void didUpdateWidget(CodAnswerScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.lang != widget.lang) {
-      ref
-          .read(typographyProvider.notifier)
-          .setReaderContentLanguage(widget.lang);
-    }
     if (oldWidget.id != widget.id ||
         oldWidget.scrollToAnswerParagraphId !=
             widget.scrollToAnswerParagraphId ||
@@ -158,7 +152,7 @@ class _CodAnswerScreenState extends ConsumerState<CodAnswerScreen> {
   }
 
   double _toolbarTopInset() {
-    final typography = ref.read(typographyProvider);
+    final typography = ref.read(typographyProvider(widget.lang));
     final media = MediaQuery.of(context);
     if (typography.isFullscreen) {
       return media.padding.top + 8;
@@ -391,9 +385,13 @@ class _CodAnswerScreenState extends ConsumerState<CodAnswerScreen> {
   }
 
   void _adjustReaderFontSize(double delta) {
-    final typography = ref.read(typographyProvider);
+    final typography = ref.read(typographyProvider(widget.lang));
     final next = (typography.fontSize + delta).clamp(12.0, 56.0).toDouble();
-    ref.read(typographyProvider.notifier).updateFontSize(next);
+    if (widget.lang == 'ta') {
+      ref.read(taTypographyProvider.notifier).updateFontSize(next);
+    } else {
+      ref.read(enTypographyProvider.notifier).updateFontSize(next);
+    }
   }
 
   PreferredSizeWidget? _buildAppBar({
@@ -401,7 +399,7 @@ class _CodAnswerScreenState extends ConsumerState<CodAnswerScreen> {
     required bool canUseAnswerActions,
     required String shareTextForActions,
   }) {
-    final typography = ref.watch(typographyProvider);
+    final typography = ref.watch(typographyProvider(widget.lang));
     if (typography.isFullscreen) return null;
 
     if (_isSearching) {
@@ -505,7 +503,7 @@ class _CodAnswerScreenState extends ConsumerState<CodAnswerScreen> {
                   context.go('/');
                   break;
                 case 'settings':
-                  ReaderSettingsSheet.show(context);
+                  ReaderSettingsSheet.show(context, lang: widget.lang);
                   break;
               }
             },
@@ -592,7 +590,7 @@ class _CodAnswerScreenState extends ConsumerState<CodAnswerScreen> {
         IconButton(
           icon: const Icon(Icons.settings),
           tooltip: 'Reader Settings',
-          onPressed: () => ReaderSettingsSheet.show(context),
+          onPressed: () => ReaderSettingsSheet.show(context, lang: widget.lang),
         ),
       ],
     );
@@ -615,7 +613,7 @@ class _CodAnswerScreenState extends ConsumerState<CodAnswerScreen> {
     ].where((part) => part.trim().isNotEmpty).join('\n\n');
     final canUseAnswerActions = shareTextForActions.trim().isNotEmpty;
 
-    final typography = ref.watch(typographyProvider);
+    final typography = ref.watch(typographyProvider(widget.lang));
     final isFullscreen = typography.isFullscreen;
     final titleStyle = Theme.of(context).textTheme.titleLarge?.copyWith(
       fontWeight: FontWeight.bold,
@@ -743,7 +741,7 @@ class _CodAnswerScreenState extends ConsumerState<CodAnswerScreen> {
                     child: InkWell(
                       borderRadius: BorderRadius.circular(20),
                       onTap: () => ref
-                          .read(typographyProvider.notifier)
+                          .read(typographyGlobalProvider.notifier)
                           .toggleFullscreen(),
                       child: const Padding(
                         padding: EdgeInsets.all(8),

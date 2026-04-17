@@ -20,6 +20,7 @@ import 'models/reader_tab.dart';
 import 'widgets/reader_settings_sheet.dart';
 import 'widgets/quick_navigation_sheet.dart';
 import 'widgets/pane_header.dart';
+import '../help/widgets/help_button.dart';
 import 'widgets/reading_pane.dart';
 import 'widgets/bottom_tab_rail.dart';
 import 'widgets/parallel_source_sheet.dart';
@@ -71,6 +72,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       ScrollController();
   final ScrollController _bmTabsScrollController = ScrollController();
   final ScrollController _splitTabsScrollController = ScrollController();
+  final Map<String, Future<List<SermonParagraphEntity>>>
+      _splitSermonParagraphsFutureCache = {};
   final FocusNode _searchFieldFocusNode = FocusNode();
   final TextEditingController _primaryMiniSearchController =
       TextEditingController();
@@ -158,6 +161,38 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     unawaited(_loadParallelSplitRatio());
   }
 
+  Future<void> _onMainTabTap(int index, List<ReaderTab> tabs) async {
+    final activeIndex = ref.read(readerProvider).activeTabIndex;
+    final tab = tabs[index];
+    final isActive = index == activeIndex;
+    if (isActive) {
+      if (tab.type == ReaderContentType.bible) {
+        // Always reload the correct language when Bible tab is tapped, even if already active
+        final lang = tab.bibleLang ?? ref.read(selectedBibleLangProvider) ?? 'en';
+        ref.read(selectedBibleLangProvider.notifier).setLang(lang);
+        ref.read(readerProvider.notifier).replaceCurrentTab(
+          tab.copyWith(bibleLang: lang),
+        );
+        _openQuickNav(initialLang: lang, initialOpenInNewTab: false);
+        return;
+      }
+      final sermonLang = tab.sermonLang ?? ref.read(selectedSermonLangProvider) ?? 'en';
+      final picked = await _pickSermonForBm(sermonLang);
+      if (!mounted || picked == null) return;
+      ref.read(selectedSermonLangProvider.notifier).setLang(sermonLang);
+      ref.read(readerProvider.notifier).replaceCurrentTab(
+        ReaderTab(
+          type: ReaderContentType.sermon,
+          title: picked.title,
+          sermonId: picked.id,
+          sermonLang: sermonLang,
+        ),
+      );
+      return;
+    }
+    ref.read(readerProvider.notifier).switchTab(index);
+  }
+
   @override
   void dispose() {
     _scrollController.dispose();
@@ -171,9 +206,21 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     _searchFieldFocusNode.dispose();
     _primaryMiniSearchFocusNode.dispose();
     _secondaryMiniSearchFocusNode.dispose();
+    _splitSermonParagraphsFutureCache.clear();
     _globalSearchDebounce?.cancel();
     HardwareKeyboard.instance.removeHandler(_searchKeyHandler);
     super.dispose();
+  }
+
+  Future<List<SermonParagraphEntity>> _getSplitSermonParagraphsFuture({
+    required String sermonLang,
+    required String sermonId,
+  }) {
+    final cacheKey = '$sermonLang::$sermonId';
+    return _splitSermonParagraphsFutureCache.putIfAbsent(cacheKey, () async {
+      final repo = await ref.read(sermonRepositoryByLangProvider(sermonLang).future);
+      return repo.getParagraphsForSermon(sermonId);
+    });
   }
 
   void _syncBmTabAutoScroll({
@@ -488,6 +535,35 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     ref.read(readerProvider.notifier).replaceCurrentTab(englishTab);
   }
 
+  Future<void> _switchToTamilBible(ReaderTab? activeTab) async {
+    if (activeTab == null ||
+        activeTab.type != ReaderContentType.bible ||
+        activeTab.book == null ||
+        activeTab.chapter == null) {
+      return;
+    }
+
+    final sourceLang = activeTab.bibleLang ?? 'en';
+    final mappedBook = await _mapBookNameForLanguage(
+      sourceBook: activeTab.book!,
+      sourceLang: sourceLang,
+      targetLang: 'ta',
+    );
+
+    final tamilTab = activeTab.copyWith(
+      title: '$mappedBook ${activeTab.chapter}',
+      book: mappedBook,
+      chapter: activeTab.chapter,
+      verse: activeTab.verse,
+      bibleLang: 'ta',
+      initialSearchQuery: null,
+      openedFromSearch: false,
+    );
+
+    _clearParallelMode();
+    ref.read(readerProvider.notifier).replaceCurrentTab(tamilTab);
+  }
+
   Future<void> _loadParallelSplitRatio() async {
     final prefs = await SharedPreferences.getInstance();
     final value = prefs.getDouble(_parallelSplitRatioPrefKey);
@@ -602,9 +678,15 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   }
 
   void _adjustReaderFontSize(double delta) {
-    final typography = ref.read(typographyProvider);
+    final activeTab = ref.read(readerProvider).activeTab;
+    final lang = activeTab?.bibleLang ?? ref.read(selectedBibleLangProvider) ?? 'en';
+    final typography = ref.read(typographyProvider(lang));
     final next = (typography.fontSize + delta).clamp(12.0, 56.0).toDouble();
-    ref.read(typographyProvider.notifier).updateFontSize(next);
+    if (lang == 'ta') {
+      ref.read(taTypographyProvider.notifier).updateFontSize(next);
+    } else {
+      ref.read(enTypographyProvider.notifier).updateFontSize(next);
+    }
   }
 
   Future<SermonEntity?> _pickSermonForBm(String lang) async {
@@ -1732,58 +1814,13 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       return const Center(child: Text('No sermon selected.'));
     }
 
-    final paragraphsFuture = ref
-        .read(sermonRepositoryByLangProvider(sermonLang).future)
-        .then((repo) => repo.getParagraphsForSermon(sermonId));
+    final paragraphsFuture = _getSplitSermonParagraphsFuture(
+      sermonLang: sermonLang,
+      sermonId: sermonId,
+    );
 
     return Column(
       children: [
-        if (showHeaderControls)
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(
-              border: Border(
-                bottom: BorderSide(
-                  color: Theme.of(context).colorScheme.outlineVariant,
-                ),
-              ),
-            ),
-            child: Row(
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.chevron_left),
-                  tooltip: 'Previous sermon',
-                  visualDensity: VisualDensity.compact,
-                  onPressed: () => _openAdjacentSplitRightSermon(
-                    rightSermonTab: sermonTab,
-                    direction: -1,
-                  ),
-                ),
-                Expanded(
-                  child: Center(
-                    child: TextButton.icon(
-                      style: TextButton.styleFrom(
-                        visualDensity: VisualDensity.compact,
-                      ),
-                      onPressed: () => _changeSplitRightSermon(sermonTab),
-                      icon: const Icon(Icons.library_books_outlined, size: 16),
-                      label: const Text('All Sermons'),
-                    ),
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.chevron_right),
-                  tooltip: 'Next sermon',
-                  visualDensity: VisualDensity.compact,
-                  onPressed: () => _openAdjacentSplitRightSermon(
-                    rightSermonTab: sermonTab,
-                    direction: 1,
-                  ),
-                ),
-              ],
-            ),
-          ),
         Expanded(
           child: FutureBuilder<List<SermonParagraphEntity>>(
             future: paragraphsFuture,
@@ -1819,6 +1856,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                   final p = paragraphs[index];
                   final body = p.text.trim();
                   if (body.isEmpty) return const SizedBox.shrink();
+
                   final label = p.paragraphNumber != null
                       ? '${p.paragraphNumber} '
                       : '';
@@ -1914,73 +1952,141 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
         if (splitTabs.length > 1)
           SizedBox(
             height: isCompact ? 36 : 40,
-            child: ListView.builder(
-              controller: _splitTabsScrollController,
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-              scrollDirection: Axis.horizontal,
-              itemCount: splitTabs.length,
-              itemBuilder: (context, index) {
-                final tab = splitTabs[index];
-                final isActive = index == splitIndex;
-                final tabKey = _splitTabIdentity(tab);
-                final chipKey = _splitTabChipKeys.putIfAbsent(
-                  tabKey,
-                  () => GlobalKey(),
-                );
-                final title = tab.type == ReaderContentType.bible
-                    ? '${tab.book ?? ''} ${tab.chapter ?? ''}'.trim()
-                    : tab.title;
-                return Container(
-                  key: chipKey,
-                  margin: const EdgeInsets.symmetric(
-                    horizontal: 4,
-                    vertical: 4,
-                  ),
-                  padding: EdgeInsets.symmetric(horizontal: isCompact ? 8 : 10),
-                  decoration: BoxDecoration(
-                    color: isActive
-                        ? Theme.of(context).colorScheme.primaryContainer
-                        : Colors.transparent,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: Theme.of(context).colorScheme.outlineVariant,
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      InkWell(
-                        onTap: () => ref
-                            .read(readerProvider.notifier)
-                            .setActiveSplitRightTab(index),
-                        child: Padding(
-                          padding: EdgeInsets.symmetric(
-                            vertical: isCompact ? 5 : 6,
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                // We'll show scroll buttons if the scroll extent is greater than the viewport
+                final showScrollButtons =
+                    _splitTabsScrollController.hasClients &&
+                    _splitTabsScrollController.position.maxScrollExtent > 0.0;
+                return Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    ListView.builder(
+                      controller: _splitTabsScrollController,
+                      padding: const EdgeInsets.symmetric(horizontal: 32),
+                      scrollDirection: Axis.horizontal,
+                      itemCount: splitTabs.length,
+                      itemBuilder: (context, index) {
+                        final tab = splitTabs[index];
+                        final isActive = index == splitIndex;
+                        final tabKey = _splitTabIdentity(tab);
+                        final chipKey = _splitTabChipKeys.putIfAbsent(
+                          tabKey,
+                          () => GlobalKey(),
+                        );
+                        final title = tab.type == ReaderContentType.bible
+                            ? '${tab.book ?? ''} ${tab.chapter ?? ''}'.trim()
+                            : tab.title;
+                        return Container(
+                          key: chipKey,
+                          margin: const EdgeInsets.symmetric(
+                            horizontal: 4,
+                            vertical: 4,
                           ),
-                          child: Tooltip(
-                            message: title,
-                            child: ConstrainedBox(
-                              constraints: BoxConstraints(
-                                maxWidth: isCompact ? 130 : 220,
-                              ),
-                              child: Text(
-                                title,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
+                          padding: EdgeInsets.symmetric(
+                            horizontal: isCompact ? 8 : 10,
+                          ),
+                          decoration: BoxDecoration(
+                            color: isActive
+                                ? Theme.of(context).colorScheme.primaryContainer
+                                : Colors.transparent,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: Theme.of(
+                                context,
+                              ).colorScheme.outlineVariant,
                             ),
                           ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              InkWell(
+                                onTap: () => ref
+                                    .read(readerProvider.notifier)
+                                    .setActiveSplitRightTab(index),
+                                child: Padding(
+                                  padding: EdgeInsets.symmetric(
+                                    vertical: isCompact ? 5 : 6,
+                                  ),
+                                  child: Tooltip(
+                                    message: title,
+                                    child: ConstrainedBox(
+                                      constraints: BoxConstraints(
+                                        maxWidth: isCompact ? 130 : 220,
+                                      ),
+                                      child: Text(
+                                        title,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              InkWell(
+                                onTap: () => ref
+                                    .read(readerProvider.notifier)
+                                    .closeSplitRightTab(index),
+                                child: Icon(
+                                  Icons.close,
+                                  size: isCompact ? 15 : 16,
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                    if (showScrollButtons)
+                      Positioned(
+                        left: 0,
+                        child: IconButton(
+                          icon: const Icon(Icons.chevron_left),
+                          tooltip: 'Scroll left',
+                          onPressed: () {
+                            if (_splitTabsScrollController.hasClients) {
+                              final pos =
+                                  _splitTabsScrollController.position.pixels;
+                              _splitTabsScrollController.animateTo(
+                                (pos - 120).clamp(
+                                  0.0,
+                                  _splitTabsScrollController
+                                      .position
+                                      .maxScrollExtent,
+                                ),
+                                duration: const Duration(milliseconds: 200),
+                                curve: Curves.easeOut,
+                              );
+                            }
+                          },
                         ),
                       ),
-                      const SizedBox(width: 6),
-                      InkWell(
-                        onTap: () => ref
-                            .read(readerProvider.notifier)
-                            .closeSplitRightTab(index),
-                        child: Icon(Icons.close, size: isCompact ? 15 : 16),
+                    if (showScrollButtons)
+                      Positioned(
+                        right: 0,
+                        child: IconButton(
+                          icon: const Icon(Icons.chevron_right),
+                          tooltip: 'Scroll right',
+                          onPressed: () {
+                            if (_splitTabsScrollController.hasClients) {
+                              final pos =
+                                  _splitTabsScrollController.position.pixels;
+                              _splitTabsScrollController.animateTo(
+                                (pos + 120).clamp(
+                                  0.0,
+                                  _splitTabsScrollController
+                                      .position
+                                      .maxScrollExtent,
+                                ),
+                                duration: const Duration(milliseconds: 200),
+                                curve: Curves.easeOut,
+                              );
+                            }
+                          },
+                        ),
                       ),
-                    ],
-                  ),
+                  ],
                 );
               },
             ),
@@ -2044,9 +2150,45 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
         return Column(
           children: [
             Expanded(flex: topFlex, child: biblePane),
-            Container(
-              height: _bmSplitterWidth,
-              color: Theme.of(context).colorScheme.outlineVariant,
+            GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onVerticalDragUpdate: (details) {
+                final height = constraints.maxHeight;
+                if (height <= 0) return;
+                final next = (ratio + details.delta.dy / height)
+                    .clamp(_bmSplitMin, _bmSplitMax)
+                    .toDouble();
+                ref
+                    .read(readerProvider.notifier)
+                    .setSplitViewRatio(next, persist: false);
+              },
+              onVerticalDragEnd: (_) {
+                ref
+                    .read(readerProvider.notifier)
+                    .setSplitViewRatio(
+                      ref.read(readerProvider).splitViewRatio,
+                      persist: true,
+                    );
+              },
+              onDoubleTap: () {
+                ref
+                    .read(readerProvider.notifier)
+                    .setSplitViewRatio(_bmSplitDefault);
+              },
+              child: Container(
+                height: _bmSplitterWidth,
+                color: Theme.of(context).colorScheme.outlineVariant,
+                child: Center(
+                  child: Container(
+                    width: 48,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.outline,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+              ),
             ),
             Expanded(flex: bottomFlex, child: rightPaneWithTabs),
           ],
@@ -2060,8 +2202,26 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     required ReaderState readerState,
     required TypographySettings typography,
   }) {
+    final readerTabs = ref.watch(readerProvider.select((s) => s.tabs));
+    final activeTabIndex = ref.watch(
+      readerProvider.select((s) => s.activeTabIndex),
+    );
+
     if (readerState.secondaryTabs.isEmpty) {
-      return _buildTabContent(bibleTab, typography);
+      return Column(
+        children: [
+          if (!typography.isFullscreen && readerTabs.isNotEmpty)
+            BottomTabRail(
+              tabs: readerTabs,
+              activeIndex: activeTabIndex,
+              onTapTab: (index) => _onMainTabTap(index, readerTabs),
+              onCloseTab: (index) =>
+                  ref.read(readerProvider.notifier).closeTab(index),
+              onOpenNew: _openQuickNav,
+            ),
+          Expanded(child: _buildTabContent(bibleTab, typography)),
+        ],
+      );
     }
 
     final secondaryTabs = readerState.secondaryTabs;
@@ -2142,7 +2302,20 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
             activeTab: bibleTab,
             selectedSource: value,
           ),
+          onDisableSplitView: () {
+            _clearParallelMode();
+            ref.read(readerProvider.notifier).closeSecondaryPane();
+          },
         ),
+        if (!typography.isFullscreen && readerTabs.isNotEmpty)
+          BottomTabRail(
+            tabs: readerTabs,
+            activeIndex: activeTabIndex,
+            onTapTab: (index) => _onMainTabTap(index, readerTabs),
+            onCloseTab: (index) =>
+                ref.read(readerProvider.notifier).closeTab(index),
+            onOpenNew: _openQuickNav,
+          ),
         Expanded(
           child: ReadingPane(
             child: primaryContent,
@@ -2309,6 +2482,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
             activeTab: bibleTab,
             selectedSource: value,
           ),
+          onDisableSplitView: () {
+            _clearParallelMode();
+            ref.read(readerProvider.notifier).closeSecondaryPane();
+          },
         ),
         rightPaneTabs,
         Expanded(
@@ -2400,9 +2577,45 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
         return Column(
           children: [
             Expanded(flex: topFlex, child: primaryPane),
-            Container(
-              height: _bmSplitterWidth,
-              color: Theme.of(context).colorScheme.outlineVariant,
+            GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onVerticalDragUpdate: (details) {
+                final height = constraints.maxHeight;
+                if (height <= 0) return;
+                final next = (ratio + details.delta.dy / height)
+                    .clamp(_bmSplitMin, _bmSplitMax)
+                    .toDouble();
+                ref
+                    .read(readerProvider.notifier)
+                    .setSplitViewRatio(next, persist: false);
+              },
+              onVerticalDragEnd: (_) {
+                ref
+                    .read(readerProvider.notifier)
+                    .setSplitViewRatio(
+                      ref.read(readerProvider).splitViewRatio,
+                      persist: true,
+                    );
+              },
+              onDoubleTap: () {
+                ref
+                    .read(readerProvider.notifier)
+                    .setSplitViewRatio(_bmSplitDefault);
+              },
+              child: Container(
+                height: _bmSplitterWidth,
+                color: Theme.of(context).colorScheme.outlineVariant,
+                child: Center(
+                  child: Container(
+                    width: 48,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: Theme.of(context).colorScheme.outline,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+              ),
             ),
             Expanded(flex: bottomFlex, child: secondaryPane),
           ],
@@ -2947,8 +3160,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
   Map<String, dynamic> _buildBiblePdfPayload() {
     final activeTab = ref.read(readerProvider).activeTab;
-    final typography = ref.read(typographyProvider);
-    final lang = activeTab?.bibleLang ?? ref.read(selectedBibleLangProvider);
+    final lang = activeTab?.bibleLang ?? ref.read(selectedBibleLangProvider) ?? 'en';
+    final typography = ref.read(typographyProvider(lang));
     final verses = _currentVerses
         .map((v) => <String, dynamic>{'verse': v.verse, 'text': v.text})
         .toList(growable: false);
@@ -3321,19 +3534,11 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   @override
   Widget build(BuildContext context) {
     final readerState = ref.watch(readerProvider);
-    final typographyState = ref.watch(typographyProvider);
     final activeTab = readerState.activeTab;
     final bibleReadLang =
         activeTab?.bibleLang ?? ref.watch(selectedBibleLangProvider) ?? 'en';
-    if (_lastTypographyLang != bibleReadLang) {
-      _lastTypographyLang = bibleReadLang;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted) return;
-        ref
-            .read(typographyProvider.notifier)
-            .setReaderContentLanguage(bibleReadLang);
-      });
-    }
+    final typographyState = ref.watch(typographyProvider(bibleReadLang));
+
     final isFullscreen = typographyState.isFullscreen;
 
     // Clear search state only when the active tab changes and the new tab
@@ -3457,7 +3662,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                             child: InkWell(
                               borderRadius: BorderRadius.circular(20),
                               onTap: () => ref
-                                  .read(typographyProvider.notifier)
+                                  .read(typographyGlobalProvider.notifier)
                                   .toggleFullscreen(),
                               child: const Padding(
                                 padding: EdgeInsets.all(8),
@@ -3507,23 +3712,47 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                             _isSearching &&
                                 _searchScope != BibleSearchScope.chapter
                             ? _buildScopeSearchResults(activeTab)
-                            : (hasUnifiedSplit
-                                  ? _buildReaderSplitContentV2(
-                                      bibleTab: activeTab,
-                                      readerState: bmState,
-                                      typography: typographyState,
-                                    )
-                                  : (isParallelMode &&
-                                            englishParallelTab != null
-                                        ? _buildParallelContent(
-                                            primaryTab: activeTab,
-                                            secondaryTab: englishParallelTab,
+                            : Column(
+                                children: [
+                                  if (!isFullscreen &&
+                                      !hasUnifiedSplit &&
+                                      !isParallelMode &&
+                                      readerState.tabs.isNotEmpty &&
+                                      !_isSearching)
+                                    BottomTabRail(
+                                      tabs: readerState.tabs,
+                                      activeIndex: readerState.activeTabIndex,
+                                      onTapTab: (index) => _onMainTabTap(
+                                        index,
+                                        readerState.tabs,
+                                      ),
+                                      onCloseTab: (index) => ref
+                                          .read(readerProvider.notifier)
+                                          .closeTab(index),
+                                      onOpenNew: _openQuickNav,
+                                    ),
+                                  Expanded(
+                                    child: (hasUnifiedSplit
+                                        ? _buildReaderSplitContentV2(
+                                            bibleTab: activeTab,
+                                            readerState: bmState,
                                             typography: typographyState,
                                           )
-                                        : _buildTabContent(
-                                            activeTab,
-                                            typographyState,
-                                          ))),
+                                        : (isParallelMode &&
+                                                  englishParallelTab != null
+                                              ? _buildParallelContent(
+                                                  primaryTab: activeTab,
+                                                  secondaryTab:
+                                                      englishParallelTab,
+                                                  typography: typographyState,
+                                                )
+                                              : _buildTabContent(
+                                                  activeTab,
+                                                  typographyState,
+                                                ))),
+                                  ),
+                                ],
+                              ),
                       ),
                       SelectionActionBar(
                         isVisible:
@@ -3550,51 +3779,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                     child: const Icon(Icons.menu_book_rounded),
                   ),
             floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
-            bottomNavigationBar:
-                (!isFullscreen && readerState.tabs.isNotEmpty && !_isSearching)
-                ? BottomTabRail(
-                    tabs: readerState.tabs,
-                    activeIndex: readerState.activeTabIndex,
-                    onTapTab: (index) async {
-                      final tab = readerState.tabs[index];
-                      final isActive = index == readerState.activeTabIndex;
-                      if (isActive) {
-                        if (tab.type == ReaderContentType.bible) {
-                          _openQuickNav(
-                            initialLang: tab.bibleLang,
-                            initialOpenInNewTab: false,
-                          );
-                          return;
-                        }
-
-                        final sermonLang =
-                            tab.sermonLang ??
-                            ref.read(selectedSermonLangProvider) ??
-                            'en';
-                        final picked = await _pickSermonForBm(sermonLang);
-                        if (!mounted || picked == null) return;
-                        ref
-                            .read(selectedSermonLangProvider.notifier)
-                            .setLang(sermonLang);
-                        ref
-                            .read(readerProvider.notifier)
-                            .replaceCurrentTab(
-                              ReaderTab(
-                                type: ReaderContentType.sermon,
-                                title: picked.title,
-                                sermonId: picked.id,
-                                sermonLang: sermonLang,
-                              ),
-                            );
-                        return;
-                      }
-                      ref.read(readerProvider.notifier).switchTab(index);
-                    },
-                    onCloseTab: (index) =>
-                        ref.read(readerProvider.notifier).closeTab(index),
-                    onOpenNew: _openQuickNav,
-                  )
-                : null,
+            bottomNavigationBar: null,
           ),
         ),
       ),
@@ -4082,6 +4267,90 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     );
   }
 
+  Widget _buildSplitViewPopupMenu(
+    BuildContext context,
+    ReaderTab? activeTab,
+    BoxConstraints constraints,
+    bool splitEnabled,
+    ThemeData theme, {
+    String? label,
+  }) {
+    final icon = Icon(
+      Icons.splitscreen,
+      size: constraints.maxWidth >= 900 ? 28 : 24,
+      color: (splitEnabled || _isParallelActiveFor(activeTab))
+          ? theme.colorScheme.primary
+          : null,
+    );
+
+    if (label != null) {
+      return PopupMenuButton<String>(
+        tooltip: label,
+        onSelected: (value) async {
+          await _onSplitViewSourceSelected(activeTab, value);
+        },
+        itemBuilder: (context) => _buildSplitViewItems(constraints),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              icon,
+              const SizedBox(width: 8),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: constraints.maxWidth >= 900 ? 15 : 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return PopupMenuButton<String>(
+      tooltip: 'Split View',
+      icon: icon,
+      onSelected: (value) async {
+        await _onSplitViewSourceSelected(activeTab, value);
+      },
+      itemBuilder: (context) => _buildSplitViewItems(constraints),
+    );
+  }
+
+  List<PopupMenuEntry<String>> _buildSplitViewItems(
+    BoxConstraints constraints,
+  ) {
+    final itemStyle = TextStyle(
+      fontSize: constraints.maxWidth >= 900 ? 16 : 14,
+    );
+    return [
+      PopupMenuItem<String>(
+        value: 'bible_en',
+        child: Text('Bible English', style: itemStyle),
+      ),
+      PopupMenuItem<String>(
+        value: 'bible_ta',
+        child: Text('Bible Tamil', style: itemStyle),
+      ),
+      PopupMenuItem<String>(
+        value: 'sermon_en',
+        child: Text('Sermon English', style: itemStyle),
+      ),
+      PopupMenuItem<String>(
+        value: 'sermon_ta',
+        child: Text('Sermon Tamil', style: itemStyle),
+      ),
+      const PopupMenuDivider(),
+      PopupMenuItem<String>(
+        value: 'split_off',
+        child: Text('Disable Split View', style: itemStyle),
+      ),
+    ];
+  }
+
   AppBar _buildDefaultAppBar(
     BuildContext context,
     ReaderTab? activeTab, {
@@ -4106,47 +4375,86 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     final isCompactAppBar = MediaQuery.sizeOf(context).width < 700;
     final showCompactTamilOptions = isTamilBibleTab && isCompactAppBar;
 
+    final theme = Theme.of(context);
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final isWide = screenWidth >= 900;
+    final isSermonTab =
+        activeTab?.type == ReaderContentType.sermon && activeTab?.sermonId != null;
+    final showPcShortcuts = screenWidth >= 700 && (isBibleTab || isSermonTab);
+
     return AppBar(
+      toolbarHeight: isWide ? 64.0 : (isSermonTab ? 88.0 : 72.0),
       titleSpacing: 0,
-      leading: IconButton(
-        icon: const Icon(Icons.arrow_back),
-        onPressed: () {
-          if (openedFromSearch) {
-            if (context.canPop()) {
-              context.pop();
-            } else {
-              context.go('/search?tab=bible');
-            }
-          } else {
-            context.pop();
-          }
-        },
+      leading: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            icon: Icon(Icons.arrow_back, size: isWide ? 28 : 24),
+            onPressed: () {
+              if (openedFromSearch) {
+                if (context.canPop()) {
+                  context.pop();
+                } else {
+                  context.go('/search?tab=bible');
+                }
+              } else {
+                context.pop();
+              }
+            },
+          ),
+        ],
       ),
       title: LayoutBuilder(
         builder: (context, constraints) {
-          final showPcShortcuts = constraints.maxWidth >= 700 && isBibleTab;
-          if (!showPcShortcuts) {
-            return SizedBox(
-              width: constraints.maxWidth,
-              child: InkWell(
-                onTap: _openQuickNav,
-                child: Row(
-                  mainAxisSize: MainAxisSize.max,
+    if (!showPcShortcuts) {
+      return SizedBox(
+        width: constraints.maxWidth,
+        child: InkWell(
+          onTap: _openQuickNav,
+          child: Row(
+            mainAxisSize: MainAxisSize.max,
+            children: [
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Expanded(
-                      child: Text(
-                        activeTab?.title ?? 'Reader',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        softWrap: false,
+                    Text(
+                      activeTab?.title ?? 'Reader',
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        fontSize: constraints.maxWidth >= 700 ? 20 : 18,
+                        fontWeight: FontWeight.bold,
                       ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                    const Icon(Icons.arrow_drop_down),
+                    if (isSermonTab)
+                      Consumer(
+                        builder: (context, ref, _) {
+                          final sermonAsync =
+                              ref.watch(sermonByIdProvider(activeTab!.sermonId!));
+                          return sermonAsync.maybeWhen(
+                            data: (s) => s == null
+                                ? const SizedBox.shrink()
+                                : Text(
+                                    '${s.id} - ${s.year} - ${s.totalParagraphs ?? 0}',
+                                    style: theme.textTheme.labelSmall?.copyWith(
+                                      color: theme.colorScheme.onSurfaceVariant,
+                                    ),
+                                  ),
+                            orElse: () => const SizedBox.shrink(),
+                          );
+                        },
+                      ),
                   ],
                 ),
               ),
-            );
-          }
+              Icon(Icons.arrow_drop_down, size: isWide ? 28 : 24),
+            ],
+          ),
+        ),
+      );
+    }
 
           return Row(
             mainAxisAlignment: MainAxisAlignment.start,
@@ -4157,169 +4465,305 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(activeTab?.title ?? 'Reader'),
-                    const Icon(Icons.arrow_drop_down),
+                    Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          activeTab?.title ?? 'Reader',
+                          style: theme.textTheme.titleLarge?.copyWith(
+                            fontSize: 21,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        if (isSermonTab)
+                          Consumer(
+                            builder: (context, ref, _) {
+                              final sermonAsync = ref.watch(
+                                sermonByIdProvider(activeTab!.sermonId!),
+                              );
+                              return sermonAsync.maybeWhen(
+                                data: (s) => s == null
+                                    ? const SizedBox.shrink()
+                                    : Text(
+                                        '${s.id} - ${s.year} - ${s.totalParagraphs ?? 0}',
+                                        style: theme.textTheme.labelSmall
+                                            ?.copyWith(
+                                          color: theme
+                                              .colorScheme
+                                              .onSurfaceVariant,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                orElse: () => const SizedBox.shrink(),
+                              );
+                            },
+                          ),
+                      ],
+                    ),
+                    Icon(Icons.arrow_drop_down, size: isWide ? 28 : 24),
                   ],
                 ),
               ),
               const SizedBox(width: 24),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 6.0,
-                  vertical: 2.0,
-                ),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(20),
-                  color: Theme.of(
-                    context,
-                  ).colorScheme.surfaceVariant.withAlpha(80),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    TextButton(
-                      onPressed: () => _openQuickNavForTestament(0),
-                      child: const Text('Old Testament'),
-                    ),
-                    TextButton(
-                      onPressed: () => _openQuickNavForTestament(1),
-                      child: const Text('New Testament'),
-                    ),
-                    if (isTamilBibleTab) ...[
-                      const SizedBox(width: 12),
-                      TextButton(
-                        onPressed: () => _openEnglishParallel(
-                          activeTab,
-                          sourceLangOverride: activeLang,
-                        ),
-                        child: const Text('English Parallel'),
+              if (isSermonTab) ...[
+                // Split View Controls for Sermon Reading
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8.0,
+                    vertical: 2.0,
+                  ),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(20),
+                    color: theme.colorScheme.surfaceVariant.withAlpha(80),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _buildSplitViewPopupMenu(
+                        context,
+                        activeTab,
+                        constraints,
+                        splitEnabled,
+                        theme,
+                        label: 'Split View',
                       ),
-                      TextButton(
-                        onPressed: () => _switchToEnglishBible(
-                          activeTab,
-                          sourceLangOverride: activeLang,
+                      if (isInSplitView) ...[
+                        const SizedBox(width: 8),
+                        TextButton(
+                          style: TextButton.styleFrom(
+                            foregroundColor: theme.colorScheme.error,
+                            textStyle:
+                                const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          onPressed: () {
+                            _clearParallelMode();
+                            ref
+                                .read(readerProvider.notifier)
+                                .closeSecondaryPane();
+                          },
+                          child: const Text('Disable Split View'),
                         ),
-                        child: const Text('English Bible'),
-                      ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
-              ),
+              ],
+              if (isBibleTab)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6.0,
+                    vertical: 2.0,
+                  ),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(20),
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.surfaceVariant.withAlpha(80),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TextButton(
+                        onPressed: () => _openQuickNavForTestament(0),
+                        child: Text(
+                          'Old Testament',
+                          style: TextStyle(
+                            fontSize: constraints.maxWidth >= 900 ? 15 : 13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: () => _openQuickNavForTestament(1),
+                        child: Text(
+                          'New Testament',
+                          style: TextStyle(
+                            fontSize: constraints.maxWidth >= 900 ? 15 : 13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      if (isTamilBibleTab) ...[
+                        const SizedBox(width: 12),
+                        TextButton(
+                          onPressed: () => _openEnglishParallel(
+                            activeTab,
+                            sourceLangOverride: activeLang,
+                          ),
+                          child: Text(
+                            'English Parallel',
+                            style: TextStyle(
+                              fontSize: constraints.maxWidth >= 900 ? 15 : 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                        TextButton(
+                          onPressed: () => _switchToEnglishBible(
+                            activeTab,
+                            sourceLangOverride: activeLang,
+                          ),
+                          child: Text(
+                            'Switch to English',
+                            style: TextStyle(
+                              fontSize: constraints.maxWidth >= 900 ? 15 : 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ] else if (isBibleTab && activeLang == 'en') ...[
+                        const SizedBox(width: 12),
+                        TextButton(
+                          onPressed: () => _switchToTamilBible(activeTab),
+                          child: Text(
+                            'Switch to Tamil',
+                            style: TextStyle(
+                              fontSize: constraints.maxWidth >= 900 ? 15 : 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                      const SizedBox(width: 8),
+                      _buildSplitViewPopupMenu(
+                        context,
+                        activeTab,
+                        constraints,
+                        splitEnabled,
+                        theme,
+                        label: 'Split View',
+                      ),
+                      if (isInSplitView) ...[
+                        const SizedBox(width: 8),
+                        TextButton(
+                          style: TextButton.styleFrom(
+                            foregroundColor: theme.colorScheme.error,
+                            textStyle:
+                                const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          onPressed: () {
+                            _clearParallelMode();
+                            ref
+                                .read(readerProvider.notifier)
+                                .closeSecondaryPane();
+                          },
+                          child: const Text('Disable Split View'),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
             ],
           );
         },
       ),
       actions: [
-        if (hasSelection) ...[
-          IconButton(
-            icon: const Icon(Icons.copy),
-            onPressed: _copySelectedVerses,
-          ),
-          IconButton(
-            icon: const Icon(Icons.share),
-            onPressed: _shareSelectedVerses,
-          ),
-          IconButton(
-            icon: const Icon(Icons.clear),
-            onPressed: () => setState(() {
-              _selectedVerseNumbers.clear();
-              _activeSelectionText = null;
-              _lastVerseTapped = null;
-            }),
-          ),
-        ] else ...[
-          if (showCompactTamilOptions)
-            PopupMenuButton<String>(
-              tooltip: 'English options',
-              icon: const Icon(Icons.language),
-              onSelected: (value) {
-                if (value == 'parallel') {
-                  _openEnglishParallel(
-                    activeTab,
-                    sourceLangOverride: activeLang,
-                  );
-                } else if (value == 'switch') {
-                  _switchToEnglishBible(
-                    activeTab,
-                    sourceLangOverride: activeLang,
-                  );
-                }
-              },
-              itemBuilder: (context) => const [
-                PopupMenuItem<String>(
-                  value: 'parallel',
-                  child: Text('English Parallel'),
-                ),
-                PopupMenuItem<String>(
-                  value: 'switch',
-                  child: Text('English Bible'),
-                ),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            return Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (hasSelection) ...[
+                  IconButton(
+                    icon: const Icon(Icons.copy),
+                    onPressed: _copySelectedVerses,
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.share),
+                    onPressed: _shareSelectedVerses,
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.clear),
+                    onPressed: () => setState(() {
+                      _selectedVerseNumbers.clear();
+                      _activeSelectionText = null;
+                      _lastVerseTapped = null;
+                    }),
+                  ),
+                ] else ...[
+                  if (showCompactTamilOptions)
+                    PopupMenuButton<String>(
+                      tooltip: 'English options',
+                      icon: const Icon(Icons.language),
+                      onSelected: (value) {
+                        if (value == 'parallel') {
+                          _openEnglishParallel(
+                            activeTab,
+                            sourceLangOverride: activeLang,
+                          );
+                        } else if (value == 'switch') {
+                          _switchToEnglishBible(
+                            activeTab,
+                            sourceLangOverride: activeLang,
+                          );
+                        }
+                      },
+                      itemBuilder: (context) => const [
+                        PopupMenuItem<String>(
+                          value: 'parallel',
+                          child: Text('English Parallel'),
+                        ),
+                        PopupMenuItem<String>(
+                          value: 'switch',
+                          child: Text('English Bible'),
+                        ),
+                      ],
+                    ),
+                  const HelpButton(topicId: 'reader'),
+                  if (isBibleTab || !showPcShortcuts)
+                    _buildSplitViewPopupMenu(
+                      context,
+                      activeTab,
+                      constraints,
+                      splitEnabled,
+                      theme,
+                    ),
+                  if (isBibleTab)
+                    IconButton(
+                      tooltip: 'Advanced Search',
+                      icon: Icon(
+                        Icons.manage_search,
+                        size: constraints.maxWidth >= 900 ? 28 : 24,
+                      ),
+                      onPressed: () => context.go('/search?tab=bible'),
+                    ),
+                  IconButton(
+                    icon: Icon(
+                      Icons.search,
+                      size: constraints.maxWidth >= 900 ? 28 : 24,
+                    ),
+                    onPressed: () {
+                      if (isInSplitView) {
+                        context.go('/search?tab=bible');
+                        return;
+                      }
+                      _resetGlobalSearchState();
+                      setState(() {
+                        _isSearching = true;
+                      });
+                    },
+                  ),
+                  IconButton(
+                    icon: Icon(
+                      Icons.home,
+                      size: constraints.maxWidth >= 900 ? 28 : 24,
+                    ),
+                    onPressed: () => context.go('/'),
+                  ),
+                  IconButton(
+                    icon: Icon(
+                      Icons.settings,
+                      size: constraints.maxWidth >= 900 ? 28 : 24,
+                    ),
+                    onPressed: () => ReaderSettingsSheet.show(context),
+                  ),
+                ],
               ],
-            ),
-          if (isBibleTab)
-            PopupMenuButton<String>(
-              tooltip: 'Split View',
-              icon: Icon(
-                Icons.splitscreen,
-                color: (splitEnabled || _isParallelActiveFor(activeTab))
-                    ? Theme.of(context).colorScheme.primary
-                    : null,
-              ),
-              onSelected: (value) async {
-                await _onSplitViewSourceSelected(activeTab, value);
-              },
-              itemBuilder: (context) => const [
-                PopupMenuItem<String>(
-                  value: 'bible_en',
-                  child: Text('Bible English'),
-                ),
-                PopupMenuItem<String>(
-                  value: 'bible_ta',
-                  child: Text('Bible Tamil'),
-                ),
-                PopupMenuItem<String>(
-                  value: 'sermon_en',
-                  child: Text('Sermon English'),
-                ),
-                PopupMenuItem<String>(
-                  value: 'sermon_ta',
-                  child: Text('Sermon Tamil'),
-                ),
-                PopupMenuDivider(),
-                PopupMenuItem<String>(
-                  value: 'split_off',
-                  child: Text('Disable Split View'),
-                ),
-              ],
-            ),
-          if (isBibleTab)
-            IconButton(
-              tooltip: 'Advanced Search',
-              icon: const Icon(Icons.manage_search),
-              onPressed: () => context.go('/search?tab=bible'),
-            ),
-          IconButton(
-            icon: const Icon(Icons.search),
-            onPressed: () {
-              if (isInSplitView) {
-                context.go('/search?tab=bible');
-                return;
-              }
-              _resetGlobalSearchState();
-              setState(() {
-                _isSearching = true;
-              });
-            },
-          ),
-          IconButton(
-            icon: const Icon(Icons.home),
-            onPressed: () => context.go('/'),
-          ),
-          IconButton(
-            icon: const Icon(Icons.settings),
-            onPressed: () => ReaderSettingsSheet.show(context),
-          ),
-        ],
+            );
+          },
+        ),
       ],
       bottom: (!isInSplitView && isBibleTab)
           ? PreferredSize(
@@ -4329,9 +4773,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
               child: LayoutBuilder(
                 builder: (context, constraints) {
                   final isDesktopNav = constraints.maxWidth >= 900;
-                  final iconSize = isDesktopNav ? 24.0 : 22.0;
-                  final labelSize = isDesktopNav ? 15.0 : 14.0;
-                  final buttonHeight = isDesktopNav ? 42.0 : 38.0;
+                  final iconSize = isDesktopNav ? 26.0 : 22.0;
+                  final labelSize = isDesktopNav ? 17.0 : 14.0;
+                  final buttonHeight = isDesktopNav ? 46.0 : 38.0;
                   final horizontalPadding = isDesktopNav ? 18.0 : 12.0;
 
                   return Container(

@@ -49,9 +49,15 @@ class InstalledDatabaseRegistry {
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
-          await db.execute(
-            'ALTER TABLE installed_databases ADD COLUMN record_count INTEGER',
+          final columns = await db.rawQuery('PRAGMA table_info(installed_databases)');
+          final hasRecordCount = columns.any(
+            (row) => (row['name']?.toString().toLowerCase() ?? '') == 'record_count',
           );
+          if (!hasRecordCount) {
+            await db.execute(
+              'ALTER TABLE installed_databases ADD COLUMN record_count INTEGER',
+            );
+          }
         }
       },
     );

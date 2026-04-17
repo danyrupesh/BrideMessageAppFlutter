@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../settings/widgets/theme_picker_sheet.dart';
+import '../help/widgets/help_button.dart';
 import '../reader/providers/reader_provider.dart';
 import '../reader/models/reader_tab.dart';
 import '../sermons/providers/sermon_flow_provider.dart';
@@ -37,6 +38,7 @@ class DashboardScreen extends ConsumerWidget {
                 icon: const Icon(Icons.color_lens),
                 onPressed: () => ThemePickerSheet.show(context),
               ),
+              const HelpButton(topicId: 'dashboard'),
               IconButton(
                 icon: const Icon(Icons.settings),
                 onPressed: () => context.push('/settings'),
@@ -445,6 +447,24 @@ class DashboardScreen extends ConsumerWidget {
           context.push(uri.toString());
         },
       ),
+      _ModuleCardData(
+        icon: Icons.article,
+        title: 'English Tracts',
+        subtitle: '26 Tracts',
+        color: const Color(0xFFC0392B), // Unique color red-ish tone
+        onTap: () {
+          context.push('/tracts?lang=en');
+        },
+      ),
+      _ModuleCardData(
+        icon: Icons.article,
+        title: 'தமிழ் பிரசுரங்கள்',
+        subtitle: '34 Tracts',
+        color: const Color(0xFFC0392B), // Same color scheme for coherence
+        onTap: () {
+          context.push('/tracts?lang=ta');
+        },
+      ),
     ];
 
     return LayoutBuilder(
@@ -624,14 +644,34 @@ class DashboardScreen extends ConsumerWidget {
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
+      backgroundColor: Colors.transparent,
       builder: (sheetContext) {
         return Consumer(
           builder: (context, sheetRef, _) {
             final recentReadsAsync = sheetRef.watch(recentReadsProvider);
             return SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                child: recentReadsAsync.when(
+              child: Align(
+                alignment: Alignment.topCenter,
+                child: Container(
+                  margin: const EdgeInsets.only(top: 48, left: 16, right: 16, bottom: 24),
+                  constraints: BoxConstraints(
+                    maxWidth: 480,
+                    maxHeight: MediaQuery.of(context).size.height * 0.7,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).dialogBackgroundColor,
+                    borderRadius: BorderRadius.circular(24),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.08),
+                        blurRadius: 16,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+                    child: recentReadsAsync.when(
                   loading: () => const SizedBox(
                     height: 180,
                     child: Center(child: CircularProgressIndicator()),
@@ -728,15 +768,17 @@ class DashboardScreen extends ConsumerWidget {
                         ),
                       ],
                     );
-                  },
-                ),
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
+                    },
+                  ),
+                ), // Padding
+              ), // Container
+            ), // Align
+          ); // SafeArea
+        },
+      ); // Consumer
+    }, // showModalBottomSheet builder
+  );
+}
 }
 
 class _ModuleCardData {
@@ -776,7 +818,6 @@ class _ModuleCard extends StatelessWidget {
             ? 1.12
             : 1.0;
         final iconSize = 28 * scale;
-        final badgePadding = 14 * scale;
         final titleSize = 15 * scale * largeScreenBoost;
         final subtitleSize = 12.5 * scale * largeScreenBoost;
         final cardPaddingH = 16 * scale;
@@ -800,65 +841,44 @@ class _ModuleCard extends StatelessWidget {
                   width: 1.5,
                 ),
                 borderRadius: BorderRadius.circular(20),
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [
-                    color.withValues(alpha: isDark ? 0.18 : 0.12),
-                    theme.colorScheme.surface.withValues(
-                      alpha: isDark ? 0.4 : 0.9,
-                    ),
-                  ],
-                ),
               ),
               padding: EdgeInsets.symmetric(
                 horizontal: cardPaddingH,
                 vertical: cardPaddingV,
               ),
-              child: Stack(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Positioned(
-                    right: -8,
-                    bottom: -12,
-                    child: Icon(
-                      data.icon,
-                      size: 88 * scale,
-                      color: color.withValues(alpha: isDark ? 0.12 : 0.08),
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: color.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(12),
                     ),
+                    child: Icon(data.icon, color: color, size: iconSize),
                   ),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.center,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Container(
-                        padding: EdgeInsets.all(badgePadding),
-                        decoration: BoxDecoration(
-                          color: color.withValues(alpha: isDark ? 0.25 : 0.12),
-                          borderRadius: BorderRadius.circular(16),
-                        ),
-                        child: Icon(data.icon, color: color, size: iconSize),
-                      ),
-                      SizedBox(height: 12 * scale),
-                      Text(
-                        data.title,
-                        textAlign: TextAlign.center,
-                        style: theme.textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w600,
-                          fontSize: titleSize,
-                        ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      SizedBox(height: 2 * scale),
-                      Text(
-                        data.subtitle,
-                        textAlign: TextAlign.center,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                          fontSize: subtitleSize,
-                        ),
-                      ),
-                    ],
+                  const SizedBox(height: 12),
+                  Text(
+                    data.title,
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: titleSize,
+                      color: isDark ? color : theme.colorScheme.onSurface,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    data.subtitle,
+                    style: TextStyle(
+                      fontSize: subtitleSize,
+                      color: theme.colorScheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w500,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                 ],
               ),

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../help/widgets/help_button.dart';
 import 'package:go_router/go_router.dart';
 import 'providers/search_history_provider.dart';
 import 'providers/search_provider.dart';
@@ -81,7 +82,6 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final notifier = ref.read(searchProvider.notifier);
-      // Warm FTS indexes on first search screen open (mirrors Android's SearchViewModel.warmUp).
       _warmFts();
       if (widget.fresh) {
         notifier.reset(activeTab: initial ?? SearchTab.bible);
@@ -138,6 +138,8 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
     super.dispose();
   }
 
+  // ── Build ──────────────────────────────────────────────────────────────
+
   @override
   Widget build(BuildContext context) {
     final searchState = ref.watch(searchProvider);
@@ -184,6 +186,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
             icon: const Icon(Icons.home),
             onPressed: () => context.go('/'),
           ),
+          const HelpButton(topicId: 'search'),
           IconButton(
             icon: const Icon(Icons.cloud_outlined),
             tooltip: 'Import databases',
@@ -192,103 +195,16 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
         ],
       ),
       body: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-            child: TextField(
-              controller: _searchController,
-              autofocus: true,
-              decoration: InputDecoration(
-                hintText: 'Search Bible, Sermons, COD, Songs',
-                prefixIcon: const Icon(Icons.search),
-                suffixIcon: searchState.query.trim().isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.clear),
-                        tooltip: 'Clear',
-                        onPressed: () {
-                          _syncingQuery = true;
-                          _searchController.clear();
-                          _syncingQuery = false;
-                          ref.read(searchProvider.notifier).updateQuery('');
-                        },
-                      )
-                    : null,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(24),
-                ),
-              ),
-              onChanged: (val) {
-                if (_syncingQuery) return;
-                ref.read(searchProvider.notifier).updateQuery(val);
-              },
-            ),
-          ),
+          // ── Row 1: Search bar + language toggle ───────────────────────
+          _buildSearchRow(searchState),
+
+          // ── Row 2: History chips (only when idle) ────────────────────
           if (history.isNotEmpty && searchState.query.isEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Wrap(
-                  spacing: 8,
-                  children: history
-                      .map(
-                        (q) => ActionChip(
-                          label: Text(q),
-                          onPressed: () {
-                            _searchController.text = q;
-                            ref.read(searchProvider.notifier).updateQuery(q);
-                          },
-                        ),
-                      )
-                      .toList(),
-                ),
-              ),
-            ),
-          const SearchFilters(),
-          if (showFallbackNotice)
-            Container(
-              width: double.infinity,
-              margin: const EdgeInsets.fromLTRB(16, 0, 16, 6),
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-              decoration: BoxDecoration(
-                color: Theme.of(
-                  context,
-                ).colorScheme.tertiaryContainer.withAlpha(100),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(
-                  color: Theme.of(context).colorScheme.tertiary.withAlpha(140),
-                ),
-              ),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.info_outline,
-                    size: 16,
-                    color: Theme.of(context).colorScheme.onTertiaryContainer,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      '$fallbackLabel metadata missing. Using fallback database mapping.',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 16.0,
-              vertical: 4.0,
-            ),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                _resultsLabel(searchState),
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ),
-          ),
+            _buildHistoryChips(history),
+
+          // ── Row 3: Tabs (raised immediately below search) ────────────
           TabBar(
             controller: _tabController,
             tabs: const [
@@ -298,6 +214,15 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
               Tab(text: 'Songs'),
             ],
           ),
+
+          // ── Row 4: Results count + filter button ─────────────────────
+          _buildResultsBar(searchState),
+
+          // ── Row 5: Fallback notice (rare) ─────────────────────────────
+          if (showFallbackNotice)
+            _buildFallbackNotice(fallbackLabel),
+
+          // ── Row 6: Results (takes all remaining height) ───────────────
           Expanded(
             child: TabBarView(
               controller: _tabController,
@@ -313,6 +238,227 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
       ),
     );
   }
+
+  // ── Helpers ────────────────────────────────────────────────────────────
+
+  /// Search field with compact padding + language toggle + help icon.
+  Widget _buildSearchRow(SearchState searchState) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 8, 4, 4),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _searchController,
+              autofocus: true,
+              decoration: InputDecoration(
+                hintText: 'Search Bible, Sermons, COD, Songs',
+                prefixIcon: const Icon(Icons.search, size: 20),
+                suffixIcon: searchState.query.trim().isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear, size: 18),
+                        tooltip: 'Clear',
+                        onPressed: () {
+                          _syncingQuery = true;
+                          _searchController.clear();
+                          _syncingQuery = false;
+                          ref
+                              .read(searchProvider.notifier)
+                              .updateQuery('');
+                        },
+                      )
+                    : null,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(28),
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 10,
+                ),
+                isDense: true,
+              ),
+              onChanged: (val) {
+                if (_syncingQuery) return;
+                ref.read(searchProvider.notifier).updateQuery(val);
+              },
+            ),
+          ),
+          const SizedBox(width: 6),
+          _buildLanguageToggle(searchState),
+        ],
+      ),
+    );
+  }
+
+  /// Compact pill toggle for EN / TA, no extra row needed.
+  Widget _buildLanguageToggle(SearchState searchState) {
+    final notifier = ref.read(searchProvider.notifier);
+    final isEn = searchState.languageCode == 'en';
+    return Container(
+      decoration: BoxDecoration(
+        border: Border.all(
+          color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.4),
+        ),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _langPill('EN', isEn, () {
+            if (!isEn) notifier.toggleLanguage();
+          }),
+          _langPill('TA', !isEn, () {
+            if (isEn) notifier.toggleLanguage();
+          }),
+        ],
+      ),
+    );
+  }
+
+  Widget _langPill(String label, bool selected, VoidCallback onTap) {
+    final cs = Theme.of(context).colorScheme;
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        decoration: BoxDecoration(
+          color: selected ? cs.primary : Colors.transparent,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: selected ? cs.onPrimary : cs.onSurface,
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Previous-query chips shown when the field is empty.
+  Widget _buildHistoryChips(List<String> history) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: history
+              .map(
+                (q) => Padding(
+                  padding: const EdgeInsets.only(right: 6),
+                  child: ActionChip(
+                    label: Text(q),
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    onPressed: () {
+                      _searchController.text = q;
+                      ref.read(searchProvider.notifier).updateQuery(q);
+                    },
+                  ),
+                ),
+              )
+              .toList(),
+        ),
+      ),
+    );
+  }
+
+  /// Single compact row: result count + active filter badges + ⚙ button.
+  Widget _buildResultsBar(SearchState searchState) {
+    final isDirtyMode = searchState.searchType != SearchType.all;
+    final isDirtyRank =
+        searchState.matchMode != MatchMode.exactMatch &&
+        searchState.activeTab != SearchTab.songs;
+    final hasActiveFilters = isDirtyMode || isDirtyRank;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 3, 4, 0),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              _resultsLabel(searchState),
+              style: Theme.of(context).textTheme.bodySmall,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          // Compact active-filter badges
+          if (isDirtyMode)
+            _filterBadge(_searchTypeLabel(searchState.searchType)),
+          if (isDirtyRank) _filterBadge('Accurate'),
+          // Filter icon — opens popup dialog
+          IconButton(
+            icon: hasActiveFilters
+                ? Badge(
+                    smallSize: 8,
+                    backgroundColor: Theme.of(context).colorScheme.primary,
+                    child: const Icon(Icons.tune, size: 20),
+                  )
+                : const Icon(Icons.tune, size: 20),
+            tooltip: 'Search filters',
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+            onPressed: () => showSearchFiltersSheet(context),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _filterBadge(String label) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      margin: const EdgeInsets.only(right: 4),
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      decoration: BoxDecoration(
+        color: cs.secondaryContainer,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+          color: cs.onSecondaryContainer,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFallbackNotice(String fallbackLabel) {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 2, 16, 4),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Theme.of(context)
+            .colorScheme
+            .tertiaryContainer
+            .withAlpha(100),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: Theme.of(context).colorScheme.tertiary.withAlpha(140),
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            Icons.info_outline,
+            size: 15,
+            color: Theme.of(context).colorScheme.onTertiaryContainer,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              '$fallbackLabel metadata missing. Using fallback database mapping.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Tab & query helpers ────────────────────────────────────────────────
 
   SearchTab? _parseInitialTab(String? raw) {
     if (raw == null) return null;
@@ -387,6 +533,19 @@ class _SearchScreenState extends ConsumerState<SearchScreen>
         (lower.contains('database file not found') &&
             lower.contains('sermons_') &&
             lower.contains('.db'));
+  }
+
+  String _searchTypeLabel(SearchType type) {
+    switch (type) {
+      case SearchType.all:
+        return 'Smart';
+      case SearchType.exact:
+        return 'Exact';
+      case SearchType.any:
+        return 'Any word';
+      case SearchType.prefix:
+        return 'Prefix';
+    }
   }
 
   String _resultsLabel(SearchState state) {

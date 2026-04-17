@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/reader_tab.dart';
 
 class PaneHeader extends StatelessWidget {
+  final VoidCallback? onDisableSplitView;
   final ReaderTab tab;
   final bool isPrimary;
   final bool showClose;
@@ -16,6 +17,7 @@ class PaneHeader extends StatelessWidget {
   final VoidCallback? onToggleSearch;
   final VoidCallback? onClose;
   final ValueChanged<String>? onSourceSelected;
+  final bool showSourcePicker;
 
   const PaneHeader({
     super.key,
@@ -32,25 +34,28 @@ class PaneHeader extends StatelessWidget {
     this.onToggleSearch,
     this.onClose,
     this.onSourceSelected,
+    this.showSourcePicker = true,
+    this.onDisableSplitView,
   });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final cs = theme.colorScheme;
+    final isWide = MediaQuery.sizeOf(context).width >= 900;
+    final navLabelSize = isWide ? 14.5 : 12.0;
     final navLabelStyle = theme.textTheme.labelSmall?.copyWith(
-      fontSize: 12,
-      fontWeight: FontWeight.w600,
+      fontSize: navLabelSize,
+      fontWeight: FontWeight.w700,
     );
     final sourceLabel = _sourceLabel(tab);
-    final paneTitle = _paneTitle(tab);
     final pickerLabel = tab.type == ReaderContentType.bible
         ? 'All Books'
         : 'All Sermons';
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-      constraints: const BoxConstraints(minHeight: 56),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      constraints: BoxConstraints(minHeight: isWide ? 64 : 56),
       decoration: BoxDecoration(
         color: cs.surface,
         border: Border(
@@ -60,61 +65,78 @@ class PaneHeader extends StatelessWidget {
       ),
       child: Row(
         children: [
-          PopupMenuButton<String>(
-            tooltip: 'Choose source',
-            onSelected: onSourceSelected,
-            itemBuilder: (context) => const [
-              PopupMenuItem(
-                value: 'bible_ta',
-                child: Text('Tamil Bible (BSI)'),
-              ),
-              PopupMenuItem(
-                value: 'bible_en',
-                child: Text('English Bible (KJV)'),
-              ),
-              PopupMenuItem(
-                value: 'sermon_ta',
-                child: Text('Tamil Sermon (COD Tamil)'),
-              ),
-              PopupMenuItem(
-                value: 'sermon_en',
-                child: Text('English Sermon (COD English)'),
-              ),
-            ],
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
-                color: cs.surfaceContainerHighest,
-                borderRadius: BorderRadius.circular(999),
-                border: Border.all(color: cs.outlineVariant),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 8,
-                    height: 8,
-                    decoration: BoxDecoration(
-                      color: _sourceColor(tab),
-                      shape: BoxShape.circle,
+          if (showSourcePicker) ...[
+            PopupMenuButton<String>(
+              tooltip: 'Choose source',
+              onSelected: onSourceSelected,
+              itemBuilder: (context) => const [
+                PopupMenuItem(
+                  value: 'bible_ta',
+                  child: Text('Tamil Bible (BSI)'),
+                ),
+                PopupMenuItem(
+                  value: 'bible_en',
+                  child: Text('English Bible (KJV)'),
+                ),
+                PopupMenuItem(
+                  value: 'sermon_ta',
+                  child: Text('Tamil Sermons'),
+                ),
+                PopupMenuItem(
+                  value: 'sermon_en',
+                  child: Text('English Sermons'),
+                ),
+              ],
+              child: Container(
+                padding: EdgeInsets.symmetric(
+                  horizontal: isWide ? 14 : 10,
+                  vertical: isWide ? 8 : 6,
+                ),
+                decoration: BoxDecoration(
+                  color: cs.surfaceContainerHighest,
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(color: cs.outlineVariant),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: isWide ? 10 : 8,
+                      height: isWide ? 10 : 8,
+                      decoration: BoxDecoration(
+                        color: _sourceColor(tab),
+                        shape: BoxShape.circle,
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 6),
-                  Text(sourceLabel, style: theme.textTheme.labelMedium),
-                  const Icon(Icons.arrow_drop_down, size: 18),
-                ],
+                    const SizedBox(width: 8),
+                    Text(
+                      sourceLabel,
+                      style: theme.textTheme.labelLarge?.copyWith(
+                        fontWeight: FontWeight.w600,
+                        fontSize: isWide ? 15 : 13,
+                      ),
+                    ),
+                    const Icon(Icons.arrow_drop_down, size: 20),
+                  ],
+                ),
               ),
             ),
-          ),
-          const SizedBox(width: 6),
+            const SizedBox(width: 10),
+          ],
           TextButton.icon(
             style: TextButton.styleFrom(
               visualDensity: VisualDensity.compact,
-              padding: const EdgeInsets.symmetric(horizontal: 8),
+              padding: const EdgeInsets.symmetric(horizontal: 10),
             ),
             onPressed: onOpenPicker,
-            icon: const Icon(Icons.menu_book_outlined, size: 16),
-            label: Text(pickerLabel),
+            icon: Icon(Icons.menu_book_outlined, size: isWide ? 20 : 16),
+            label: Text(
+              pickerLabel,
+              style: TextStyle(
+                fontSize: isWide ? 15 : 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           ),
           const SizedBox(width: 8),
           Expanded(
@@ -131,10 +153,10 @@ class PaneHeader extends StatelessWidget {
                       TextButton.icon(
                         style: TextButton.styleFrom(
                           visualDensity: VisualDensity.compact,
-                          padding: const EdgeInsets.symmetric(horizontal: 6),
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
                         ),
                         onPressed: onPrev,
-                        icon: const Icon(Icons.chevron_left, size: 18),
+                        icon: Icon(Icons.chevron_left, size: isWide ? 22 : 18),
                         label: Text(
                           'Previous',
                           style: navLabelStyle,
@@ -143,28 +165,15 @@ class PaneHeader extends StatelessWidget {
                           softWrap: false,
                         ),
                       ),
-                      const SizedBox(width: 8),
-                      SizedBox(
-                        width: 170,
-                        child: Text(
-                          paneTitle,
-                          textAlign: TextAlign.center,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 8),
+                      const SizedBox(width: 12),
                       TextButton.icon(
                         style: TextButton.styleFrom(
                           visualDensity: VisualDensity.compact,
-                          padding: const EdgeInsets.symmetric(horizontal: 6),
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
                         ),
                         onPressed: onNext,
                         iconAlignment: IconAlignment.end,
-                        icon: const Icon(Icons.chevron_right, size: 18),
+                        icon: Icon(Icons.chevron_right, size: isWide ? 22 : 18),
                         label: Text(
                           'Next',
                           style: navLabelStyle,
@@ -182,22 +191,30 @@ class PaneHeader extends StatelessWidget {
           IconButton(
             tooltip: 'Decrease text size',
             visualDensity: VisualDensity.compact,
-            icon: const Text(
+            icon: Text(
               'A-',
-              style: TextStyle(fontWeight: FontWeight.w700),
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                fontSize: isWide ? 16 : 14,
+              ),
             ),
             onPressed: onDecreaseFont,
           ),
           Text(
             displayFontSize.toStringAsFixed(0),
-            style: theme.textTheme.labelMedium,
+            style: theme.textTheme.labelMedium?.copyWith(
+              fontSize: isWide ? 15 : 13,
+            ),
           ),
           IconButton(
             tooltip: 'Increase text size',
             visualDensity: VisualDensity.compact,
-            icon: const Text(
+            icon: Text(
               'A+',
-              style: TextStyle(fontWeight: FontWeight.w700),
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                fontSize: isWide ? 16 : 14,
+              ),
             ),
             onPressed: onIncreaseFont,
           ),
@@ -205,14 +222,17 @@ class PaneHeader extends StatelessWidget {
             tooltip: isSearchActive ? 'Close mini search' : 'Open mini search',
             visualDensity: VisualDensity.compact,
             onPressed: onToggleSearch,
-            icon: Icon(isSearchActive ? Icons.search_off : Icons.search),
+            icon: Icon(
+              isSearchActive ? Icons.search_off : Icons.search,
+              size: isWide ? 24 : 20,
+            ),
           ),
           if (showClose)
             IconButton(
               tooltip: 'Close pane',
               visualDensity: VisualDensity.compact,
               onPressed: onClose,
-              icon: const Icon(Icons.close),
+              icon: Icon(Icons.close, size: isWide ? 24 : 20),
             ),
         ],
       ),
@@ -239,10 +259,4 @@ class PaneHeader extends StatelessWidget {
         : 'English Sermon';
   }
 
-  String _paneTitle(ReaderTab value) {
-    if (value.type == ReaderContentType.bible) {
-      return '${value.book ?? ''} ${value.chapter ?? ''}'.trim();
-    }
-    return value.title;
-  }
 }

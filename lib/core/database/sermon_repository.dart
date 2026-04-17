@@ -221,6 +221,8 @@ ORDER BY
     bool accurateMatch = false,
     String sortOrder = 'relevance',
     String? titlePrefix,
+    int? yearFrom,
+    int? yearTo,
   }) async {
     final matchPattern = FtsQueryBuilder.buildMatchQuery(
       query,
@@ -240,6 +242,8 @@ ORDER BY
         prefixOnly: prefixOnly,
         sortOrder: sortOrder,
         titlePrefix: titlePrefix,
+        yearFrom: yearFrom,
+        yearTo: yearTo,
       );
     }
 
@@ -251,6 +255,8 @@ ORDER BY
       offset: offset,
       sortOrder: sortOrder,
       titlePrefix: titlePrefix,
+      yearFrom: yearFrom,
+      yearTo: yearTo,
     );
     if (ftsResults.isNotEmpty) return ftsResults;
 
@@ -263,6 +269,8 @@ ORDER BY
       prefixOnly: prefixOnly,
       sortOrder: sortOrder,
       titlePrefix: titlePrefix,
+      yearFrom: yearFrom,
+      yearTo: yearTo,
     );
   }
 
@@ -272,6 +280,8 @@ ORDER BY
     bool anyWord = false,
     bool prefixOnly = false,
     String? titlePrefix,
+    int? yearFrom,
+    int? yearTo,
   }) async {
     final matchPattern = FtsQueryBuilder.buildMatchQuery(
       query,
@@ -288,6 +298,8 @@ ORDER BY
         anyWord: anyWord,
         prefixOnly: prefixOnly,
         titlePrefix: titlePrefix,
+        yearFrom: yearFrom,
+        yearTo: yearTo,
       );
     }
 
@@ -296,6 +308,8 @@ ORDER BY
       languageCode: languageCode,
       matchPattern: matchPattern,
       titlePrefix: titlePrefix,
+      yearFrom: yearFrom,
+      yearTo: yearTo,
     );
     if (ftsCount > 0) return ftsCount;
     return _countSermonsFallback(
@@ -304,6 +318,8 @@ ORDER BY
       anyWord: anyWord,
       prefixOnly: prefixOnly,
       titlePrefix: titlePrefix,
+      yearFrom: yearFrom,
+      yearTo: yearTo,
     );
   }
 
@@ -316,6 +332,8 @@ ORDER BY
     required bool prefixOnly,
     String sortOrder = 'relevance',
     String? titlePrefix,
+    int? yearFrom,
+    int? yearTo,
   }) async {
     final normalizedQuery = query
         .replaceAll(_fallbackQuerySanitizer, ' ')
@@ -334,6 +352,14 @@ ORDER BY
     if (titlePrefix != null && titlePrefix.isNotEmpty) {
       where.write(' AND s.title LIKE ?');
       args.add('$titlePrefix%');
+    }
+    if (yearFrom != null) {
+      where.write(' AND s.year >= ?');
+      args.add(yearFrom);
+    }
+    if (yearTo != null) {
+      where.write(' AND s.year <= ?');
+      args.add(yearTo);
     }
 
     if (exactMatch || prefixOnly || tokens.length <= 1) {
@@ -431,6 +457,8 @@ ORDER BY
     required bool anyWord,
     required bool prefixOnly,
     String? titlePrefix,
+    int? yearFrom,
+    int? yearTo,
   }) async {
     final normalizedQuery = query
         .replaceAll(_fallbackQuerySanitizer, ' ')
@@ -449,6 +477,14 @@ ORDER BY
     if (titlePrefix != null && titlePrefix.isNotEmpty) {
       where.write(' AND s.title LIKE ?');
       args.add('$titlePrefix%');
+    }
+    if (yearFrom != null) {
+      where.write(' AND s.year >= ?');
+      args.add(yearFrom);
+    }
+    if (yearTo != null) {
+      where.write(' AND s.year <= ?');
+      args.add(yearTo);
     }
 
     if (exactMatch || prefixOnly || tokens.length <= 1) {

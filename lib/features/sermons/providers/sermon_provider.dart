@@ -7,6 +7,8 @@ import '../../../core/database/models/sermon_models.dart';
 import '../../../core/database/sermon_repository.dart';
 import '../../../core/database/metadata/installed_content_provider.dart';
 import '../../../core/database/metadata/installed_database_model.dart';
+import '../../../core/database/models/sermon_search_result.dart';
+import '../../search/providers/search_provider.dart';
 
 // ─── Resolved sermon repository ───────────────────────────────────────────────
 
@@ -117,6 +119,9 @@ class SermonListState {
   final int? yearFrom;
   final int? yearTo;
   final List<String>? allowedIds;
+  final MatchMode matchMode;
+  final List<SermonSearchResult> searchResults;
+  final SearchType searchType;
 
   SermonListState({
     this.sermons = const [],
@@ -131,6 +136,9 @@ class SermonListState {
     this.yearFrom,
     this.yearTo,
     this.allowedIds,
+    this.matchMode = MatchMode.exactMatch,
+    this.searchResults = const [],
+    this.searchType = SearchType.prefix,
   });
 
   SermonListState copyWith({
@@ -146,6 +154,9 @@ class SermonListState {
     int? yearFrom,
     int? yearTo,
     Object? allowedIds = _unset,
+    MatchMode? matchMode,
+    List<SermonSearchResult>? searchResults,
+    SearchType? searchType,
   }) {
     return SermonListState(
       sermons: sermons ?? this.sermons,
@@ -168,6 +179,9 @@ class SermonListState {
       allowedIds: identical(allowedIds, _unset)
           ? this.allowedIds
           : allowedIds as List<String>?,
+      matchMode: matchMode ?? this.matchMode,
+      searchResults: searchResults ?? this.searchResults,
+      searchType: searchType ?? this.searchType,
     );
   }
 }
@@ -233,6 +247,29 @@ class SermonListNotifier extends Notifier<SermonListState> {
           state.titlePrefix != null && state.titlePrefix!.trim().isNotEmpty;
       final titlePrefix = useTitlePrefix ? state.titlePrefix!.trim() : null;
       final query = state.searchQuery.trim();
+
+      if (state.searchType == SearchType.all) {
+        final yearFrom = state.selectedYear ?? state.yearFrom;
+        final yearTo = state.selectedYear ?? state.yearTo;
+        final results = await repo.searchSermons(
+          query: query,
+          limit: 50,
+          offset: state.offset,
+          exactMatch: state.searchType == SearchType.exact,
+          anyWord: state.searchType == SearchType.any,
+          prefixOnly: state.searchType == SearchType.prefix,
+          accurateMatch: state.matchMode == MatchMode.accurate,
+          yearFrom: yearFrom,
+          yearTo: yearTo,
+        );
+        state = state.copyWith(
+          searchResults: [...state.searchResults, ...results],
+          isLoading: false,
+          offset: state.offset + 50,
+        );
+        return;
+      }
+
       final results = await _getSermonsPageWithPrefixFallback(
         repo: repo,
         limit: 50,
@@ -266,8 +303,12 @@ class SermonListNotifier extends Notifier<SermonListState> {
     int? yearFrom,
     int? yearTo,
     List<String>? allowedIds,
+    SearchType? searchType,
+    MatchMode? matchMode,
   }) async {
     final effectiveSortBy = sortBy ?? state.sortBy;
+    final effectiveSearchType = searchType ?? state.searchType;
+    final effectiveMatchMode = matchMode ?? state.matchMode;
     final normalizedPrefix = titlePrefix != null
         ? titlePrefix.trim()
         : state.titlePrefix;
@@ -289,27 +330,10 @@ class SermonListNotifier extends Notifier<SermonListState> {
           : normalizedCategory,
       offset: 0,
       sermons: [],
+      searchResults: [],
+      searchType: effectiveSearchType,
+      matchMode: effectiveMatchMode,
       loadError: null,
-      // new fields
-      // when a specific year is chosen, year range is cleared
-      // range only applies when year == null
-      // this matches the repository contract
-      // (exact-year filter takes precedence over range)
-      // range is only stored when no exact year filter is active
-      // so that chips and sheet stay in sync
-      // and new loads use the same constraints
-      // see filter sheet wiring for how we pass these values
-      // from UI into state
-      // (comments kept minimal per guidelines)
-      // effectiveSortBy always non-null
-      // so we keep current sort unless caller overrides
-      // via sortBy argument.
-      // ignore: unnecessary_cast
-      // (ensures static analysis happy about types)
-      // after this, repo call below uses state.sortBy/yearFrom/yearTo.
-      // These assignments will be used once state is updated.
-      // Note: yearFrom/yearTo only meaningful when year == null.
-      // When year != null we clear them.
       allowedIds: allowedIds,
     );
     state = state.copyWith(
@@ -326,6 +350,36 @@ class SermonListNotifier extends Notifier<SermonListState> {
       final useTitlePrefix =
           effectivePrefix != null && effectivePrefix.isNotEmpty;
       final normalizedQuery = query.trim();
+
+      if ((searchType ?? state.searchType) == SearchType.all) {
+        // Content search can be heavy; we only search if query is significant.
+        if (normalizedQuery.length < 2) {
+          state = state.copyWith(isLoading: false, searchResults: []);
+          return;
+        }
+
+        final yearFrom = year ?? state.yearFrom;
+        final yearTo = year ?? state.yearTo;
+        final results = await repo.searchSermons(
+          query: normalizedQuery,
+          limit: 50,
+          offset: 0,
+          exactMatch: effectiveSearchType == SearchType.exact,
+          anyWord: effectiveSearchType == SearchType.any,
+          prefixOnly: effectiveSearchType == SearchType.prefix,
+          accurateMatch: effectiveMatchMode == MatchMode.accurate,
+          yearFrom: yearFrom,
+          yearTo: yearTo,
+        );
+        state = state.copyWith(
+          searchResults: results,
+          isLoading: false,
+          offset: 50,
+          loadError: null,
+        );
+        return;
+      }
+
       final results = await _getSermonsPageWithPrefixFallback(
         repo: repo,
         limit: 50,
@@ -355,6 +409,32 @@ class SermonListNotifier extends Notifier<SermonListState> {
         offset: 0,
         loadError: e.toString(),
       );
+    }
+  }
+
+  void setSearchType(SearchType type) {
+    if (state.searchType == type) return;
+    state = state.copyWith(
+      searchType: type,
+      sermons: [],
+      searchResults: [],
+      offset: 0,
+    );
+    if (state.searchQuery.length > 2 || type == SearchType.prefix) {
+      filterSermons(query: state.searchQuery);
+    }
+  }
+
+  void updateMatchMode(MatchMode mode) {
+    if (state.matchMode == mode) return;
+    state = state.copyWith(
+      matchMode: mode,
+      sermons: [],
+      searchResults: [],
+      offset: 0,
+    );
+    if (state.searchQuery.length > 2) {
+      filterSermons(query: state.searchQuery);
     }
   }
 

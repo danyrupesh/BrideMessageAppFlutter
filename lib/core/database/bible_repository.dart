@@ -46,6 +46,7 @@ class BibleRepository {
     required int limit,
     required int offset,
     List<String>? bookFilters,
+    int? bookIndex,
     int? chapterFrom,
     int? chapterTo,
     bool exactMatch = false,
@@ -69,6 +70,7 @@ class BibleRepository {
       limit: limit,
       offset: offset,
       bookFilters: bookFilters,
+      bookIndex: bookIndex,
       chapterFrom: chapterFrom,
       chapterTo: chapterTo,
       scope: scope,
@@ -103,6 +105,7 @@ class BibleRepository {
   Future<int> countSearchResults(
     String query, {
     List<String>? bookFilters,
+    int? bookIndex,
     int? chapterFrom,
     int? chapterTo,
     String scope = 'both',
@@ -113,6 +116,7 @@ class BibleRepository {
       dbPath: path,
       matchPattern: matchPattern,
       bookFilters: bookFilters,
+      bookIndex: bookIndex,
       chapterFrom: chapterFrom,
       chapterTo: chapterTo,
       scope: scope,

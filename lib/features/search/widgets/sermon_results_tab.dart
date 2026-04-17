@@ -26,6 +26,7 @@ class SermonResultsTab extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(searchProvider);
     final notifier = ref.read(searchProvider.notifier);
+    final yearsAsync = ref.watch(sermonYearsForLangProvider(state.languageCode));
     final sermonDbExists = ref.watch(
       sermonDatabaseExistsProvider(state.languageCode),
     );
@@ -123,6 +124,7 @@ class SermonResultsTab extends ConsumerWidget {
       return const Center(child: Text('Type at least 3 characters to search'));
     }
     final results = state.sermonResults;
+    final years = yearsAsync.asData?.value ?? const <int>[];
     if (results.isEmpty) {
       return Center(child: Text('No sermons found for "${state.query}"'));
     }
@@ -130,12 +132,120 @@ class SermonResultsTab extends ConsumerWidget {
     final hasMore = state.sermonResults.length < state.sermonTotalCount;
     final showFooter = hasMore || state.isLoadingMore;
 
-    return ListView.separated(
-      itemCount: results.length + (showFooter ? 1 : 0),
-      separatorBuilder: (context, index) => const Divider(height: 1),
-      itemBuilder: (context, index) {
-        if (index >= results.length) {
-          return Padding(
+    return ListView(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Year range',
+                style: Theme.of(context).textTheme.labelLarge,
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: DropdownButtonFormField<int?>(
+                      isExpanded: true,
+                      value: state.sermonYearFrom,
+                      decoration: const InputDecoration(
+                        labelText: 'Year from',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                      items: [
+                        const DropdownMenuItem<int?>(
+                          value: null,
+                          child: Text('Any'),
+                        ),
+                        ...years.map(
+                          (year) => DropdownMenuItem<int?>(
+                            value: year,
+                            child: Text(year.toString()),
+                          ),
+                        ),
+                      ],
+                      onChanged: years.isEmpty ? null : notifier.updateSermonYearFrom,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: DropdownButtonFormField<int?>(
+                      isExpanded: true,
+                      value: state.sermonYearTo,
+                      decoration: const InputDecoration(
+                        labelText: 'Year to',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                      ),
+                      items: [
+                        const DropdownMenuItem<int?>(
+                          value: null,
+                          child: Text('Any'),
+                        ),
+                        ...years.map(
+                          (year) => DropdownMenuItem<int?>(
+                            value: year,
+                            child: Text(year.toString()),
+                          ),
+                        ),
+                      ],
+                      onChanged: years.isEmpty ? null : notifier.updateSermonYearTo,
+                    ),
+                  ),
+                ],
+              ),
+              if (state.sermonYearFrom != null || state.sermonYearTo != null)
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed: notifier.clearSermonYearRange,
+                    child: const Text('Clear range'),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        const Divider(height: 1),
+        ...results.asMap().entries.map((entry) {
+          final index = entry.key;
+          final SermonSearchResult r = entry.value;
+          return Column(
+            children: [
+              SermonResultCard(
+                id: r.sermonId,
+                title: r.title,
+                date: r.date,
+                duration: null,
+                location: r.location,
+                metaRightBadge: r.year?.toString(),
+                subtitle: r.paragraphNumber != null ? '¶${r.paragraphNumber}' : null,
+                snippet: FtsHighlightText(rawSnippet: r.snippet),
+                onTap: () {
+                  ref
+                      .read(sermonFlowProvider.notifier)
+                      .openSermonForLanguage(
+                        state.languageCode,
+                        ReaderTab(
+                          type: ReaderContentType.sermon,
+                          title: r.title,
+                          sermonId: r.sermonId,
+                          initialSearchQuery: state.query,
+                          initialFocusParagraph: r.paragraphNumber,
+                          openedFromSearch: true,
+                        ),
+                      );
+                  context.push('/sermon-reader');
+                },
+              ),
+              if (index != results.length - 1) const Divider(height: 1),
+            ],
+          );
+        }),
+        if (showFooter)
+          Padding(
             padding: const EdgeInsets.fromLTRB(12, 12, 12, 20),
             child: Center(
               child: state.isLoadingMore
@@ -149,36 +259,8 @@ class SermonResultsTab extends ConsumerWidget {
                       child: const Text('Load more'),
                     ),
             ),
-          );
-        }
-        final SermonSearchResult r = results[index];
-        return SermonResultCard(
-          id: r.sermonId,
-          title: r.title,
-          date: r.date,
-          duration: null,
-          location: r.location,
-          metaRightBadge: r.year?.toString(),
-          subtitle: r.paragraphNumber != null ? '¶${r.paragraphNumber}' : null,
-          snippet: FtsHighlightText(rawSnippet: r.snippet),
-          onTap: () {
-            ref
-                .read(sermonFlowProvider.notifier)
-                .openSermonForLanguage(
-                  state.languageCode,
-                  ReaderTab(
-                    type: ReaderContentType.sermon,
-                    title: r.title,
-                    sermonId: r.sermonId,
-                    initialSearchQuery: state.query,
-                    initialFocusParagraph: r.paragraphNumber,
-                    openedFromSearch: true,
-                  ),
-                );
-            context.push('/sermon-reader');
-          },
-        );
-      },
+          ),
+      ],
     );
   }
 }
