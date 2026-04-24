@@ -64,8 +64,12 @@ enum _ImportTarget {
   sermonTa,
   tractEn,
   tractTa,
+  storyEn,
+  storyTa,
   codEnglish,
   codTamil,
+  churchAgesEn,
+  churchAgesTa,
 }
 
 class _ImportSpec {
@@ -119,22 +123,22 @@ class SelectiveDatabaseImporter {
   static const List<_ImportSpec> _importOrder = [
     _ImportSpec(
       target: _ImportTarget.bibleEn,
-      required: true,
+      required: false,
       label: 'English Bible',
     ),
     _ImportSpec(
       target: _ImportTarget.bibleTa,
-      required: true,
+      required: false,
       label: 'Tamil Bible',
     ),
     _ImportSpec(
       target: _ImportTarget.sermonEn,
-      required: true,
+      required: false,
       label: 'English Sermons',
     ),
     _ImportSpec(
       target: _ImportTarget.sermonTa,
-      required: true,
+      required: false,
       label: 'Tamil Sermons',
     ),
     _ImportSpec(
@@ -148,14 +152,34 @@ class SelectiveDatabaseImporter {
       label: 'Tamil Tracts',
     ),
     _ImportSpec(
+      target: _ImportTarget.storyEn,
+      required: false,
+      label: 'English Stories',
+    ),
+    _ImportSpec(
+      target: _ImportTarget.storyTa,
+      required: false,
+      label: 'Tamil Stories',
+    ),
+    _ImportSpec(
       target: _ImportTarget.codEnglish,
-      required: true,
+      required: false,
       label: 'COD English',
     ),
     _ImportSpec(
       target: _ImportTarget.codTamil,
-      required: true,
+      required: false,
       label: 'COD Tamil',
+    ),
+    _ImportSpec(
+      target: _ImportTarget.churchAgesEn,
+      required: false,
+      label: 'English Church Ages',
+    ),
+    _ImportSpec(
+      target: _ImportTarget.churchAgesTa,
+      required: false,
+      label: 'Tamil Church Ages',
     ),
   ];
 
@@ -341,6 +365,73 @@ class SelectiveDatabaseImporter {
     }
   }
 
+  Future<ImportResult> importStoriesDatabase({
+    required File sourceFile,
+    required String languageCode,
+    required String displayName,
+    required void Function(double, String) onProgress,
+  }) async {
+    try {
+      onProgress(0.1, 'Validating $displayName database...');
+      if (!_validateStories(sourceFile.path)) {
+        return ImportResult.failure(
+          'Invalid Stories database: missing expected section tables.',
+        );
+      }
+
+      onProgress(0.3, 'Installing $displayName...');
+      final dbDir = await _dbManager.getDatabaseDirectoryPath();
+      final targetDbFileName = 'stories_$languageCode.db';
+      final targetPath = p.join(dbDir.path, targetDbFileName);
+
+      await _dbManager.closeDatabase(targetDbFileName);
+      await _dbManager.deleteDatabaseFiles(targetDbFileName);
+      await sourceFile.copy(targetPath);
+
+      onProgress(1.0, 'Import complete!');
+      return ImportResult.success('$displayName installed successfully.');
+    } catch (e, st) {
+      debugPrint('importStoriesDatabase error: $e\n$st');
+      return ImportResult.failure('Stories import failed: $e');
+    }
+  }
+
+  Future<ImportResult> importChurchAgesDatabase({
+    required File sourceFile,
+    required String languageCode,
+    required String displayName,
+    required void Function(double, String) onProgress,
+  }) async {
+    try {
+      onProgress(0.1, 'Validating $displayName database...');
+      // Minimal validation: check if 'topics' table exists
+      final db = sql.sqlite3.open(sourceFile.path);
+      try {
+        final tables = db.select("SELECT name FROM sqlite_master WHERE type='table' AND name='topics'");
+        if (tables.isEmpty) {
+          return ImportResult.failure('Invalid Church Ages database: missing topics table.');
+        }
+      } finally {
+        db.dispose();
+      }
+
+      onProgress(0.3, 'Installing $displayName...');
+      final dbDir = await _dbManager.getDatabaseDirectoryPath();
+      final targetDbFileName = 'church_ages_$languageCode.db';
+      final targetPath = p.join(dbDir.path, targetDbFileName);
+
+      await _dbManager.closeDatabase(targetDbFileName);
+      await _dbManager.deleteDatabaseFiles(targetDbFileName);
+      await sourceFile.copy(targetPath);
+
+      onProgress(1.0, 'Import complete!');
+      return ImportResult.success('$displayName installed successfully.');
+    } catch (e, st) {
+      debugPrint('importChurchAgesDatabase error: $e\n$st');
+      return ImportResult.failure('Church Ages import failed: $e');
+    }
+  }
+
   /// Import all databases from a unified ZIP file.
   /// Classifies each .db by filename — same rules as Android's importAllFromZip.
   Future<ImportResult> importAllFromZip({
@@ -521,6 +612,24 @@ class SelectiveDatabaseImporter {
               onProgress: (p, m) =>
                   onProgress(baseProgress + p * (0.75 / ordered.length), m),
             );
+          } else if (spec.target == _ImportTarget.storyEn) {
+            onProgress(baseProgress, 'Importing English Stories...');
+            result = await importStoriesDatabase(
+              sourceFile: tempFile,
+              languageCode: 'en',
+              displayName: 'English Stories',
+              onProgress: (p, m) =>
+                  onProgress(baseProgress + p * (0.75 / ordered.length), m),
+            );
+          } else if (spec.target == _ImportTarget.storyTa) {
+            onProgress(baseProgress, 'Importing Tamil Stories...');
+            result = await importStoriesDatabase(
+              sourceFile: tempFile,
+              languageCode: 'ta',
+              displayName: 'Tamil Stories',
+              onProgress: (p, m) =>
+                  onProgress(baseProgress + p * (0.75 / ordered.length), m),
+            );
           } else if (spec.target == _ImportTarget.codTamil) {
             onProgress(baseProgress, 'Importing Tamil COD...');
             result = await importCodDatabase(
@@ -536,6 +645,24 @@ class SelectiveDatabaseImporter {
               sourceFile: tempFile,
               targetDbFileName: 'cod_english.db',
               displayName: 'COD English',
+              onProgress: (p, m) =>
+                  onProgress(baseProgress + p * (0.75 / ordered.length), m),
+            );
+          } else if (spec.target == _ImportTarget.churchAgesEn) {
+            onProgress(baseProgress, 'Importing English Church Ages...');
+            result = await importChurchAgesDatabase(
+              sourceFile: tempFile,
+              languageCode: 'en',
+              displayName: 'English Church Ages',
+              onProgress: (p, m) =>
+                  onProgress(baseProgress + p * (0.75 / ordered.length), m),
+            );
+          } else if (spec.target == _ImportTarget.churchAgesTa) {
+            onProgress(baseProgress, 'Importing Tamil Church Ages...');
+            result = await importChurchAgesDatabase(
+              sourceFile: tempFile,
+              languageCode: 'ta',
+              displayName: 'Tamil Church Ages',
               onProgress: (p, m) =>
                   onProgress(baseProgress + p * (0.75 / ordered.length), m),
             );
@@ -638,11 +765,23 @@ class SelectiveDatabaseImporter {
     if (fileName == 'tracts_ta.db' || fileName == 'tract_ta.db') {
       return _ImportTarget.tractTa;
     }
+    if (fileName == 'stories_en.db' || fileName == 'story_en.db') {
+      return _ImportTarget.storyEn;
+    }
+    if (fileName == 'stories_ta.db' || fileName == 'story_ta.db') {
+      return _ImportTarget.storyTa;
+    }
     if (fileName == 'cod_english.db' || fileName == 'cod_en.db') {
       return _ImportTarget.codEnglish;
     }
     if (fileName == 'cod_tamil.db' || fileName == 'cod_ta.db') {
       return _ImportTarget.codTamil;
+    }
+    if (fileName == 'church_ages_en.db' || fileName == 'church_ages_english.db') {
+      return _ImportTarget.churchAgesEn;
+    }
+    if (fileName == 'church_ages_ta.db' || fileName == 'church_ages_tamil.db') {
+      return _ImportTarget.churchAgesTa;
     }
     return null;
   }
@@ -668,8 +807,12 @@ class SelectiveDatabaseImporter {
       case 'sermons_ta.db':
       case 'tracts_en.db':
       case 'tracts_ta.db':
+      case 'stories_en.db':
+      case 'stories_ta.db':
       case 'cod_english.db':
       case 'cod_tamil.db':
+      case 'church_ages_en.db':
+      case 'church_ages_ta.db':
         return true;
       default:
         return false;
@@ -813,7 +956,14 @@ class SelectiveDatabaseImporter {
 
     try {
       final manifestBytes = manifestEntry.content as List<int>;
-      final publicKeyBytes = base64.decode(_bundlePublicKeyBase64.trim());
+      
+      // Auto-pad Base64 if missing
+      var keyStr = _bundlePublicKeyBase64.trim();
+      while (keyStr.length % 4 != 0) {
+        keyStr += '=';
+      }
+      
+      final publicKeyBytes = base64.decode(keyStr);
       final signatureBytes = _decodeSignatureBytes(signatureEntry.content);
 
       final verifier = Ed25519();
@@ -830,7 +980,8 @@ class SelectiveDatabaseImporter {
       }
       return null;
     } catch (e) {
-      return 'Security check failed: unable to verify signature ($e).';
+      debugPrint('Security check technical error: $e');
+      return 'Security verification failed: unable to verify database signature.';
     }
   }
 
@@ -907,7 +1058,7 @@ class SelectiveDatabaseImporter {
       }
 
       final key = _versionPrefKey(item.key);
-      final installed = (prefs.getString(key) ?? '').trim();
+      final installed = (prefs.get(key)?.toString() ?? '').trim();
       if (installed.isEmpty) continue;
 
       if (_compareSemver(incoming, installed) < 0) {
@@ -958,10 +1109,18 @@ class SelectiveDatabaseImporter {
         return 'tracts_en.db';
       case _ImportTarget.tractTa:
         return 'tracts_ta.db';
+      case _ImportTarget.storyEn:
+        return 'stories_en.db';
+      case _ImportTarget.storyTa:
+        return 'stories_ta.db';
       case _ImportTarget.codEnglish:
         return 'cod_english.db';
       case _ImportTarget.codTamil:
         return 'cod_tamil.db';
+      case _ImportTarget.churchAgesEn:
+        return 'church_ages_en.db';
+      case _ImportTarget.churchAgesTa:
+        return 'church_ages_ta.db';
     }
   }
 
@@ -1092,6 +1251,26 @@ class SelectiveDatabaseImporter {
     }
   }
 
+  bool _validateStories(String dbPath) {
+    try {
+      final db = sql.sqlite3.open(dbPath, mode: sql.OpenMode.readOnly);
+      try {
+        final tables = db
+            .select("SELECT name FROM sqlite_master WHERE type='table'")
+            .map((r) => (r.columnAt(0) as String).toLowerCase())
+            .toSet();
+        return tables.contains('wmb_stories') &&
+            tables.contains('kids_corner') &&
+            tables.contains('timeline') &&
+            tables.contains('witnesses');
+      } finally {
+        db.close();
+      }
+    } catch (_) {
+      return false;
+    }
+  }
+
   Future<void> _optimizeCodDb(String dbPath) async {
     try {
       final db = sql.sqlite3.open(dbPath);
@@ -1198,6 +1377,8 @@ class SelectiveDatabaseImporter {
       try {
         if (type == DbType.bible) {
           _ensureBibleFts(db);
+        } else if (type == DbType.churchAges) {
+          _ensureChurchAgesFtsFromDb(db);
         } else {
           _ensureSermonFts(db);
         }
@@ -1273,13 +1454,67 @@ class SelectiveDatabaseImporter {
     }
   }
 
+  void _ensureChurchAgesFts(String dbPath) {
+    try {
+      final db = sql.sqlite3.open(dbPath);
+      try {
+        _ensureChurchAgesFtsFromDb(db);
+      } finally {
+        db.close();
+      }
+    } catch (e) {
+      debugPrint('_ensureChurchAgesFts warning: $e');
+    }
+  }
+
+  void _ensureChurchAgesFtsFromDb(sql.Database db) {
+    // Create FTS5 table if absent
+    db.execute('''
+      CREATE VIRTUAL TABLE IF NOT EXISTS fts_content
+      USING fts5(
+        topic_id UNINDEXED,
+        title,
+        content_text,
+        content=content,
+        content_rowid=id,
+        tokenize='unicode61'
+      )
+    ''');
+
+    // Check if populated
+    final check = db.select('SELECT COUNT(*) FROM fts_content');
+    final count = check.isEmpty ? 0 : (check.first.columnAt(0) as int? ?? 0);
+    final contentCheck = db.select('SELECT COUNT(*) FROM content');
+    final contentCount = contentCheck.isEmpty
+        ? 0
+        : (contentCheck.first.columnAt(0) as int? ?? 0);
+
+    if (count != contentCount) {
+      debugPrint('fts_content out of sync ($count/$contentCount) — rebuilding...');
+      try {
+        db.execute("INSERT INTO fts_content(fts_content) VALUES('rebuild')");
+      } catch (_) {
+        db.execute('DELETE FROM fts_content;');
+        db.execute(
+          'INSERT INTO fts_content(rowid, topic_id, title, content_text) '
+          'SELECT c.id, c.topic_id, t.title, c.content_text '
+          'FROM content c '
+          'JOIN topics t ON c.topic_id = t.id',
+        );
+      }
+    }
+  }
+
   /// Run PRAGMA optimize on both FTS tables (lightweight, mirrors Android's FtsOptimizer).
   void warmUpFts(String dbPath, DbType type) {
     try {
       final db = sql.sqlite3.open(dbPath);
       try {
         db.execute('PRAGMA optimize');
-        final tableName = type == DbType.bible ? 'bible_fts' : 'sermon_fts';
+        String tableName = 'sermon_fts';
+        if (type == DbType.bible) tableName = 'bible_fts';
+        if (type == DbType.churchAges) tableName = 'fts_content';
+        
         db.execute("INSERT INTO $tableName($tableName) VALUES('optimize')");
       } finally {
         db.close();

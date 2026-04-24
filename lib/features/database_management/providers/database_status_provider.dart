@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../onboarding/providers/database_discovery_provider.dart';
 import '../../onboarding/services/database_discovery_service.dart';
+import 'local_databases_provider.dart';
 
 const List<String> _genericBundleComponentKeys = <String>[
   'bible_en_kjv.db',
@@ -10,6 +11,12 @@ const List<String> _genericBundleComponentKeys = <String>[
   'sermons_ta.db',
   'cod_english.db',
   'cod_tamil.db',
+  'tracts_en.db',
+  'tracts_ta.db',
+  'stories_en.db',
+  'stories_ta.db',
+  'church_ages_en.db',
+  'church_ages_ta.db',
 ];
 
 /// Tracks the status of a single database
@@ -79,7 +86,7 @@ String _updateVersionPrefKey(String databaseId) {
 
 String? _firstNonEmptyVersion(SharedPreferences prefs, Iterable<String> keys) {
   for (final key in keys) {
-    final value = prefs.getString(key)?.trim();
+    final value = prefs.get(key)?.toString().trim();
     if (value != null && value.isNotEmpty) return value;
   }
   return null;
@@ -101,7 +108,7 @@ String? _resolveInstalledVersion(SharedPreferences prefs, DatabaseInfo db) {
   }
 
   final componentVersions = _genericBundleComponentKeys
-      .map((fileName) => prefs.getString('onboarding.db.version.$fileName')?.trim())
+      .map((fileName) => prefs.get('onboarding.db.version.$fileName')?.toString().trim())
       .whereType<String>()
       .where((value) => value.isNotEmpty)
       .toSet()
@@ -121,40 +128,112 @@ final databaseStatusProvider =
     FutureProvider.family<List<DatabaseStatusInfo>, String>(
   (ref, apiBaseUrl) async {
     final discovery = ref.watch(databaseDiscoveryProvider);
-    final available = await discovery.availableDatabases(apiBaseUrl);
+    
+    // Fetch available databases from server, but don't fail if server is down
+    List<DatabaseInfo> available = [];
+    try {
+      available = await discovery.availableDatabases(apiBaseUrl);
+    } catch (e) {
+      // If server is down, we'll try to reconstruct what we can from local info
+      available = [];
+    }
+
+    // Get actually installed files from disk
+    final installedFilesAsync = ref.watch(installedDatabaseIdsProvider);
+    final installedFileIds = installedFilesAsync.value ?? <String>{};
 
     // Get versions from SharedPreferences
     final prefs = await SharedPreferences.getInstance();
     final installedVersions = <String, String>{};
 
-    for (final db in available) {
+    // Helper to check if a database is actually installed on disk
+    bool isPhysicallyInstalled(String dbId) {
+      if (installedFileIds.contains(dbId)) return true;
+      if (dbId == 'bridemessage_db_en-ta' || dbId == 'bridemessage_db') {
+        // Bundles are installed if their components are present
+        return installedFileIds.any((id) => id.endsWith('.db'));
+      }
+      return false;
+    }
+
+    // Identify installed databases and their versions
+    final allKnownIds = available.map((d) => d.id).toSet().union(installedFileIds);
+    
+    for (final id in allKnownIds) {
+      final db = available.firstWhere((d) => d.id == id, 
+          orElse: () => DatabaseInfo(
+            id: id,
+            displayName: id.replaceAll('_', ' ').replaceAll('.db', '').toUpperCase(),
+            version: '?',
+            isMandatory: false,
+            installStrategy: 'generic',
+            downloadUrl: '',
+            sha256: '',
+            fileSize: 0,
+            publishedAt: '',
+            bundledVersion: 0,
+            isSingleDatabase: true,
+          ));
+      
       final resolvedVersion = _resolveInstalledVersion(prefs, db);
       if (resolvedVersion != null && resolvedVersion.isNotEmpty) {
         installedVersions[db.id] = resolvedVersion;
+      } else if (isPhysicallyInstalled(id)) {
+        installedVersions[id] = 'Installed';
       }
     }
 
     // Build status for each database
-    final statusList = available.map((db) {
+    // Start with server available ones
+    final statusMap = <String, DatabaseStatusInfo>{};
+    
+    for (final db in available) {
       final installedVersion = installedVersions[db.id];
-      final isInstalled = installedVersion != null;
-      final hasUpdate = isInstalled && _compareSemver(installedVersion, db.version) < 0;
+      final isInstalled = installedVersion != null || isPhysicallyInstalled(db.id);
+      final hasUpdate = isInstalled && installedVersion != null && db.version != '?' && _compareSemver(installedVersion, db.version) < 0;
 
-      return DatabaseStatusInfo(
+      statusMap[db.id] = DatabaseStatusInfo(
         available: db,
-        installedVersion: installedVersion,
+        installedVersion: installedVersion ?? (isInstalled ? 'Unknown' : null),
         isInstalled: isInstalled,
         hasUpdate: hasUpdate,
         estimatedSizeMB: (db.fileSize / (1024 * 1024)).round(),
       );
-    }).toList();
+    }
 
-    // Sort: missing first, then updates available, then up-to-date
+    // Add local-only ones (if any were not in server list)
+    for (final id in installedFileIds) {
+      if (!statusMap.containsKey(id)) {
+        statusMap[id] = DatabaseStatusInfo(
+          available: DatabaseInfo(
+            id: id,
+            displayName: id.replaceAll('_', ' ').replaceAll('.db', '').toUpperCase(),
+            version: 'Local',
+            isMandatory: false,
+            installStrategy: 'generic',
+            downloadUrl: '',
+            sha256: '',
+            fileSize: 0,
+            publishedAt: '',
+            bundledVersion: 0,
+            isSingleDatabase: true,
+          ),
+          installedVersion: installedVersions[id] ?? 'Installed',
+          isInstalled: true,
+          hasUpdate: false,
+          estimatedSizeMB: 0,
+        );
+      }
+    }
+
+    final statusList = statusMap.values.toList();
+
+    // Sort: updates available first, then missing, then up-to-date
     statusList.sort((a, b) {
-      if (!a.isInstalled && b.isInstalled) return -1;
-      if (a.isInstalled && !b.isInstalled) return 1;
       if (a.hasUpdate && !b.hasUpdate) return -1;
       if (!a.hasUpdate && b.hasUpdate) return 1;
+      if (!a.isInstalled && b.isInstalled) return 1; // Show missing at bottom of management
+      if (a.isInstalled && !b.isInstalled) return -1; // Show installed at top of management
       return a.available.displayName.compareTo(b.available.displayName);
     });
 

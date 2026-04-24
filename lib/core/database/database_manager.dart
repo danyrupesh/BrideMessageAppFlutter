@@ -2,7 +2,10 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart';
+import 'metadata/installed_database_model.dart';
+import 'metadata/installed_database_registry.dart';
 
 /// Manages multiple SQLite databases for the Bride Message App
 /// Handles caching connections, read-only modes, and path resolution.
@@ -126,4 +129,84 @@ class DatabaseManager {
     if (await shmFile.exists()) await shmFile.delete();
     if (await journalFile.exists()) await journalFile.delete();
   }
+
+  /// Delete a database by ID: removes files and clears version tracking
+  Future<void> deleteDatabase(String databaseId) async {
+    // Common database file names to delete
+    final possibleFileNames = [
+      '$databaseId.db',
+      'bridemessage_db_en-ta.db',
+      'bridemessage_db_en.db',
+      'bridemessage_db_ta.db',
+      'bible_en_kjv.db',
+      'bible_ta_bsi.db',
+      'sermons_en.db',
+      'sermons_ta.db',
+      'cod_english.db',
+      'cod_tamil.db',
+      'tracts_en.db',
+      'tracts_ta.db',
+      'stories_en.db',
+      'stories_ta.db',
+      'church_ages_en.db',
+      'church_ages_ta.db',
+    ];
+
+    // Delete physical files
+    for (final fileName in possibleFileNames) {
+      try {
+        await closeDatabase(fileName);
+        await deleteDatabaseFiles(fileName);
+      } catch (e) {
+        debugPrint('Could not delete file $fileName: $e');
+      }
+    }
+
+    // Clear version tracking from SharedPreferences
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final keysToRemove = [
+        'onboarding.db.version.$databaseId',
+        'updates.db.version.$databaseId',
+        'onboarding.db.version.bridemessage_db',
+        'onboarding.db.version.bridemessage_db_en-ta',
+      ];
+
+      for (final key in keysToRemove) {
+        await prefs.remove(key);
+      }
+    } catch (e) {
+      debugPrint('Could not clear SharedPreferences: $e');
+    }
+
+    // Clear from metadata registry if applicable
+    try {
+      final registry = InstalledDatabaseRegistry();
+      if (databaseId.startsWith('bible_')) {
+        final code = databaseId.replaceFirst('bible_', '');
+        await registry.delete(DbType.bible, code);
+      } else if (databaseId.startsWith('sermons_')) {
+        final code = databaseId.replaceFirst('sermons_', '');
+        await registry.delete(DbType.sermon, code);
+      } else if (databaseId.startsWith('church_ages_')) {
+        final code = databaseId.replaceFirst('church_ages_', '');
+        await registry.delete(DbType.churchAges, code);
+      }
+    } catch (e) {
+      debugPrint('Could not clear registry for $databaseId: $e');
+    }
+  }
+
+  /// List all database files currently on the device
+  Future<List<File>> listInstalledDatabaseFiles() async {
+    final dbDir = await getDatabaseDirectoryPath();
+    if (!await dbDir.exists()) return [];
+    
+    final entities = await dbDir.list().toList();
+    return entities
+        .whereType<File>()
+        .where((f) => f.path.endsWith('.db'))
+        .toList();
+  }
 }
+

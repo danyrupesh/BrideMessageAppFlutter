@@ -147,6 +147,12 @@ class InstalledDatabaseRegistry {
     );
   }
 
+  /// Remove all metadata.
+  Future<void> clearAll() async {
+    final db = await _database;
+    await db.delete('installed_databases');
+  }
+
   /// Clear isDefault flag for all entries of given type + language.
   Future<void> clearDefaultForLanguage(DbType type, String language) async {
     final db = await _database;
@@ -164,7 +170,8 @@ class InstalledDatabaseRegistry {
     try {
       final bibleCount = await countByType(DbType.bible);
       final sermonCount = await countByType(DbType.sermon);
-      if (bibleCount > 0 || sermonCount > 0) return true;
+      final churchAgesCount = await countByType(DbType.churchAges);
+      if (bibleCount > 0 || sermonCount > 0 || churchAgesCount > 0) return true;
     } catch (e) {
       debugPrint('InstalledDatabaseRegistry.hasAnyContent error: $e');
     }
@@ -191,5 +198,14 @@ class InstalledDatabaseRegistry {
     return false;
   }
 
-  String _typeStr(DbType type) => type == DbType.bible ? 'BIBLE' : 'SERMON';
+  String _typeStr(DbType type) {
+    switch (type) {
+      case DbType.bible:
+        return 'BIBLE';
+      case DbType.sermon:
+        return 'SERMON';
+      case DbType.churchAges:
+        return 'CHURCH_AGES';
+    }
+  }
 }

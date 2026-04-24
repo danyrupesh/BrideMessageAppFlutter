@@ -149,10 +149,9 @@ class UpdateService {
       final displayName = (entry['displayName'] ?? id).toString().trim();
       final version = (entry['version'] ?? '').toString().trim();
       final rawUrl = (entry['url'] ?? '').toString().trim();
-      final zipFileName =
-          (entry['zipFileName'] ?? entry['zip_file_name'] ?? '')
-              .toString()
-              .trim();
+      final zipFileName = (entry['zipFileName'] ?? entry['zip_file_name'] ?? '')
+          .toString()
+          .trim();
       final url = _resolveDatabaseDownloadUrl(
         rawUrl: rawUrl,
         zipFileName: zipFileName,
@@ -205,7 +204,46 @@ class UpdateService {
     }
 
     updates.sort((a, b) => a.id.compareTo(b.id));
-    return updates;
+    return _dedupeAndPrioritizeUpdates(updates);
+  }
+
+  List<DatabaseUpdateInfo> _dedupeAndPrioritizeUpdates(
+    List<DatabaseUpdateInfo> updates,
+  ) {
+    if (updates.isEmpty) return const <DatabaseUpdateInfo>[];
+
+    // Keep latest entry per id if duplicates are present.
+    final byId = <String, DatabaseUpdateInfo>{};
+    for (final item in updates) {
+      final existing = byId[item.id];
+      if (existing == null ||
+          _compareSemver(item.version, existing.version) > 0) {
+        byId[item.id] = item;
+      }
+    }
+
+    final items = byId.values.toList(growable: false);
+
+    // If any specific stream updates exist, suppress generic package updates
+    // from the prompt to avoid duplicate/noisy messaging.
+    final hasSpecificStream = items.any(
+      (item) =>
+          item.id != kPrimaryDatabasePackageId &&
+          !_legacyDatabasePackageIds.contains(item.id),
+    );
+
+    final filtered = hasSpecificStream
+        ? items
+              .where(
+                (item) =>
+                    item.id != kPrimaryDatabasePackageId &&
+                    !_legacyDatabasePackageIds.contains(item.id),
+              )
+              .toList(growable: false)
+        : items;
+
+    filtered.sort((a, b) => a.id.compareTo(b.id));
+    return filtered;
   }
 
   /// Returns the installed DB package version shown to users in settings.
@@ -397,8 +435,8 @@ class UpdateService {
             zipPath: zipPath,
             onProgress: (_, message) => onStatus?.call(message),
           );
-        } else if (update.id == 'tracts_en' || update.id == 'tracts_ta') {
-          await _installTractsFromZip(
+        } else if (_isSingleStreamDatabaseId(update.id)) {
+          await _installSingleStreamDatabaseFromZip(
             zipPath: zipPath,
             id: update.id,
             importer: importer,
@@ -612,15 +650,33 @@ class UpdateService {
     }
   }
 
-  Future<void> _installTractsFromZip({
+  bool _isSingleStreamDatabaseId(String id) {
+    return const <String>{
+      'bible_en',
+      'bible_ta',
+      'sermons_en',
+      'sermons_ta',
+      'cod_en',
+      'cod_ta',
+      'tracts_en',
+      'tracts_ta',
+      'stories_en',
+      'stories_ta',
+    }.contains(id);
+  }
+
+  Future<void> _installSingleStreamDatabaseFromZip({
     required String zipPath,
     required String id,
     required SelectiveDatabaseImporter importer,
     void Function(String message)? onStatus,
   }) async {
     final archive = ZipDecoder().decodeBytes(await File(zipPath).readAsBytes());
-    final expectedDbName = id == 'tracts_en' ? 'tracts_en.db' : 'tracts_ta.db';
-    final lang = id == 'tracts_en' ? 'en' : 'ta';
+    final spec = _singleDbSpecForId(id);
+    if (spec == null) {
+      throw StateError('Unsupported single database id: $id');
+    }
+    final expectedDbName = spec.expectedDbName;
     final entry = archive.firstWhere(
       (f) => f.isFile && p.basename(f.name).toLowerCase() == expectedDbName,
       orElse: () => ArchiveFile('', 0, []),
@@ -633,17 +689,54 @@ class UpdateService {
     final tempDbFile = File(
       p.join(
         tempRoot.path,
-        'tract_import_${lang}_${DateTime.now().millisecondsSinceEpoch}.db',
+        'single_db_import_${id}_${DateTime.now().millisecondsSinceEpoch}.db',
       ),
     );
     await tempDbFile.writeAsBytes(entry.content as List<int>, flush: true);
     try {
-      final result = await importer.importTractsDatabase(
-        sourceFile: tempDbFile,
-        languageCode: lang,
-        displayName: lang == 'ta' ? 'Tamil Tracts' : 'English Tracts',
-        onProgress: (_, message) => onStatus?.call(message),
-      );
+      late final ImportResult result;
+      if (id == 'tracts_en' || id == 'tracts_ta') {
+        result = await importer.importTractsDatabase(
+          sourceFile: tempDbFile,
+          languageCode: spec.langCode!,
+          displayName: spec.displayName,
+          onProgress: (_, message) => onStatus?.call(message),
+        );
+      } else if (id == 'stories_en' || id == 'stories_ta') {
+        result = await importer.importStoriesDatabase(
+          sourceFile: tempDbFile,
+          languageCode: spec.langCode!,
+          displayName: spec.displayName,
+          onProgress: (_, message) => onStatus?.call(message),
+        );
+      } else if (id == 'sermons_en' || id == 'sermons_ta') {
+        result = await importer.importSermons(
+          sourceFile: tempDbFile,
+          languageCode: spec.langCode!,
+          displayName: spec.displayName,
+          setAsDefault: true,
+          onProgress: (_, message) => onStatus?.call(message),
+        );
+      } else if (id == 'bible_en' || id == 'bible_ta') {
+        result = await importer.importBible(
+          sourceFile: tempDbFile,
+          versionCode: spec.bibleVersionCode!,
+          displayName: spec.displayName,
+          language: spec.langCode!,
+          setAsDefault: true,
+          onProgress: (_, message) => onStatus?.call(message),
+        );
+      } else if (id == 'cod_en' || id == 'cod_ta') {
+        result = await importer.importCodDatabase(
+          sourceFile: tempDbFile,
+          targetDbFileName: spec.expectedDbName,
+          displayName: spec.displayName,
+          onProgress: (_, message) => onStatus?.call(message),
+        );
+      } else {
+        throw StateError('Unsupported single database id: $id');
+      }
+
       if (!result.success) {
         throw StateError(result.message);
       }
@@ -651,6 +744,73 @@ class UpdateService {
       if (await tempDbFile.exists()) {
         await tempDbFile.delete();
       }
+    }
+  }
+
+  _SingleDbSpec? _singleDbSpecForId(String id) {
+    switch (id) {
+      case 'bible_en':
+        return const _SingleDbSpec(
+          expectedDbName: 'bible_en_kjv.db',
+          displayName: 'English Bible',
+          langCode: 'en',
+          bibleVersionCode: 'kjv',
+        );
+      case 'bible_ta':
+        return const _SingleDbSpec(
+          expectedDbName: 'bible_ta_bsi.db',
+          displayName: 'Tamil Bible',
+          langCode: 'ta',
+          bibleVersionCode: 'bsi',
+        );
+      case 'sermons_en':
+        return const _SingleDbSpec(
+          expectedDbName: 'sermons_en.db',
+          displayName: 'English Sermons',
+          langCode: 'en',
+        );
+      case 'sermons_ta':
+        return const _SingleDbSpec(
+          expectedDbName: 'sermons_ta.db',
+          displayName: 'Tamil Sermons',
+          langCode: 'ta',
+        );
+      case 'cod_en':
+        return const _SingleDbSpec(
+          expectedDbName: 'cod_english.db',
+          displayName: 'COD English',
+        );
+      case 'cod_ta':
+        return const _SingleDbSpec(
+          expectedDbName: 'cod_tamil.db',
+          displayName: 'COD Tamil',
+        );
+      case 'tracts_en':
+        return const _SingleDbSpec(
+          expectedDbName: 'tracts_en.db',
+          displayName: 'English Tracts',
+          langCode: 'en',
+        );
+      case 'tracts_ta':
+        return const _SingleDbSpec(
+          expectedDbName: 'tracts_ta.db',
+          displayName: 'Tamil Tracts',
+          langCode: 'ta',
+        );
+      case 'stories_en':
+        return const _SingleDbSpec(
+          expectedDbName: 'stories_en.db',
+          displayName: 'English Stories',
+          langCode: 'en',
+        );
+      case 'stories_ta':
+        return const _SingleDbSpec(
+          expectedDbName: 'stories_ta.db',
+          displayName: 'Tamil Stories',
+          langCode: 'ta',
+        );
+      default:
+        return null;
     }
   }
 
@@ -715,4 +875,18 @@ class UpdateService {
 
     return rawUrl;
   }
+}
+
+class _SingleDbSpec {
+  final String expectedDbName;
+  final String displayName;
+  final String? langCode;
+  final String? bibleVersionCode;
+
+  const _SingleDbSpec({
+    required this.expectedDbName,
+    required this.displayName,
+    this.langCode,
+    this.bibleVersionCode,
+  });
 }

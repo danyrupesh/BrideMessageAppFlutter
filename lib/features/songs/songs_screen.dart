@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../help/widgets/help_button.dart';
+import '../common/widgets/section_menu_button.dart';
 
 import '../common/widgets/cards.dart';
 import '../common/widgets/chips.dart';
@@ -75,10 +76,7 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text('Only Believe Songs'),
-                  Text(
-                    '1196 hymns',
-                    style: theme.textTheme.bodySmall,
-                  ),
+                  Text('1196 hymns', style: theme.textTheme.bodySmall),
                 ],
               ),
         actions: _isSearchExpanded
@@ -96,6 +94,7 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
                   ),
               ]
             : [
+                const SectionMenuButton(),
                 const HelpButton(topicId: 'songs'),
                 IconButton(
                   icon: const Icon(Icons.manage_search),
@@ -107,8 +106,9 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
                   onPressed: () {
                     setState(() {
                       _isSearchExpanded = true;
-                      _searchController.text =
-                          state is SongsSuccess ? state.query : _query;
+                      _searchController.text = state is SongsSuccess
+                          ? state.query
+                          : _query;
                     });
                   },
                 ),
@@ -117,7 +117,10 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
       body: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+            padding: const EdgeInsets.symmetric(
+              horizontal: 16.0,
+              vertical: 8.0,
+            ),
             child: Row(
               children: [
                 if (!_isSearchExpanded) ...[
@@ -144,21 +147,16 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
                   PillToggleChip(
                     label: 'Lyrics',
                     icon: Icons.library_music,
-                    selected:
-                        state is SongsSuccess ? state.searchLyrics : false,
+                    selected: state is SongsSuccess
+                        ? state.searchLyrics
+                        : false,
                     onTap: notifier.toggleSearchLyrics,
                   ),
                 ],
               ],
             ),
           ),
-          Expanded(
-            child: _buildBodyForState(
-              state,
-              notifier,
-              theme,
-            ),
-          ),
+          Expanded(child: _buildBodyForState(state, notifier, theme)),
         ],
       ),
     );
@@ -177,8 +175,9 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
       return Center(
         child: Text(
           state.message,
-          style: theme.textTheme.bodyMedium
-              ?.copyWith(color: theme.colorScheme.error),
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: theme.colorScheme.error,
+          ),
         ),
       );
     }
@@ -198,8 +197,9 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
           child: Text(
             message,
             textAlign: TextAlign.center,
-            style: theme.textTheme.bodyMedium
-                ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
           ),
         ),
       );
@@ -207,8 +207,7 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
 
     final label = () {
       if (success.isSearchActive) {
-        final base =
-            success.searchLyrics ? 'lyrics results' : 'results';
+        final base = success.searchLyrics ? 'lyrics results' : 'results';
         return '${success.songs.length} $base for "${success.query}"';
       }
       return '${success.songs.length} of ${success.totalCount} hymns';
@@ -218,12 +217,12 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding:
-              const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
+          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
           child: Text(
             label,
-            style: theme.textTheme.labelMedium
-                ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+            style: theme.textTheme.labelMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
           ),
         ),
         const SizedBox(height: 4),
@@ -233,8 +232,7 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
               final metrics = notification.metrics;
               if (!success.isSearchActive &&
                   success.hasMore &&
-                  metrics.pixels >=
-                      metrics.maxScrollExtent - 200) {
+                  metrics.pixels >= metrics.maxScrollExtent - 200) {
                 notifier.loadMore();
               }
               return false;
@@ -242,12 +240,10 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
             child: ListView.separated(
               controller: _scrollController,
               itemCount: success.songs.length,
-              separatorBuilder: (context, index) =>
-                  const Divider(height: 1),
+              separatorBuilder: (context, index) => const Divider(height: 1),
               itemBuilder: (context, index) {
                 final hymn = success.songs[index];
-                final subtitle = success.isSearchActive &&
-                        success.searchLyrics
+                final subtitle = success.isSearchActive && success.searchLyrics
                     ? buildSongSearchSubtitle(
                         firstLine: hymn.firstLine,
                         lyrics: hymn.lyrics,
@@ -262,13 +258,9 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
                   isFavorite: hymn.isFavorite,
                   highlightQuery: _isSearchExpanded ? _query : null,
                   onTap: () {
-                    context.push(
-                      '/song-detail',
-                      extra: hymn.hymnNo,
-                    );
+                    context.push('/song-detail', extra: hymn.hymnNo);
                   },
-                  onToggleFavorite: () =>
-                      notifier.toggleFavorite(hymn.hymnNo),
+                  onToggleFavorite: () => notifier.toggleFavorite(hymn.hymnNo),
                 );
               },
             ),
@@ -277,5 +269,4 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
       ],
     );
   }
-
 }

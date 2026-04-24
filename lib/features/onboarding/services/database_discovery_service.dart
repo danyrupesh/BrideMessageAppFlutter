@@ -1,4 +1,6 @@
+import 'dart:convert';
 import 'package:dio/dio.dart';
+import 'dart:developer' as developer;
 
 /// Represents metadata for an available database stream
 class DatabaseInfo {
@@ -29,19 +31,24 @@ class DatabaseInfo {
   });
 
   factory DatabaseInfo.fromJson(Map<String, dynamic> json) {
-    return DatabaseInfo(
-      id: json['id'] as String? ?? '',
-      displayName: json['displayName'] as String? ?? '',
-      version: json['version'] as String? ?? '',
-      isMandatory: json['isMandatory'] as bool? ?? false,
-      installStrategy: json['installStrategy'] as String? ?? 'generic',
-      downloadUrl: json['downloadUrl'] as String? ?? '',
-      sha256: json['sha256'] as String? ?? '',
-      fileSize: json['fileSize'] as int? ?? 0,
-      publishedAt: json['publishedAt'] as String? ?? '',
-      bundledVersion: json['bundledVersion'] as int? ?? 1,
-      isSingleDatabase: json['isSingleDatabase'] as bool? ?? false,
-    );
+    try {
+      return DatabaseInfo(
+        id: json['id']?.toString() ?? '',
+        displayName: json['displayName']?.toString() ?? '',
+        version: json['version']?.toString() ?? '',
+        isMandatory: json['isMandatory'] == true,
+        installStrategy: json['installStrategy']?.toString() ?? 'generic',
+        downloadUrl: json['downloadUrl']?.toString() ?? '',
+        sha256: json['sha256']?.toString() ?? '',
+        fileSize: (json['fileSize'] is num) ? (json['fileSize'] as num).toInt() : (int.tryParse(json['fileSize']?.toString() ?? '0') ?? 0),
+        publishedAt: json['publishedAt']?.toString() ?? '',
+        bundledVersion: (json['bundledVersion'] is num) ? (json['bundledVersion'] as num).toInt() : (int.tryParse(json['bundledVersion']?.toString() ?? '1') ?? 1),
+        isSingleDatabase: json['isSingleDatabase'] == true || json['isSingleDatabase'] == 1,
+      );
+    } catch (e, stack) {
+      developer.log('Error parsing DatabaseInfo JSON: $e', error: e, stackTrace: stack);
+      rethrow;
+    }
   }
 
   Map<String, dynamic> toJson() => {
@@ -78,32 +85,53 @@ class DatabaseDiscoveryService {
   /// Gets list of all available databases
   /// Throws on network error
   Future<List<DatabaseInfo>> availableDatabases(String apiBaseUrl) async {
+    final cleanBaseUrl = apiBaseUrl.endsWith('/') ? apiBaseUrl.substring(0, apiBaseUrl.length - 1) : apiBaseUrl;
+    final url = '$cleanBaseUrl/admin/database/available';
+    
     try {
+      developer.log('Fetching available databases from: $url');
       final response = await _dio.get(
-        '$apiBaseUrl/api/database/available',
-        options: Options(validateStatus: (status) => status == 200),
+        url,
+        options: Options(validateStatus: (status) => status != null),
       );
 
-      if (response.data is! Map) {
-        throw FormatException('Expected JSON object response');
+      if (response.statusCode != 200) {
+        throw Exception('Server returned ${response.statusCode} for $url');
       }
 
-      final data = response.data as Map<String, dynamic>;
+      dynamic responseData = response.data;
+      if (responseData is String && responseData.trim().startsWith('{')) {
+        try {
+          responseData = jsonDecode(responseData);
+        } catch (e) {
+          developer.log('Failed to decode JSON string: $e');
+        }
+      }
+
+      if (responseData is! Map) {
+        throw FormatException('Expected JSON object response, but got ${responseData.runtimeType}');
+      }
+
+      final data = Map<String, dynamic>.from(responseData);
       if (data['success'] != true) {
-        throw FormatException(data['message'] as String? ?? 'API error');
+        throw FormatException(data['message']?.toString() ?? 'API error');
       }
 
-      final databases = data['databases'] as List?;
-      if (databases == null) {
+      final databasesList = data['databases'] as List?;
+      if (databasesList == null) {
         return [];
       }
 
-      return databases
+      return databasesList
           .whereType<Map<String, dynamic>>()
           .map(DatabaseInfo.fromJson)
           .toList();
     } on DioException catch (e) {
+      developer.log('Network error fetching databases: ${e.message}', error: e);
       throw Exception('Network error: ${e.message}');
+    } catch (e, stack) {
+      developer.log('Error fetching available databases: $e', error: e, stackTrace: stack);
+      rethrow;
     }
   }
 
@@ -113,9 +141,12 @@ class DatabaseDiscoveryService {
     String apiBaseUrl,
     String databaseId,
   ) async {
+    final cleanBaseUrl = apiBaseUrl.endsWith('/') ? apiBaseUrl.substring(0, apiBaseUrl.length - 1) : apiBaseUrl;
+    final url = '$cleanBaseUrl/admin/database/$databaseId';
+
     try {
       final response = await _dio.get(
-        '$apiBaseUrl/api/database/$databaseId',
+        url,
         options: Options(validateStatus: (status) => status != null),
       );
 
@@ -127,13 +158,20 @@ class DatabaseDiscoveryService {
         throw Exception('Failed to fetch database info: ${response.statusCode}');
       }
 
-      if (response.data is! Map) {
+      dynamic responseData = response.data;
+      if (responseData is String && responseData.trim().startsWith('{')) {
+        try {
+          responseData = jsonDecode(responseData);
+        } catch (_) {}
+      }
+
+      if (responseData is! Map) {
         throw FormatException('Expected JSON object response');
       }
 
-      final data = response.data as Map<String, dynamic>;
+      final data = Map<String, dynamic>.from(responseData);
       if (data['success'] != true) {
-        throw FormatException(data['message'] as String? ?? 'API error');
+        throw FormatException(data['message']?.toString() ?? 'API error');
       }
 
       return DatabaseInfo.fromJson(data);

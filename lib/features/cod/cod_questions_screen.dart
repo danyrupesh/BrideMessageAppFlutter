@@ -7,6 +7,7 @@ import '../../core/database/models/cod_models.dart';
 import '../onboarding/onboarding_screen.dart';
 import 'providers/cod_provider.dart';
 import '../help/widgets/help_button.dart';
+import '../common/widgets/section_menu_button.dart';
 
 class CodQuestionsScreen extends ConsumerStatefulWidget {
   final String lang;
@@ -454,6 +455,7 @@ class _CodQuestionsScreenState extends ConsumerState<CodQuestionsScreen> {
           overflow: TextOverflow.ellipsis,
         ),
         actions: [
+          const SectionMenuButton(),
           const HelpButton(topicId: 'cod'),
           Padding(
             padding: const EdgeInsets.only(right: 12),
@@ -757,12 +759,14 @@ class _CodQuestionsScreenState extends ConsumerState<CodQuestionsScreen> {
                               icon: const Icon(Icons.arrow_left),
                               tooltip: isTamil ? 'இடது' : 'Scroll left',
                               onPressed: () {
-                                final offset = (_topicsScrollController.offset -
-                                        200)
-                                    .clamp(
-                                        0.0,
-                                        _topicsScrollController
-                                            .position.maxScrollExtent);
+                                final offset =
+                                    (_topicsScrollController.offset - 200)
+                                        .clamp(
+                                          0.0,
+                                          _topicsScrollController
+                                              .position
+                                              .maxScrollExtent,
+                                        );
                                 _topicsScrollController.animateTo(
                                   offset,
                                   duration: const Duration(milliseconds: 300),
@@ -772,14 +776,14 @@ class _CodQuestionsScreenState extends ConsumerState<CodQuestionsScreen> {
                             ),
                             Expanded(
                               child: ScrollConfiguration(
-                                behavior:
-                                    ScrollConfiguration.of(context).copyWith(
-                                  dragDevices: {
-                                    PointerDeviceKind.touch,
-                                    PointerDeviceKind.mouse,
-                                    PointerDeviceKind.trackpad,
-                                  },
-                                ),
+                                behavior: ScrollConfiguration.of(context)
+                                    .copyWith(
+                                      dragDevices: {
+                                        PointerDeviceKind.touch,
+                                        PointerDeviceKind.mouse,
+                                        PointerDeviceKind.trackpad,
+                                      },
+                                    ),
                                 child: Scrollbar(
                                   controller: _topicsScrollController,
                                   thumbVisibility: true,
@@ -803,12 +807,12 @@ class _CodQuestionsScreenState extends ConsumerState<CodQuestionsScreen> {
                                           'list_topic_${topic.topicSlug}',
                                         ),
                                         color: Colors.transparent,
-                                        borderRadius:
-                                            BorderRadius.circular(12),
+                                        borderRadius: BorderRadius.circular(12),
                                         child: Container(
                                           decoration: BoxDecoration(
-                                            borderRadius:
-                                                BorderRadius.circular(12),
+                                            borderRadius: BorderRadius.circular(
+                                              12,
+                                            ),
                                             color: selected
                                                 ? cs.primaryContainer
                                                 : cs.surfaceContainerLowest,
@@ -820,8 +824,9 @@ class _CodQuestionsScreenState extends ConsumerState<CodQuestionsScreen> {
                                             ),
                                           ),
                                           child: InkWell(
-                                            borderRadius:
-                                                BorderRadius.circular(12),
+                                            borderRadius: BorderRadius.circular(
+                                              12,
+                                            ),
                                             onTap: () {
                                               setState(() {
                                                 _topicSlug = selected
@@ -836,8 +841,7 @@ class _CodQuestionsScreenState extends ConsumerState<CodQuestionsScreen> {
                                               ),
                                               child: Padding(
                                                 padding: EdgeInsets.symmetric(
-                                                  horizontal:
-                                                      isWide ? 16 : 12,
+                                                  horizontal: isWide ? 16 : 12,
                                                   vertical: isWide ? 10 : 8,
                                                 ),
                                                 child: Center(
@@ -854,12 +858,10 @@ class _CodQuestionsScreenState extends ConsumerState<CodQuestionsScreen> {
                                                           ? cs.onPrimaryContainer
                                                           : cs.onSurface,
                                                       fontSize: isWide
-                                                          ? (selected
-                                                              ? 16
-                                                              : 15)
+                                                          ? (selected ? 16 : 15)
                                                           : (selected
-                                                              ? 14
-                                                              : 13),
+                                                                ? 14
+                                                                : 13),
                                                     ),
                                                   ),
                                                 ),
@@ -878,7 +880,8 @@ class _CodQuestionsScreenState extends ConsumerState<CodQuestionsScreen> {
                               tooltip: isTamil ? 'வலது' : 'Scroll right',
                               onPressed: () {
                                 final maxExtent = _topicsScrollController
-                                    .position.maxScrollExtent;
+                                    .position
+                                    .maxScrollExtent;
                                 final offset =
                                     (_topicsScrollController.offset + 200)
                                         .clamp(0.0, maxExtent);

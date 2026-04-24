@@ -5,6 +5,7 @@ import 'models/tract_model.dart';
 import 'providers/tracts_provider.dart';
 import '../common/widgets/fts_highlight_text.dart';
 import '../help/widgets/help_button.dart';
+import '../common/widgets/section_menu_button.dart';
 import '../settings/widgets/theme_picker_sheet.dart';
 
 class TractsScreen extends ConsumerStatefulWidget {
@@ -59,6 +60,7 @@ class _TractsScreenState extends ConsumerState<TractsScreen> {
             icon: const Icon(Icons.color_lens),
             onPressed: () => ThemePickerSheet.show(context),
           ),
+          const SectionMenuButton(),
           const HelpButton(topicId: 'tracts'),
           IconButton(
             icon: const Icon(Icons.settings),

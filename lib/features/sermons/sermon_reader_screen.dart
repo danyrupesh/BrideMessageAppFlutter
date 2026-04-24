@@ -33,6 +33,7 @@ import '../../core/database/models/sermon_models.dart';
 import '../../core/database/models/sermon_search_result.dart';
 import '../search/providers/search_provider.dart' show SearchType;
 import '../common/widgets/fts_highlight_text.dart';
+import '../common/widgets/section_menu_button.dart';
 import '../help/widgets/help_button.dart';
 
 class _NextMatchIntent extends Intent {
@@ -303,7 +304,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
   double _splitPrimaryFontOffset = 0.0;
   double _splitSecondaryFontOffset = 0.0;
   final Map<String, Future<List<SermonParagraphEntity>>>
-      _bmSecondarySermonFutureCache = {};
+  _bmSecondarySermonFutureCache = {};
   final TextEditingController _primaryMiniSearchController =
       TextEditingController();
   final TextEditingController _secondaryMiniSearchController =
@@ -371,7 +372,9 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
   }) {
     final cacheKey = '$sermonLang::$sermonId';
     return _bmSecondarySermonFutureCache.putIfAbsent(cacheKey, () async {
-      final repo = await ref.read(sermonRepositoryByLangProvider(sermonLang).future);
+      final repo = await ref.read(
+        sermonRepositoryByLangProvider(sermonLang).future,
+      );
       return repo.getParagraphsForSermon(sermonId);
     });
   }
@@ -480,11 +483,13 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
 
   void _adjustPrimarySplitFont(double delta) {
     final activeTab = ref.read(sermonFlowProvider).activeTab;
-    final lang = activeTab?.bibleLang ?? ref.read(selectedSermonLangProvider) ?? 'en';
+    final lang =
+        activeTab?.bibleLang ?? ref.read(selectedSermonLangProvider) ?? 'en';
     setState(() {
       final current = _primaryPaneFontSize(ref.read(typographyProvider(lang)));
       final next = (current + delta).clamp(12.0, 56.0);
-      _splitPrimaryFontOffset = next - ref.read(typographyProvider(lang)).fontSize;
+      _splitPrimaryFontOffset =
+          next - ref.read(typographyProvider(lang)).fontSize;
     });
     unawaited(_persistSplitFontOffsets());
   }
@@ -492,13 +497,18 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
   void _adjustSecondarySplitFont(double delta) {
     final flow = ref.read(sermonFlowProvider);
     final group = flow.bmBibleGroup;
-    final activeSec = group.tabs.isNotEmpty ? group.tabs[group.activeIndex.clamp(0, group.tabs.length - 1)] : null;
+    final activeSec = group.tabs.isNotEmpty
+        ? group.tabs[group.activeIndex.clamp(0, group.tabs.length - 1)]
+        : null;
     final lang = activeSec?.bibleLang ?? activeSec?.sermonLang ?? 'en';
-    
+
     setState(() {
-      final current = _secondaryPaneFontSize(ref.read(typographyProvider(lang)));
+      final current = _secondaryPaneFontSize(
+        ref.read(typographyProvider(lang)),
+      );
       final next = (current + delta).clamp(12.0, 56.0);
-      _splitSecondaryFontOffset = next - ref.read(typographyProvider(lang)).fontSize;
+      _splitSecondaryFontOffset =
+          next - ref.read(typographyProvider(lang)).fontSize;
     });
     unawaited(_persistSplitFontOffsets());
   }
@@ -887,7 +897,6 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
       ),
     );
   }
-
 
   // ── All-Sermons FTS search ────────────────────────────────────────────────
 
@@ -1521,7 +1530,9 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     }
     if (totalChars <= 0) return false;
 
-    final matches = pattern.allMatches(paragraphs[paragraphIndex].text).toList();
+    final matches = pattern
+        .allMatches(paragraphs[paragraphIndex].text)
+        .toList();
     if (matches.isEmpty) return false;
     final safeOccurrence = occurrenceIndex.clamp(0, matches.length - 1);
     final globalCharOffset =
@@ -1550,10 +1561,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     final texts = activeSecondary?.type == ReaderContentType.sermon
         ? _bmSecondaryParagraphs.map((paragraph) => paragraph.text).toList()
         : _bmCurrentVerses.map((verse) => verse.text).toList();
-    final indices = _computeMatchIndices(
-      texts,
-      query,
-    );
+    final indices = _computeMatchIndices(texts, query);
     setState(() {
       _secondaryMatchIndices = indices;
       _secondaryTotalMatches = indices.length;
@@ -1583,12 +1591,11 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
       if (!mounted) return;
       final flowState = ref.read(sermonFlowProvider);
       if (flowState.bmBibleGroup.tabs.isEmpty) return;
-      final activeSecondary = flowState.bmBibleGroup.tabs[
-        flowState.bmBibleGroup.activeIndex.clamp(
-          0,
-          flowState.bmBibleGroup.tabs.length - 1,
-        )
-      ];
+      final activeSecondary =
+          flowState.bmBibleGroup.tabs[flowState.bmBibleGroup.activeIndex.clamp(
+            0,
+            flowState.bmBibleGroup.tabs.length - 1,
+          )];
       if (activeSecondary.type == ReaderContentType.sermon) {
         _scrollToSermonOccurrenceByState(
           controller: _splitSecondaryScrollController,
@@ -1906,10 +1913,12 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     final paragraphs = _currentParagraphs
         .asMap()
         .entries
-        .map((entry) => <String, dynamic>{
-              'paragraphNumber': entry.value.paragraphNumber ?? (entry.key + 1),
-              'text': entry.value.text,
-            })
+        .map(
+          (entry) => <String, dynamic>{
+            'paragraphNumber': entry.value.paragraphNumber ?? (entry.key + 1),
+            'text': entry.value.text,
+          },
+        )
         .toList(growable: false);
 
     return <String, dynamic>{
@@ -1986,7 +1995,8 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
       }
       final activeTab = ref.read(sermonFlowProvider).activeTab;
       final rawTitle = activeTab?.title ?? 'Sermon';
-      final langCode = (activeTab?.sermonLang ??
+      final langCode =
+          (activeTab?.sermonLang ??
                   ref.read(selectedSermonLangProvider) ??
                   'en') ==
               'ta'
@@ -2017,7 +2027,8 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
 
       final activeTab = ref.read(sermonFlowProvider).activeTab;
       final rawTitle = activeTab?.title ?? 'Sermon';
-      final langCode = (activeTab?.sermonLang ??
+      final langCode =
+          (activeTab?.sermonLang ??
                   ref.read(selectedSermonLangProvider) ??
                   'en') ==
               'ta'
@@ -2357,7 +2368,6 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
 
   @override
   Widget build(BuildContext context) {
-
     final flowState = ref.watch(sermonFlowProvider);
     final activeTab = flowState.activeTab;
     final sermonLang = ref.watch(selectedSermonLangProvider);
@@ -2538,8 +2548,9 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
                 borderRadius: BorderRadius.circular(20),
                 child: InkWell(
                   borderRadius: BorderRadius.circular(20),
-                  onTap: () =>
-                      ref.read(typographyGlobalProvider.notifier).toggleFullscreen(),
+                  onTap: () => ref
+                      .read(typographyGlobalProvider.notifier)
+                      .toggleFullscreen(),
                   child: const Padding(
                     padding: EdgeInsets.all(8),
                     child: Icon(
@@ -3004,7 +3015,10 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
             overflow: TextOverflow.ellipsis,
             style: theme.textTheme.titleMedium?.copyWith(
               fontWeight: FontWeight.bold,
-              fontSize: (isWideScreen ? 24.0 : 18.0) + (typography.titleFontSize - (isWideScreen ? 18.0 : 13.0)).clamp(0, 10),
+              fontSize:
+                  (isWideScreen ? 24.0 : 18.0) +
+                  (typography.titleFontSize - (isWideScreen ? 18.0 : 13.0))
+                      .clamp(0, 10),
             ),
           ),
           if (subtitle != null)
@@ -3090,8 +3104,9 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
                       TextButton(
                         style: TextButton.styleFrom(
                           foregroundColor: theme.colorScheme.error,
-                          textStyle:
-                              const TextStyle(fontWeight: FontWeight.bold),
+                          textStyle: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                         onPressed: () {
                           ref
@@ -3156,6 +3171,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
               ),
               onPressed: () => _adjustReaderFontSize(1),
             ),
+          const SectionMenuButton(),
           const HelpButton(topicId: 'reader'),
           if (!openedFromSearch) ...[
             IconButton(
@@ -4081,8 +4097,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
   Widget _buildSermonBody(
     List<SermonParagraphEntity> paragraphs,
     TypographySettings typography,
-    ColorScheme cs,
-    {
+    ColorScheme cs, {
     required ScrollController scrollController,
     required String searchQuery,
     required bool searchEnabled,
@@ -4375,20 +4390,20 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
                     onLongPress: _isDesktopPlatform
                         ? null
                         : () async {
-                              if (tab.type == ReaderContentType.bible) {
-                                await _openQuickNavForBibleTab(
-                                  bmIndex: index,
-                                  isBm: true,
-                                );
-                                return;
-                              }
-                              await _onSecondaryPaneSourceSelected(
-                                (tab.sermonLang ?? 'en') == 'ta'
-                                    ? 'sermon_ta'
-                                    : 'sermon_en',
-                                openInNewTab: false,
+                            if (tab.type == ReaderContentType.bible) {
+                              await _openQuickNavForBibleTab(
+                                bmIndex: index,
+                                isBm: true,
                               );
-                            },
+                              return;
+                            }
+                            await _onSecondaryPaneSourceSelected(
+                              (tab.sermonLang ?? 'en') == 'ta'
+                                  ? 'sermon_ta'
+                                  : 'sermon_en',
+                              openInNewTab: false,
+                            );
+                          },
                     child: FilterChip(
                       selected: isActive,
                       showCheckmark: isActive,
@@ -4423,14 +4438,8 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
                 value: 'bible_ta',
                 child: Text('Tamil Bible (BSI)'),
               ),
-              PopupMenuItem(
-                value: 'sermon_en',
-                child: Text('English Sermons'),
-              ),
-              PopupMenuItem(
-                value: 'sermon_ta',
-                child: Text('Tamil Sermons'),
-              ),
+              PopupMenuItem(value: 'sermon_en', child: Text('English Sermons')),
+              PopupMenuItem(value: 'sermon_ta', child: Text('Tamil Sermons')),
             ],
           ),
         ],
@@ -4446,7 +4455,10 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     );
     final resolvedSecondaryTab = activeSecondaryTab ?? fallbackSecondaryTab;
 
-    final secondaryLang = resolvedSecondaryTab.bibleLang ?? resolvedSecondaryTab.sermonLang ?? 'en';
+    final secondaryLang =
+        resolvedSecondaryTab.bibleLang ??
+        resolvedSecondaryTab.sermonLang ??
+        'en';
     final secondaryTypography = ref.watch(typographyProvider(secondaryLang));
 
     final secondaryPane = Column(
@@ -4472,27 +4484,27 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
           },
           onPrev: hasSecondaryTabs
               ? () async {
-                    if (resolvedSecondaryTab.type == ReaderContentType.bible) {
-                      await _openAdjacentBmBiblePassage(-1);
-                      return;
-                    }
-                    await _openAdjacentSecondarySermon(
-                      currentTab: resolvedSecondaryTab,
-                      direction: -1,
-                    );
+                  if (resolvedSecondaryTab.type == ReaderContentType.bible) {
+                    await _openAdjacentBmBiblePassage(-1);
+                    return;
                   }
+                  await _openAdjacentSecondarySermon(
+                    currentTab: resolvedSecondaryTab,
+                    direction: -1,
+                  );
+                }
               : null,
           onNext: hasSecondaryTabs
               ? () async {
-                    if (resolvedSecondaryTab.type == ReaderContentType.bible) {
-                      await _openAdjacentBmBiblePassage(1);
-                      return;
-                    }
-                    await _openAdjacentSecondarySermon(
-                      currentTab: resolvedSecondaryTab,
-                      direction: 1,
-                    );
+                  if (resolvedSecondaryTab.type == ReaderContentType.bible) {
+                    await _openAdjacentBmBiblePassage(1);
+                    return;
                   }
+                  await _openAdjacentSecondarySermon(
+                    currentTab: resolvedSecondaryTab,
+                    direction: 1,
+                  );
+                }
               : null,
           onDecreaseFont: () => _adjustSecondarySplitFont(-1),
           onIncreaseFont: () => _adjustSecondarySplitFont(1),
@@ -4527,7 +4539,9 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
                     searchEnabled: _secondaryMiniSearchActive,
                     matchIndices: _secondaryMatchIndices,
                     currentMatchIndex: _secondaryCurrentMatchIndex,
-                    fontSizeOverride: _secondaryPaneFontSize(secondaryTypography),
+                    fontSizeOverride: _secondaryPaneFontSize(
+                      secondaryTypography,
+                    ),
                   )
                 : _buildBmSecondarySermonContent(
                     resolvedSecondaryTab,
@@ -4536,7 +4550,9 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
                     searchEnabled: _secondaryMiniSearchActive,
                     matchIndices: _secondaryMatchIndices,
                     currentMatchIndex: _secondaryCurrentMatchIndex,
-                    fontSizeOverride: _secondaryPaneFontSize(secondaryTypography),
+                    fontSizeOverride: _secondaryPaneFontSize(
+                      secondaryTypography,
+                    ),
                   ),
             isSearchActive: _secondaryMiniSearchActive,
             searchController: _secondaryMiniSearchController,
@@ -5151,16 +5167,14 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
 
   Widget _buildBmBibleContent(
     ReaderTab? bibleTab,
-    TypographySettings typography,
-    {
+    TypographySettings typography, {
     required ScrollController controller,
     required String searchQuery,
     required bool searchEnabled,
     required List<int> matchIndices,
     required int currentMatchIndex,
     double? fontSizeOverride,
-  }
-  ) {
+  }) {
     if (bibleTab == null || bibleTab.book == null || bibleTab.chapter == null) {
       return Center(
         child: Padding(

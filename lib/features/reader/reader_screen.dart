@@ -28,6 +28,7 @@ import '../../core/database/models/bible_search_result.dart';
 import '../../core/database/models/sermon_models.dart';
 import '../../core/database/sermon_repository.dart';
 import '../common/widgets/fts_highlight_text.dart';
+import '../common/widgets/section_menu_button.dart';
 import '../onboarding/onboarding_screen.dart';
 import '../sermons/providers/sermon_provider.dart';
 
@@ -73,7 +74,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   final ScrollController _bmTabsScrollController = ScrollController();
   final ScrollController _splitTabsScrollController = ScrollController();
   final Map<String, Future<List<SermonParagraphEntity>>>
-      _splitSermonParagraphsFutureCache = {};
+  _splitSermonParagraphsFutureCache = {};
   final FocusNode _searchFieldFocusNode = FocusNode();
   final TextEditingController _primaryMiniSearchController =
       TextEditingController();
@@ -168,26 +169,30 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     if (isActive) {
       if (tab.type == ReaderContentType.bible) {
         // Always reload the correct language when Bible tab is tapped, even if already active
-        final lang = tab.bibleLang ?? ref.read(selectedBibleLangProvider) ?? 'en';
+        final lang =
+            tab.bibleLang ?? ref.read(selectedBibleLangProvider) ?? 'en';
         ref.read(selectedBibleLangProvider.notifier).setLang(lang);
-        ref.read(readerProvider.notifier).replaceCurrentTab(
-          tab.copyWith(bibleLang: lang),
-        );
+        ref
+            .read(readerProvider.notifier)
+            .replaceCurrentTab(tab.copyWith(bibleLang: lang));
         _openQuickNav(initialLang: lang, initialOpenInNewTab: false);
         return;
       }
-      final sermonLang = tab.sermonLang ?? ref.read(selectedSermonLangProvider) ?? 'en';
+      final sermonLang =
+          tab.sermonLang ?? ref.read(selectedSermonLangProvider) ?? 'en';
       final picked = await _pickSermonForBm(sermonLang);
       if (!mounted || picked == null) return;
       ref.read(selectedSermonLangProvider.notifier).setLang(sermonLang);
-      ref.read(readerProvider.notifier).replaceCurrentTab(
-        ReaderTab(
-          type: ReaderContentType.sermon,
-          title: picked.title,
-          sermonId: picked.id,
-          sermonLang: sermonLang,
-        ),
-      );
+      ref
+          .read(readerProvider.notifier)
+          .replaceCurrentTab(
+            ReaderTab(
+              type: ReaderContentType.sermon,
+              title: picked.title,
+              sermonId: picked.id,
+              sermonLang: sermonLang,
+            ),
+          );
       return;
     }
     ref.read(readerProvider.notifier).switchTab(index);
@@ -218,7 +223,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   }) {
     final cacheKey = '$sermonLang::$sermonId';
     return _splitSermonParagraphsFutureCache.putIfAbsent(cacheKey, () async {
-      final repo = await ref.read(sermonRepositoryByLangProvider(sermonLang).future);
+      final repo = await ref.read(
+        sermonRepositoryByLangProvider(sermonLang).future,
+      );
       return repo.getParagraphsForSermon(sermonId);
     });
   }
@@ -679,7 +686,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
   void _adjustReaderFontSize(double delta) {
     final activeTab = ref.read(readerProvider).activeTab;
-    final lang = activeTab?.bibleLang ?? ref.read(selectedBibleLangProvider) ?? 'en';
+    final lang =
+        activeTab?.bibleLang ?? ref.read(selectedBibleLangProvider) ?? 'en';
     final typography = ref.read(typographyProvider(lang));
     final next = (typography.fontSize + delta).clamp(12.0, 56.0).toDouble();
     if (lang == 'ta') {
@@ -3160,7 +3168,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
   Map<String, dynamic> _buildBiblePdfPayload() {
     final activeTab = ref.read(readerProvider).activeTab;
-    final lang = activeTab?.bibleLang ?? ref.read(selectedBibleLangProvider) ?? 'en';
+    final lang =
+        activeTab?.bibleLang ?? ref.read(selectedBibleLangProvider) ?? 'en';
     final typography = ref.read(typographyProvider(lang));
     final verses = _currentVerses
         .map((v) => <String, dynamic>{'verse': v.verse, 'text': v.text})
@@ -4379,7 +4388,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     final screenWidth = MediaQuery.sizeOf(context).width;
     final isWide = screenWidth >= 900;
     final isSermonTab =
-        activeTab?.type == ReaderContentType.sermon && activeTab?.sermonId != null;
+        activeTab?.type == ReaderContentType.sermon &&
+        activeTab?.sermonId != null;
     final showPcShortcuts = screenWidth >= 700 && (isBibleTab || isSermonTab);
 
     return AppBar(
@@ -4406,55 +4416,59 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       ),
       title: LayoutBuilder(
         builder: (context, constraints) {
-    if (!showPcShortcuts) {
-      return SizedBox(
-        width: constraints.maxWidth,
-        child: InkWell(
-          onTap: _openQuickNav,
-          child: Row(
-            mainAxisSize: MainAxisSize.max,
-            children: [
-              Expanded(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
+          if (!showPcShortcuts) {
+            return SizedBox(
+              width: constraints.maxWidth,
+              child: InkWell(
+                onTap: _openQuickNav,
+                child: Row(
+                  mainAxisSize: MainAxisSize.max,
                   children: [
-                    Text(
-                      activeTab?.title ?? 'Reader',
-                      style: theme.textTheme.titleLarge?.copyWith(
-                        fontSize: constraints.maxWidth >= 700 ? 20 : 18,
-                        fontWeight: FontWeight.bold,
+                    Expanded(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            activeTab?.title ?? 'Reader',
+                            style: theme.textTheme.titleLarge?.copyWith(
+                              fontSize: constraints.maxWidth >= 700 ? 20 : 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          if (isSermonTab)
+                            Consumer(
+                              builder: (context, ref, _) {
+                                final sermonAsync = ref.watch(
+                                  sermonByIdProvider(activeTab!.sermonId!),
+                                );
+                                return sermonAsync.maybeWhen(
+                                  data: (s) => s == null
+                                      ? const SizedBox.shrink()
+                                      : Text(
+                                          '${s.id} - ${s.year} - ${s.totalParagraphs ?? 0}',
+                                          style: theme.textTheme.labelSmall
+                                              ?.copyWith(
+                                                color: theme
+                                                    .colorScheme
+                                                    .onSurfaceVariant,
+                                              ),
+                                        ),
+                                  orElse: () => const SizedBox.shrink(),
+                                );
+                              },
+                            ),
+                        ],
                       ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
                     ),
-                    if (isSermonTab)
-                      Consumer(
-                        builder: (context, ref, _) {
-                          final sermonAsync =
-                              ref.watch(sermonByIdProvider(activeTab!.sermonId!));
-                          return sermonAsync.maybeWhen(
-                            data: (s) => s == null
-                                ? const SizedBox.shrink()
-                                : Text(
-                                    '${s.id} - ${s.year} - ${s.totalParagraphs ?? 0}',
-                                    style: theme.textTheme.labelSmall?.copyWith(
-                                      color: theme.colorScheme.onSurfaceVariant,
-                                    ),
-                                  ),
-                            orElse: () => const SizedBox.shrink(),
-                          );
-                        },
-                      ),
+                    Icon(Icons.arrow_drop_down, size: isWide ? 28 : 24),
                   ],
                 ),
               ),
-              Icon(Icons.arrow_drop_down, size: isWide ? 28 : 24),
-            ],
-          ),
-        ),
-      );
-    }
+            );
+          }
 
           return Row(
             mainAxisAlignment: MainAxisAlignment.start,
@@ -4489,11 +4503,11 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                                         '${s.id} - ${s.year} - ${s.totalParagraphs ?? 0}',
                                         style: theme.textTheme.labelSmall
                                             ?.copyWith(
-                                          color: theme
-                                              .colorScheme
-                                              .onSurfaceVariant,
-                                          fontWeight: FontWeight.bold,
-                                        ),
+                                              color: theme
+                                                  .colorScheme
+                                                  .onSurfaceVariant,
+                                              fontWeight: FontWeight.bold,
+                                            ),
                                       ),
                                 orElse: () => const SizedBox.shrink(),
                               );
@@ -4533,8 +4547,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                         TextButton(
                           style: TextButton.styleFrom(
                             foregroundColor: theme.colorScheme.error,
-                            textStyle:
-                                const TextStyle(fontWeight: FontWeight.bold),
+                            textStyle: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                           onPressed: () {
                             _clearParallelMode();
@@ -4640,8 +4655,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                         TextButton(
                           style: TextButton.styleFrom(
                             foregroundColor: theme.colorScheme.error,
-                            textStyle:
-                                const TextStyle(fontWeight: FontWeight.bold),
+                            textStyle: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                           onPressed: () {
                             _clearParallelMode();
@@ -4711,6 +4727,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                         ),
                       ],
                     ),
+                  const SectionMenuButton(),
                   const HelpButton(topicId: 'reader'),
                   if (isBibleTab || !showPcShortcuts)
                     _buildSplitViewPopupMenu(

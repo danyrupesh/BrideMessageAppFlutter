@@ -13,6 +13,9 @@ import '../../features/settings/settings_screen.dart';
 import '../../features/database_management/screens/manage_databases_screen.dart';
 import '../../features/songs/songs_gate_screen.dart';
 import '../../features/songs/song_detail_screen.dart';
+import '../../features/songs/tamil_songs_screen.dart';
+import '../../features/songs/tamil_songs_gate_screen.dart';
+import '../../features/songs/tamil_song_detail_screen.dart';
 import '../../features/cod/cod_questions_screen.dart';
 import '../../features/cod/cod_answer_screen.dart';
 import '../database/metadata/installed_content_provider.dart';
@@ -22,6 +25,11 @@ import '../../features/sermons/providers/sermon_provider.dart';
 import '../../features/sermons/providers/sermon_flow_provider.dart';
 import '../../features/tracts/tracts_screen.dart';
 import '../../features/tracts/tract_reader_screen.dart';
+import '../../features/stories/stories_screen.dart';
+import '../../features/stories/story_reader_screen.dart';
+import '../database/models/story_models.dart';
+import '../../features/church_ages/church_ages_screen.dart';
+import '../../features/church_ages/church_ages_reader_screen.dart';
 
 final GlobalKey<NavigatorState> appRootNavigatorKey =
     GlobalKey<NavigatorState>();
@@ -205,6 +213,18 @@ final appRouterProvider = Provider<GoRouter>((ref) {
         },
       ),
       GoRoute(
+        path: '/songs/tamil',
+        builder: (context, state) => const TamilSongsGateScreen(),
+      ),
+      GoRoute(
+        path: '/song-detail/tamil',
+        builder: (context, state) {
+          final id = int.tryParse(state.uri.queryParameters['id'] ?? '0') ?? 0;
+          final q = state.uri.queryParameters['q'];
+          return TamilSongDetailScreen(songId: id, searchQuery: q);
+        },
+      ),
+      GoRoute(
         path: '/history',
         builder: (context, state) => const HistoryScreen(),
       ),
@@ -256,6 +276,45 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           final id = state.uri.queryParameters['id'] ?? '';
           final q = state.uri.queryParameters['q'];
           return TractReaderScreen(id: id, searchQuery: q);
+        },
+      ),
+      GoRoute(
+        path: '/stories',
+        builder: (context, state) {
+          final lang = state.uri.queryParameters['lang'] ?? 'en';
+          return StoriesScreen(lang: lang);
+        },
+      ),
+      GoRoute(
+        path: '/story-reader',
+        builder: (context, state) {
+          final id = state.uri.queryParameters['id'] ?? '';
+          final lang = state.uri.queryParameters['lang'] ?? 'en';
+          final q = state.uri.queryParameters['q'];
+          final sectionRaw =
+              state.uri.queryParameters['section'] ?? 'wmbStories';
+          final section = StorySectionTypeTable.fromName(sectionRaw);
+          return StoryReaderScreen(
+            id: id,
+            lang: lang,
+            section: section,
+            searchQuery: q,
+          );
+        },
+      ),
+      GoRoute(
+        path: '/church-ages',
+        builder: (context, state) {
+          final lang = state.uri.queryParameters['lang'] ?? 'en';
+          return ChurchAgesScreen(lang: lang);
+        },
+      ),
+      GoRoute(
+        path: '/church-ages-reader',
+        builder: (context, state) {
+          final id = state.uri.queryParameters['id'];
+          final q = state.uri.queryParameters['q'];
+          return ChurchAgesReaderScreen(id: id, searchQuery: q);
         },
       ),
     ],

@@ -1,5 +1,5 @@
 /// Equivalent to Android's DatabaseType enum and InstalledDatabaseEntity.
-enum DbType { bible, sermon }
+enum DbType { bible, sermon, churchAges }
 
 class InstalledDatabase {
   final int? id;
@@ -31,7 +31,9 @@ class InstalledDatabase {
   factory InstalledDatabase.fromMap(Map<String, dynamic> map) {
     return InstalledDatabase(
       id: map['id'] as int?,
-      type: map['type'] == 'BIBLE' ? DbType.bible : DbType.sermon,
+      type: map['type'] == 'BIBLE'
+          ? DbType.bible
+          : (map['type'] == 'SERMON' ? DbType.sermon : DbType.churchAges),
       code: map['code'] as String,
       displayName: map['display_name'] as String,
       language: map['language'] as String,
@@ -45,7 +47,9 @@ class InstalledDatabase {
   Map<String, dynamic> toMap() {
     return {
       if (id != null) 'id': id,
-      'type': type == DbType.bible ? 'BIBLE' : 'SERMON',
+      'type': type == DbType.bible
+          ? 'BIBLE'
+          : (type == DbType.sermon ? 'SERMON' : 'CHURCH_AGES'),
       'code': code,
       'display_name': displayName,
       'language': language,

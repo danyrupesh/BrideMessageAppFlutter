@@ -394,6 +394,13 @@ class DashboardScreen extends ConsumerWidget {
         onTap: () => context.push('/songs'),
       ),
       _ModuleCardData(
+        icon: Icons.music_note_outlined,
+        title: 'தமிழ் பாடல்கள்',
+        subtitle: 'Tamil Songs',
+        color: const Color(0xFFE67E22),
+        onTap: () => context.push('/songs/tamil'),
+      ),
+      _ModuleCardData(
         icon: Icons.article_outlined,
         title: 'Question and Answers',
         subtitle: 'COD English',
@@ -463,6 +470,42 @@ class DashboardScreen extends ConsumerWidget {
         color: const Color(0xFFC0392B), // Same color scheme for coherence
         onTap: () {
           context.push('/tracts?lang=ta');
+        },
+      ),
+      _ModuleCardData(
+        icon: Icons.auto_stories_outlined,
+        title: 'Stories English',
+        subtitle: 'WMB / Kids / Timeline / Witnesses',
+        color: const Color(0xFF4B8CF5),
+        onTap: () {
+          context.push('/stories?lang=en');
+        },
+      ),
+      _ModuleCardData(
+        icon: Icons.auto_stories_outlined,
+        title: 'Stories Tamil',
+        subtitle: 'ஆரம்ப 4 தலைப்புகள்',
+        color: const Color(0xFF20A57A),
+        onTap: () {
+          context.push('/stories?lang=ta');
+        },
+      ),
+      _ModuleCardData(
+        icon: Icons.church_outlined,
+        title: 'English Church Ages',
+        subtitle: 'The 7 Church Ages',
+        color: const Color(0xFF9B59B6),
+        onTap: () {
+          context.push('/church-ages?lang=en');
+        },
+      ),
+      _ModuleCardData(
+        icon: Icons.church_outlined,
+        title: 'தமிழ் சபை காலங்கள்',
+        subtitle: 'The 7 Church Ages',
+        color: const Color(0xFF8E44AD),
+        onTap: () {
+          context.push('/church-ages?lang=ta');
         },
       ),
     ];

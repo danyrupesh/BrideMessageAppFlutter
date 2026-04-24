@@ -648,124 +648,119 @@ class _TractReaderScreenState extends ConsumerState<TractReaderScreen> {
         child: SingleChildScrollView(
           controller: _scrollController,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
-          child: Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 900),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.all(18),
-                    decoration: BoxDecoration(
-                      color: theme.colorScheme.primaryContainer.withAlpha(90),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(
-                        color: theme.colorScheme.outlineVariant.withAlpha(160),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  color: theme.colorScheme.primaryContainer.withAlpha(90),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                    color: theme.colorScheme.outlineVariant.withAlpha(160),
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(tract.title, style: titleStyle),
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.menu_book_rounded,
+                          size: 16,
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          langCode == 'ta'
+                              ? 'தமிழ் பிரசுரம்'
+                              : 'English Tract',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        if (_activeQuery != null) ...[
+                          const SizedBox(width: 12),
+                          Icon(
+                            Icons.search,
+                            size: 16,
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            _totalMatches == 0
+                                ? '0 matches'
+                                : '${_currentMatchIndex + 1}/$_totalMatches matches',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+              Material(
+                elevation: 0.5,
+                borderRadius: BorderRadius.circular(18),
+                color: theme.colorScheme.surface,
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 18,
+                    vertical: 20,
+                  ),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(
+                      color: theme.colorScheme.outlineVariant.withAlpha(
+                        140,
                       ),
                     ),
+                  ),
+                  child: SelectionArea(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(tract.title, style: titleStyle),
-                        const SizedBox(height: 10),
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.menu_book_rounded,
-                              size: 16,
-                              color: theme.colorScheme.onSurfaceVariant,
+                        for (var i = 0; i < _paragraphs.length; i++)
+                          Padding(
+                            key: _keyForParagraph(i),
+                            padding: EdgeInsets.only(
+                              bottom: i == _paragraphs.length - 1 ? 0 : 14,
                             ),
-                            const SizedBox(width: 6),
-                            Text(
-                              langCode == 'ta'
-                                  ? 'தமிழ் பிரசுரம்'
-                                  : 'English Tract',
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: theme.colorScheme.onSurfaceVariant,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                            if (_activeQuery != null) ...[
-                              const SizedBox(width: 12),
-                              Icon(
-                                Icons.search,
-                                size: 16,
-                                color: theme.colorScheme.onSurfaceVariant,
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                _totalMatches == 0
-                                    ? '0 matches'
-                                    : '${_currentMatchIndex + 1}/$_totalMatches matches',
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: theme.colorScheme.onSurfaceVariant,
-                                  fontWeight: FontWeight.w600,
+                            child: SelectableText.rich(
+                              TextSpan(
+                                children: _buildHighlightedSpans(
+                                  text: _paragraphs[i],
+                                  baseStyle: bodyStyle,
+                                  passiveBg: theme
+                                      .colorScheme
+                                      .secondaryContainer
+                                      .withAlpha(150),
+                                  activeBg:
+                                      theme.colorScheme.primaryContainer,
+                                  activeFg:
+                                      theme.colorScheme.onPrimaryContainer,
+                                  currentOccurrenceIndex:
+                                      _currentOccurrenceForParagraph(i),
                                 ),
                               ),
-                            ],
-                          ],
-                        ),
+                            ),
+                          ),
                       ],
                     ),
                   ),
-                  const SizedBox(height: 14),
-                  Material(
-                    elevation: 0.5,
-                    borderRadius: BorderRadius.circular(18),
-                    color: theme.colorScheme.surface,
-                    child: Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 18,
-                        vertical: 20,
-                      ),
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(18),
-                        border: Border.all(
-                          color: theme.colorScheme.outlineVariant.withAlpha(
-                            140,
-                          ),
-                        ),
-                      ),
-                      child: SelectionArea(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            for (var i = 0; i < _paragraphs.length; i++)
-                              Padding(
-                                key: _keyForParagraph(i),
-                                padding: EdgeInsets.only(
-                                  bottom: i == _paragraphs.length - 1 ? 0 : 14,
-                                ),
-                                child: SelectableText.rich(
-                                  TextSpan(
-                                    children: _buildHighlightedSpans(
-                                      text: _paragraphs[i],
-                                      baseStyle: bodyStyle,
-                                      passiveBg: theme
-                                          .colorScheme
-                                          .secondaryContainer
-                                          .withAlpha(150),
-                                      activeBg:
-                                          theme.colorScheme.primaryContainer,
-                                      activeFg:
-                                          theme.colorScheme.onPrimaryContainer,
-                                      currentOccurrenceIndex:
-                                          _currentOccurrenceForParagraph(i),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 28),
-                ],
+                ),
               ),
-            ),
+              const SizedBox(height: 28),
+            ],
           ),
         ),
       ),
