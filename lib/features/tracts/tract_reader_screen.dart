@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
@@ -548,6 +549,10 @@ class _TractReaderScreenState extends ConsumerState<TractReaderScreen> {
             ],
           )
         : AppBar(
+            leading: IconButton(
+              icon: const Icon(Icons.arrow_back),
+              onPressed: () => context.go('/tracts?lang=$langCode'),
+            ),
             toolbarHeight: 72,
             title: Text(
               tract.title,

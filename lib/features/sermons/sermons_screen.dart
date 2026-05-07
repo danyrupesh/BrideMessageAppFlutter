@@ -12,6 +12,7 @@ import 'widgets/sermon_filters_sheet.dart';
 import '../help/widgets/help_button.dart';
 import '../../core/database/models/sermon_models.dart';
 import '../../core/database/models/sermon_search_result.dart';
+import '../common/widgets/fts_highlight_text.dart';
 import '../search/providers/search_provider.dart';
 
 enum _SermonAction { open, openInNewTab, setBmMain }
@@ -301,19 +302,26 @@ class _SermonListScreenState extends ConsumerState<SermonListScreen> {
             )),
           );
     final theme = Theme.of(context);
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final baseResultFontSize = ref.watch(sermonListFontSizeProvider);
+    final resultFontSize = screenWidth >= 1100
+        ? (baseResultFontSize + 1).clamp(12.0, 23.0)
+        : baseResultFontSize;
     final hasAllowedIds =
         widget.allowedIds != null && widget.allowedIds!.isNotEmpty;
 
     final isContentSearch = state.searchType == SearchType.all;
-    final resultsCount = isContentSearch ? state.searchResults.length : state.sermons.length;
+    final resultsCount = isContentSearch
+        ? state.searchResults.length
+        : state.sermons.length;
 
     final countLabel = hasAllowedIds
         ? (state.searchQuery.trim().isEmpty
-            ? '$resultsCount sermons'
-            : '$resultsCount matches')
+              ? '$resultsCount sermons'
+              : '$resultsCount matches')
         : (state.searchQuery.trim().isEmpty
-            ? '$resultsCount sermons'
-            : '$resultsCount results');
+              ? '$resultsCount sermons'
+              : '$resultsCount results');
 
     return Scaffold(
       appBar: AppBar(
@@ -351,33 +359,48 @@ class _SermonListScreenState extends ConsumerState<SermonListScreen> {
                 ],
                 selected: {state.searchType},
                 onSelectionChanged: (newSelection) {
-                  ref.read(sermonListProvider.notifier).setSearchType(newSelection.first);
+                  ref
+                      .read(sermonListProvider.notifier)
+                      .setSearchType(newSelection.first);
                 },
               ),
             const Spacer(),
           ],
         ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.info_outline),
-            tooltip: 'How to open sermons',
-            onPressed: _showSermonInteractionInfo,
-          ),
-          IconButton(
-            icon: const Icon(Icons.home),
-            onPressed: () => context.go('/'),
-          ),
-          const HelpButton(topicId: 'sermons'),
           if (!widget.hideFilters)
             IconButton(
               icon: const Icon(Icons.filter_list),
+              tooltip: 'Filter',
               onPressed: () => SermonFiltersSheet.show(context, ref),
             ),
-          if (widget.hideFilters)
-            IconButton(
-              icon: const Icon(Icons.settings),
-              onPressed: () => context.push('/settings'),
+          IconButton(
+            icon: const Text(
+              'A-',
+              style: TextStyle(fontWeight: FontWeight.bold),
             ),
+            tooltip: 'Decrease result font size',
+            onPressed: () {
+              final current = ref.read(sermonListFontSizeProvider);
+              ref
+                  .read(sermonListFontSizeProvider.notifier)
+                  .setFontSize(current - 1);
+            },
+          ),
+          IconButton(
+            icon: const Text(
+              'A+',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            tooltip: 'Increase result font size',
+            onPressed: () {
+              final current = ref.read(sermonListFontSizeProvider);
+              ref
+                  .read(sermonListFontSizeProvider.notifier)
+                  .setFontSize(current + 1);
+            },
+          ),
+          const HelpButton(topicId: 'sermons'),
         ],
       ),
       floatingActionButton: widget.hideFilters
@@ -389,7 +412,6 @@ class _SermonListScreenState extends ConsumerState<SermonListScreen> {
             ),
       body: Column(
         children: [
-
           // Search Input
           Padding(
             padding: const EdgeInsets.fromLTRB(16.0, 12.0, 16.0, 8.0),
@@ -406,7 +428,9 @@ class _SermonListScreenState extends ConsumerState<SermonListScreen> {
                         onPressed: () {
                           _searchController.clear();
                           _debounce?.cancel();
-                          ref.read(sermonListProvider.notifier).filterSermons(
+                          ref
+                              .read(sermonListProvider.notifier)
+                              .filterSermons(
                                 year: state.selectedYear,
                                 query: '',
                                 titlePrefix: widget.titlePrefix,
@@ -424,7 +448,9 @@ class _SermonListScreenState extends ConsumerState<SermonListScreen> {
                 setState(() {});
                 _debounce?.cancel();
                 _debounce = Timer(const Duration(milliseconds: 500), () {
-                  ref.read(sermonListProvider.notifier).filterSermons(
+                  ref
+                      .read(sermonListProvider.notifier)
+                      .filterSermons(
                         year: state.selectedYear,
                         query: val,
                         titlePrefix: widget.titlePrefix,
@@ -447,7 +473,9 @@ class _SermonListScreenState extends ConsumerState<SermonListScreen> {
                       label: const Text('All Years'),
                       selected: state.selectedYear == null,
                       onSelected: (val) {
-                        ref.read(sermonListProvider.notifier).filterSermons(
+                        ref
+                            .read(sermonListProvider.notifier)
+                            .filterSermons(
                               year: null,
                               query: _searchController.text,
                               titlePrefix: widget.titlePrefix,
@@ -463,7 +491,9 @@ class _SermonListScreenState extends ConsumerState<SermonListScreen> {
                           label: Text(y.toString()),
                           selected: state.selectedYear == y,
                           onSelected: (val) {
-                            ref.read(sermonListProvider.notifier).filterSermons(
+                            ref
+                                .read(sermonListProvider.notifier)
+                                .filterSermons(
                                   year: y,
                                   query: _searchController.text,
                                   titlePrefix: widget.titlePrefix,
@@ -497,11 +527,13 @@ class _SermonListScreenState extends ConsumerState<SermonListScreen> {
                 TextButton(
                   onPressed: () {
                     final query = _searchController.text.trim();
-                    final queryParam = query.isEmpty ? '' : '&q=${Uri.encodeComponent(query)}';
+                    final queryParam = query.isEmpty
+                        ? ''
+                        : '&q=${Uri.encodeComponent(query)}';
                     context.push(
                       widget.hideFilters
-                        ? '/search?tab=cod$queryParam'
-                        : '/search?tab=sermons$queryParam',
+                          ? '/search?tab=cod$queryParam'
+                          : '/search?tab=sermons$queryParam',
                     );
                   },
                   child: const Text('Advanced Search'),
@@ -512,25 +544,30 @@ class _SermonListScreenState extends ConsumerState<SermonListScreen> {
 
           // Main Listing Area
           Expanded(
-            child: sermonDbExists.maybeWhen(
-              data: (exists) => !exists,
-              orElse: () => false,
-            )
+            child:
+                sermonDbExists.maybeWhen(
+                  data: (exists) => !exists,
+                  orElse: () => false,
+                )
                 ? _buildDbMissingView(theme)
-                : _buildSermonList(state),
+                : _buildSermonList(state, resultFontSize),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildSermonList(SermonListState state) {
-    if (state.sermons.isEmpty && state.searchResults.isEmpty && !state.isLoading) {
+  Widget _buildSermonList(SermonListState state, double resultFontSize) {
+    if (state.sermons.isEmpty &&
+        state.searchResults.isEmpty &&
+        !state.isLoading) {
       return const Center(child: Text("No sermons found."));
     }
 
     final isContentSearch = state.searchType == SearchType.all;
-    final itemCount = isContentSearch ? state.searchResults.length : state.sermons.length;
+    final itemCount = isContentSearch
+        ? state.searchResults.length
+        : state.sermons.length;
 
     return ListView.builder(
       controller: _scrollController,
@@ -546,65 +583,40 @@ class _SermonListScreenState extends ConsumerState<SermonListScreen> {
           );
         }
 
-        if (isContentSearch) {
-          final res = state.searchResults[index];
+        final res = isContentSearch ? state.searchResults[index] : null;
+        final sermon = !isContentSearch ? state.sermons[index] : null;
+
+        if (isContentSearch && res != null) {
           return SermonResultCard(
             id: res.sermonId,
             title: res.title,
-            date: res.date,
-            metaRightBadge: res.year?.toString(),
+            date: res.date ?? '',
             location: res.location,
-            highlightQuery: state.searchQuery,
-            snippet: _buildSnippetWidget(res.snippet),
+            metaRightBadge: res.year?.toString(),
+            subtitle: res.paragraphNumber != null
+                ? '¶${res.paragraphNumber}'
+                : null,
+            snippet: FtsHighlightText(rawSnippet: res.snippet),
+            highlightQuery: null,
+            fontSize: resultFontSize,
             onTap: () => _openSermonFromSearchResult(res),
           );
-        } else {
-          final sermon = state.sermons[index];
+        } else if (sermon != null) {
           return SermonResultCard(
             id: sermon.id,
             title: sermon.title,
-            date: sermon.date,
-            duration: sermon.duration,
+            date: sermon.date ?? '',
             location: sermon.location,
             metaRightBadge: sermon.year?.toString(),
-            subtitle: sermon.totalParagraphs != null ? '${sermon.totalParagraphs} ¶' : null,
-            highlightQuery: state.searchQuery,
+            highlightQuery: state.searchType == SearchType.prefix
+                ? state.searchQuery
+                : null,
+            fontSize: resultFontSize,
             onTap: () => _openSermon(sermon),
-            onDoubleTap: _isDesktopPlatform ? () => _replaceActiveSermon(sermon) : null,
-            onLongPress: _isDesktopPlatform ? null : () => _showSermonActionsSheet(sermon),
           );
         }
+        return const SizedBox.shrink();
       },
-    );
-  }
-
-  Widget _buildSnippetWidget(String snippetHtml) {
-    final theme = Theme.of(context);
-    final parts = snippetHtml.split(RegExp(r'<b>|</b>'));
-    final spans = <TextSpan>[];
-    for (var i = 0; i < parts.length; i++) {
-      final isBold = i % 2 == 1;
-      spans.add(TextSpan(
-        text: parts[i],
-        style: isBold
-            ? TextStyle(
-                fontWeight: FontWeight.bold,
-                backgroundColor: theme.colorScheme.tertiaryContainer.withOpacity(0.4),
-                color: theme.colorScheme.onTertiaryContainer,
-              )
-            : null,
-      ));
-    }
-    return RichText(
-      text: TextSpan(
-        style: theme.textTheme.bodySmall?.copyWith(
-          color: theme.colorScheme.onSurfaceVariant,
-          height: 1.4,
-        ),
-        children: spans,
-      ),
-      maxLines: 3,
-      overflow: TextOverflow.ellipsis,
     );
   }
 
@@ -643,9 +655,8 @@ class _SermonListScreenState extends ConsumerState<SermonListScreen> {
               onPressed: () {
                 Navigator.of(context).push(
                   MaterialPageRoute(
-                    builder: (_) => const OnboardingScreen(
-                      showImportDirectly: true,
-                    ),
+                    builder: (_) =>
+                        const OnboardingScreen(showImportDirectly: true),
                   ),
                 );
               },

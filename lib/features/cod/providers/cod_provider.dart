@@ -4,13 +4,16 @@ import 'dart:io';
 import '../../../core/database/cod_repository.dart';
 import '../../../core/database/database_manager.dart';
 import '../../../core/database/models/cod_models.dart';
+import '../../database_management/providers/local_databases_provider.dart';
 
 final _dbManagerProvider = Provider<DatabaseManager>((_) => DatabaseManager());
 
-final codDatabaseExistsProvider = FutureProvider.family<bool, String>((
+
+final codDatabaseExistsProvider = FutureProvider.family.autoDispose<bool, String>((
   ref,
   lang,
 ) async {
+  ref.watch(localDatabaseFilesProvider);
   final dbManager = ref.read(_dbManagerProvider);
   final dbFileName = lang == 'ta' ? 'cod_tamil.db' : 'cod_english.db';
   final dbPath = await dbManager.getDatabasePath(dbFileName);

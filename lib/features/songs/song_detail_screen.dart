@@ -10,6 +10,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/database/models/hymn_models.dart';
 import '../../core/widgets/responsive_bottom_sheet.dart';
 import 'providers/song_detail_provider.dart';
+import '../common/widgets/section_menu_button.dart';
 
 class SongDetailScreen extends StatelessWidget {
   const SongDetailScreen({super.key, required this.hymnNo});
@@ -80,6 +81,11 @@ class _SongDetailReaderState extends ConsumerState<_SongDetailReader> {
             tooltip: 'Select Song',
             icon: const Icon(Icons.queue_music),
             onPressed: () => GoRouter.of(context).push('/songs'),
+          ),
+          IconButton(
+            tooltip: 'Goto section',
+            icon: const Icon(Icons.view_module_outlined),
+            onPressed: () => openAppSectionsDialog(context, ref),
           ),
           IconButton(
             tooltip: 'Home',

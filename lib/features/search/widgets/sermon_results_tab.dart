@@ -217,7 +217,7 @@ class SermonResultsTab extends ConsumerWidget {
               SermonResultCard(
                 id: r.sermonId,
                 title: r.title,
-                date: r.date,
+                date: r.date ?? '',
                 duration: null,
                 location: r.location,
                 metaRightBadge: r.year?.toString(),

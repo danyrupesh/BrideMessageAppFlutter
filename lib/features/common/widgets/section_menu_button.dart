@@ -6,20 +6,17 @@ import '../../reader/providers/reader_provider.dart';
 import '../../sermons/providers/sermon_provider.dart';
 
 enum _SectionDest {
-  bibleEn,
-  bibleTa,
-  sermonEn,
-  sermonTa,
+  bible,
+  sermon,
   search,
   songs,
-  codEn,
-  codTa,
-  sealsEn,
-  sealsTa,
-  tractsEn,
-  tractsTa,
-  storiesEn,
-  storiesTa,
+  cod,
+  seals,
+  tracts,
+  stories,
+  churchAges,
+  prayerQuotes,
+  quotes,
 }
 
 class _SectionItem {
@@ -28,6 +25,7 @@ class _SectionItem {
   final String subtitle;
   final IconData icon;
   final String group;
+  final String? lang;
 
   const _SectionItem({
     required this.dest,
@@ -35,35 +33,22 @@ class _SectionItem {
     required this.subtitle,
     required this.icon,
     required this.group,
+    this.lang,
   });
 }
 
 const List<_SectionItem> _sectionItems = [
   _SectionItem(
-    dest: _SectionDest.bibleEn,
-    title: 'Bible EN',
-    subtitle: 'English Bible (KJV)',
+    dest: _SectionDest.bible,
+    title: 'Bible',
+    subtitle: 'English / Tamil',
     icon: Icons.menu_book_outlined,
     group: 'Bible',
   ),
   _SectionItem(
-    dest: _SectionDest.bibleTa,
-    title: 'Bible TA',
-    subtitle: 'Tamil Bible (BSI)',
-    icon: Icons.menu_book_outlined,
-    group: 'Bible',
-  ),
-  _SectionItem(
-    dest: _SectionDest.sermonEn,
-    title: 'Sermon EN',
-    subtitle: 'English sermons (Resume)',
-    icon: Icons.headphones_outlined,
-    group: 'Sermons',
-  ),
-  _SectionItem(
-    dest: _SectionDest.sermonTa,
-    title: 'Sermon TA',
-    subtitle: 'Tamil sermons',
+    dest: _SectionDest.sermon,
+    title: 'Sermons',
+    subtitle: 'English / Tamil sermons',
     icon: Icons.headphones_outlined,
     group: 'Sermons',
   ),
@@ -77,67 +62,131 @@ const List<_SectionItem> _sectionItems = [
   _SectionItem(
     dest: _SectionDest.songs,
     title: 'Songs',
-    subtitle: 'Only Believe Songs',
+    subtitle: 'English / Tamil Songs',
     icon: Icons.music_note_outlined,
     group: 'Other',
   ),
   _SectionItem(
-    dest: _SectionDest.codEn,
-    title: 'COD EN',
-    subtitle: 'Question and Answers (English)',
+    dest: _SectionDest.cod,
+    title: 'COD',
+    subtitle: 'Question and Answers',
     icon: Icons.article_outlined,
     group: 'Other',
   ),
   _SectionItem(
-    dest: _SectionDest.codTa,
-    title: 'COD TA',
-    subtitle: 'Question and Answers (Tamil)',
-    icon: Icons.article_outlined,
-    group: 'Other',
-  ),
-  _SectionItem(
-    dest: _SectionDest.sealsEn,
-    title: '7 Seals EN',
-    subtitle: 'Seven Seals (English)',
+    dest: _SectionDest.seals,
+    title: '7 Seals',
+    subtitle: 'Seven Seals',
     icon: Icons.layers_outlined,
     group: 'Other',
   ),
   _SectionItem(
-    dest: _SectionDest.sealsTa,
-    title: '7 Seals TA',
-    subtitle: 'Seven Seals (Tamil)',
-    icon: Icons.layers_outlined,
+    dest: _SectionDest.tracts,
+    title: 'Tracts',
+    subtitle: 'English / Tamil Tracts',
+    icon: Icons.article,
+    group: 'Tracts & Stories',
+  ),
+  _SectionItem(
+    dest: _SectionDest.stories,
+    title: 'Stories',
+    subtitle: 'English / Tamil Stories',
+    icon: Icons.auto_stories_outlined,
+    group: 'Tracts & Stories',
+  ),
+  _SectionItem(
+    dest: _SectionDest.churchAges,
+    title: 'Church Ages',
+    subtitle: 'The 7 Church Ages',
+    icon: Icons.church_outlined,
     group: 'Other',
   ),
   _SectionItem(
-    dest: _SectionDest.tractsEn,
-    title: 'Tracts EN',
-    subtitle: 'English Tracts',
-    icon: Icons.article,
-    group: 'Tracts & Stories',
+    dest: _SectionDest.prayerQuotes,
+    title: 'Prayer Quotes',
+    subtitle: 'Inspirational Prayers',
+    icon: Icons.format_quote_rounded,
+    group: 'Other',
   ),
   _SectionItem(
-    dest: _SectionDest.tractsTa,
-    title: 'Tracts TA',
-    subtitle: 'Tamil Tracts',
-    icon: Icons.article,
-    group: 'Tracts & Stories',
-  ),
-  _SectionItem(
-    dest: _SectionDest.storiesEn,
-    title: 'Stories EN',
-    subtitle: 'Stories (English)',
-    icon: Icons.auto_stories_outlined,
-    group: 'Tracts & Stories',
-  ),
-  _SectionItem(
-    dest: _SectionDest.storiesTa,
-    title: 'Stories TA',
-    subtitle: 'Stories (Tamil)',
-    icon: Icons.auto_stories_outlined,
-    group: 'Tracts & Stories',
+    dest: _SectionDest.quotes,
+    title: 'English Quotes',
+    subtitle: 'A-Z · Topics · VGR',
+    icon: Icons.format_quote_outlined,
+    group: 'Other',
+    lang: 'en',
   ),
 ];
+
+/// Opens the homepage-style section picker (same as ⋮ Sections elsewhere).
+Future<void> openAppSectionsDialog(BuildContext context, WidgetRef ref) async {
+  final selectedLang = ref.read(selectedSermonLangProvider);
+  final selection = await showDialog<({String lang, _SectionDest dest})>(
+    context: context,
+    barrierDismissible: true,
+    builder: (dialogContext) =>
+        _SectionsDialog(items: _sectionItems, initialLang: selectedLang),
+  );
+  if (!context.mounted || selection == null) return;
+  _applyAppSectionDestination(context, ref, selection.dest, selection.lang);
+}
+
+void _applyAppSectionDestination(
+  BuildContext context,
+  WidgetRef ref,
+  _SectionDest dest,
+  String selectedLang,
+) {
+  switch (dest) {
+    case _SectionDest.bible:
+      ref.read(selectedBibleLangProvider.notifier).setLang(selectedLang);
+      if (GoRouterState.of(context).matchedLocation != '/reader') {
+        context.push('/reader');
+      }
+      return;
+    case _SectionDest.sermon:
+      ref.read(selectedSermonLangProvider.notifier).setLang(selectedLang);
+      context.push(selectedLang == 'en' ? '/sermons?resume=1' : '/sermons');
+      return;
+    case _SectionDest.search:
+      context.push('/search?fresh=1');
+      return;
+    case _SectionDest.songs:
+      context.push(selectedLang == 'ta' ? '/songs/tamil' : '/songs');
+      return;
+    case _SectionDest.cod:
+      context.push('/cod?lang=$selectedLang');
+      return;
+    case _SectionDest.seals:
+      ref.read(selectedSermonLangProvider.notifier).setLang(selectedLang);
+      context.push(
+        Uri(
+          path: '/sermons',
+          queryParameters: {
+            'mode': 'sevenSeals',
+            'title': selectedLang == 'ta' ? 'ஏழு முத்திரைகள்' : '7 Seals',
+            'lang': selectedLang,
+          },
+        ).toString(),
+      );
+      return;
+    case _SectionDest.tracts:
+      context.push('/tracts?lang=$selectedLang');
+      return;
+    case _SectionDest.stories:
+      context.push('/stories?lang=$selectedLang');
+      return;
+    case _SectionDest.churchAges:
+      context.push('/church-ages?lang=$selectedLang');
+      return;
+    case _SectionDest.prayerQuotes:
+      context.push('/prayer-quotes');
+      return;
+    case _SectionDest.quotes:
+      context.push('/quotes');
+      return;
+  }
+}
 
 class SectionMenuButton extends ConsumerWidget {
   const SectionMenuButton({super.key});
@@ -147,110 +196,30 @@ class SectionMenuButton extends ConsumerWidget {
     return IconButton(
       tooltip: 'Sections',
       icon: const Icon(Icons.more_vert),
-      onPressed: () async {
-        final dest = await showDialog<_SectionDest>(
-          context: context,
-          barrierDismissible: true,
-          builder: (dialogContext) => _SectionsDialog(items: _sectionItems),
-        );
-        if (!context.mounted || dest == null) return;
-        _handleSelected(context, ref, dest);
-      },
+      onPressed: () => openAppSectionsDialog(context, ref),
     );
   }
-
-  void _handleSelected(BuildContext context, WidgetRef ref, _SectionDest dest) {
-    switch (dest) {
-      case _SectionDest.bibleEn:
-        ref.read(selectedBibleLangProvider.notifier).setLang('en');
-        if (GoRouterState.of(context).matchedLocation != '/reader') {
-          context.push('/reader');
-        }
-        return;
-      case _SectionDest.bibleTa:
-        ref.read(selectedBibleLangProvider.notifier).setLang('ta');
-        if (GoRouterState.of(context).matchedLocation != '/reader') {
-          context.push('/reader');
-        }
-        return;
-      case _SectionDest.sermonEn:
-        ref.read(selectedSermonLangProvider.notifier).setLang('en');
-        context.push('/sermons?resume=1');
-        return;
-      case _SectionDest.sermonTa:
-        ref.read(selectedSermonLangProvider.notifier).setLang('ta');
-        context.push('/sermons');
-        return;
-      case _SectionDest.search:
-        context.push('/search?fresh=1');
-        return;
-      case _SectionDest.songs:
-        context.push('/songs');
-        return;
-      case _SectionDest.codEn:
-        context.push('/cod?lang=en');
-        return;
-      case _SectionDest.codTa:
-        context.push('/cod?lang=ta');
-        return;
-      case _SectionDest.sealsEn:
-        ref.read(selectedSermonLangProvider.notifier).setLang('en');
-        context.push(
-          Uri(
-            path: '/sermons',
-            queryParameters: const {
-              'mode': 'sevenSeals',
-              'title': '7 Seals',
-              'lang': 'en',
-            },
-          ).toString(),
-        );
-        return;
-      case _SectionDest.sealsTa:
-        ref.read(selectedSermonLangProvider.notifier).setLang('ta');
-        context.push(
-          Uri(
-            path: '/sermons',
-            queryParameters: const {
-              'mode': 'sevenSeals',
-              'title': 'ஏழு முத்திரைகள்',
-              'lang': 'ta',
-            },
-          ).toString(),
-        );
-        return;
-      case _SectionDest.tractsEn:
-        context.push('/tracts?lang=en');
-        return;
-      case _SectionDest.tractsTa:
-        context.push('/tracts?lang=ta');
-        return;
-      case _SectionDest.storiesEn:
-        context.push('/stories?lang=en');
-        return;
-      case _SectionDest.storiesTa:
-        context.push('/stories?lang=ta');
-        return;
-    }
-  }
 }
 
-class _SectionsDialog extends StatefulWidget {
+class _SectionsDialog extends ConsumerStatefulWidget {
   final List<_SectionItem> items;
+  final String initialLang;
 
-  const _SectionsDialog({required this.items});
+  const _SectionsDialog({required this.items, required this.initialLang});
 
   @override
-  State<_SectionsDialog> createState() => _SectionsDialogState();
+  ConsumerState<_SectionsDialog> createState() => _SectionsDialogState();
 }
 
-class _SectionsDialogState extends State<_SectionsDialog> {
+class _SectionsDialogState extends ConsumerState<_SectionsDialog> {
   final TextEditingController _controller = TextEditingController();
   String _query = '';
+  late String _selectedLang;
 
   @override
   void initState() {
     super.initState();
+    _selectedLang = widget.initialLang == 'ta' ? 'ta' : 'en';
     _controller.addListener(() {
       final next = _controller.text;
       if (next == _query) return;
@@ -268,13 +237,30 @@ class _SectionsDialogState extends State<_SectionsDialog> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final size = MediaQuery.sizeOf(context);
-    final dialogWidth = (size.width - 64).clamp(280.0, 420.0);
-    final dialogHeight = (size.height * 0.75).clamp(320.0, 640.0);
+    final viewInsets = MediaQuery.viewInsetsOf(context);
+    final padding = MediaQuery.paddingOf(context);
+    // Dialog.insetPadding is 16 on all sides → 32px vertical; keep bottom from clipping.
+    const dialogVerticalInset = 32.0;
+    final maxDialogHeight = (size.height -
+            viewInsets.bottom -
+            padding.top -
+            padding.bottom -
+            dialogVerticalInset)
+        .clamp(200.0, size.height);
+    final dialogWidth = (size.width - 48).clamp(320.0, 460.0);
+    final proposedHeight = size.height * 0.82;
+    final dialogHeight = (proposedHeight < maxDialogHeight
+            ? proposedHeight
+            : maxDialogHeight)
+        .clamp(200.0, maxDialogHeight);
 
     final q = _query.trim().toLowerCase();
+    final langFiltered = widget.items
+        .where((it) => it.lang == null || it.lang == _selectedLang)
+        .toList(growable: false);
     final filtered = q.isEmpty
-        ? widget.items
-        : widget.items
+        ? langFiltered
+        : langFiltered
               .where((it) {
                 final hay = '${it.title}\n${it.subtitle}'.toLowerCase();
                 return hay.contains(q);
@@ -284,6 +270,7 @@ class _SectionsDialogState extends State<_SectionsDialog> {
     return Dialog(
       insetPadding: const EdgeInsets.all(16),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      clipBehavior: Clip.antiAlias,
       child: SizedBox(
         width: dialogWidth,
         height: dialogHeight,
@@ -315,6 +302,40 @@ class _SectionsDialogState extends State<_SectionsDialog> {
                     ),
                   ),
                   const SizedBox(width: 8),
+                  SegmentedButton<String>(
+                    segments: const [
+                      ButtonSegment<String>(
+                        value: 'en',
+                        label: Text(
+                          'EN',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                      ButtonSegment<String>(
+                        value: 'ta',
+                        label: Text(
+                          'TA',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                    selected: {_selectedLang},
+                    onSelectionChanged: (selection) {
+                      setState(() => _selectedLang = selection.first);
+                    },
+                    showSelectedIcon: false,
+                    style: const ButtonStyle(
+                      visualDensity: VisualDensity.compact,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
                   IconButton(
                     tooltip: 'Close',
                     icon: const Icon(Icons.close),
@@ -326,6 +347,7 @@ class _SectionsDialogState extends State<_SectionsDialog> {
             Expanded(
               child: Material(
                 color: theme.colorScheme.surface,
+                clipBehavior: Clip.hardEdge,
                 child: _buildList(context, filtered, groupHeaders: q.isEmpty),
               ),
             ),
@@ -346,7 +368,7 @@ class _SectionsDialogState extends State<_SectionsDialog> {
 
     if (!groupHeaders) {
       return ListView.separated(
-        padding: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.only(bottom: 20),
         itemCount: items.length,
         separatorBuilder: (_, _) => const Divider(height: 1),
         itemBuilder: (context, index) => _buildTile(context, items[index]),
@@ -376,7 +398,7 @@ class _SectionsDialogState extends State<_SectionsDialog> {
     }
 
     return ListView(
-      padding: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.only(bottom: 20),
       children: children,
     );
   }
@@ -387,7 +409,8 @@ class _SectionsDialogState extends State<_SectionsDialog> {
       leading: Icon(item.icon),
       title: Text(item.title),
       subtitle: Text(item.subtitle),
-      onTap: () => Navigator.of(context).pop(item.dest),
+      onTap: () =>
+          Navigator.of(context).pop((lang: _selectedLang, dest: item.dest)),
     );
   }
 }

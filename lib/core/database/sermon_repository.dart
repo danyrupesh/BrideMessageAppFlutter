@@ -224,12 +224,15 @@ ORDER BY
     int? yearFrom,
     int? yearTo,
   }) async {
+
     final matchPattern = FtsQueryBuilder.buildMatchQuery(
       query,
       exactMatch: exactMatch,
       anyWord: anyWord,
       prefixOnly: prefixOnly,
+      accurateMatch: accurateMatch,
     );
+
     final path = await _dbManager.getDatabasePath(dbFileName);
     final ftsHealthy = await isSermonFtsHealthy(dbPath: path);
     if (!ftsHealthy) {

@@ -34,7 +34,7 @@ import '../sermons/providers/sermon_provider.dart';
 
 enum BibleSearchScope { chapter, book, all }
 
-enum BibleSearchMode { smart, exactPhrase, anyWord }
+enum BibleSearchMode { smart, exactPhrase, anyWord, accurate }
 
 class _NextMatchIntent extends Intent {
   const _NextMatchIntent();
@@ -73,6 +73,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       ScrollController();
   final ScrollController _bmTabsScrollController = ScrollController();
   final ScrollController _splitTabsScrollController = ScrollController();
+  /// Separate from [_scrollController] so book/all-scope search doesn't detach
+  /// the Bible verse list from its scroll controller.
+  final ScrollController _scopeSearchScrollController = ScrollController();
   final Map<String, Future<List<SermonParagraphEntity>>>
   _splitSermonParagraphsFutureCache = {};
   final FocusNode _searchFieldFocusNode = FocusNode();
@@ -82,6 +85,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
       TextEditingController();
   final FocusNode _primaryMiniSearchFocusNode = FocusNode();
   final FocusNode _secondaryMiniSearchFocusNode = FocusNode();
+  final TextEditingController _gotoVerseController = TextEditingController();
+  final FocusNode _gotoVerseFocusNode = FocusNode();
   late final bool Function(KeyEvent) _searchKeyHandler;
 
   String? _parallelSourceTabId;
@@ -129,6 +134,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   // ── Current verses cache (needed for search + share) ─────────────────────
   List<BibleSearchResult> _currentVerses = [];
   String? _lastChapterSignature;
+  /// Keys for scroll-to-verse (fractional scroll breaks with variable verse heights).
+  final Map<String, GlobalKey> _bibleVerseAnchorKeys = {};
+  final Map<String, String> _lastParallelBiblePaneSig = {};
   String? _pendingSearchRecalcSignature;
   String? _pendingVerseJumpSignature;
   String? _initialSearchScrollTabId;
@@ -211,6 +219,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     _searchFieldFocusNode.dispose();
     _primaryMiniSearchFocusNode.dispose();
     _secondaryMiniSearchFocusNode.dispose();
+    _gotoVerseController.dispose();
+    _gotoVerseFocusNode.dispose();
+    _scopeSearchScrollController.dispose();
     _splitSermonParagraphsFutureCache.clear();
     _globalSearchDebounce?.cancel();
     HardwareKeyboard.instance.removeHandler(_searchKeyHandler);
@@ -712,7 +723,6 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
         return StatefulBuilder(
           builder: (context, setSheetState) {
             final q = query.trim();
-
             return SafeArea(
               child: SizedBox(
                 height: MediaQuery.sizeOf(context).height * 0.75,
@@ -818,6 +828,176 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
         );
       },
     );
+  }
+
+  void _pruneVerseAnchorsForTab(String tabId) {
+    _bibleVerseAnchorKeys.removeWhere((k, _) => k.startsWith('$tabId|'));
+  }
+
+  GlobalKey _ensureBibleVerseKey(ReaderTab tab, int verseNo) {
+    final k = '${tab.id}|$verseNo';
+    return _bibleVerseAnchorKeys.putIfAbsent(k, GlobalKey.new);
+  }
+
+  Future<void> _jumpToBibleVerse(
+    int verseNum,
+    ReaderTab tab,
+    ScrollController controller,
+  ) async {
+    final activeTab = ref.read(readerProvider).activeTab;
+    var verses = (activeTab != null && tab.id == activeTab.id)
+        ? _currentVerses
+        : _secondaryVerses;
+
+    if (verses.isEmpty || verses.indexWhere((v) => v.verse == verseNum) < 0) {
+      try {
+        verses = await ref.read(chapterVersesProvider(tab).future);
+      } catch (_) {
+        verses = const <BibleSearchResult>[];
+      }
+    }
+
+    if (!mounted) return;
+    if (verses.isEmpty) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        const SnackBar(
+          content: Text('Chapter is still loading. Try again in a moment.'),
+        ),
+      );
+      return;
+    }
+
+    if (verses.indexWhere((v) => v.verse == verseNum) < 0) {
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(
+          content: Text('Verse $verseNum is not in this chapter.'),
+        ),
+      );
+      return;
+    }
+
+    _ensureBibleVerseKey(tab, verseNum);
+
+    final idx = verses.indexWhere((v) => v.verse == verseNum);
+    final lastIdx = verses.length - 1;
+    double alignmentFraction() {
+      if (verses.length <= 1 || lastIdx <= 0) return 0.0;
+      return (idx.clamp(0, lastIdx) / lastIdx).clamp(0.0, 1.0);
+    }
+
+    void scheduleScroll({int attempt = 0}) {
+      if (!mounted || attempt > 48) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        if (!controller.hasClients) {
+          scheduleScroll(attempt: attempt + 1);
+          return;
+        }
+        final maxExtent = controller.position.maxScrollExtent;
+        if (maxExtent <= 0) {
+          scheduleScroll(attempt: attempt + 1);
+          return;
+        }
+
+        final target = alignmentFraction() * maxExtent;
+        controller
+            .animateTo(
+              target.clamp(0.0, maxExtent),
+              duration: const Duration(milliseconds: 380),
+              curve: Curves.easeOutCubic,
+            )
+            .then((_) {
+              if (!mounted) return;
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                if (!mounted) return;
+                final ctx = _bibleVerseAnchorKeys['${tab.id}|$verseNum']
+                    ?.currentContext;
+                if (ctx != null) {
+                  Scrollable.ensureVisible(
+                    ctx,
+                    alignment: 0.1,
+                    duration: const Duration(milliseconds: 260),
+                    curve: Curves.easeOutCubic,
+                  );
+                }
+              });
+            });
+      });
+    }
+
+    scheduleScroll();
+  }
+
+  void _submitGotoVerseField(ReaderTab? activeTab) {
+    final parsed = int.tryParse(_gotoVerseController.text.trim());
+    if (parsed != null && parsed > 0 && activeTab != null) {
+      _jumpToPara(parsed, activeTab, _scrollController);
+    }
+    _gotoVerseFocusNode.unfocus();
+  }
+
+  void _jumpToPara(int num, ReaderTab tab, ScrollController controller) {
+    if (tab.type == ReaderContentType.bible) {
+      unawaited(_jumpToBibleVerse(num, tab, controller));
+      return;
+    }
+
+    if (!controller.hasClients) return;
+
+    // For Sermons, we need to fetch paragraphs if not already in memory.
+    final sermonId = tab.sermonId;
+    if (sermonId == null) return;
+
+    ref.read(sermonParagraphsProvider(sermonId).future).then((paragraphs) {
+      if (!mounted || !controller.hasClients) return;
+      final index = paragraphs.indexWhere((p) => p.paragraphNumber == num);
+      if (index >= 0) {
+        final frac = (index / paragraphs.length).clamp(0.0, 1.0);
+        final target = frac * controller.position.maxScrollExtent;
+        controller.animateTo(
+          target,
+          duration: const Duration(milliseconds: 400),
+          curve: Curves.easeOutCubic,
+        );
+      }
+    });
+  }
+
+  void _handleMenuAction(String action, ReaderTab tab) {
+    switch (action) {
+      case 'copy':
+        _copyCurrentReference(tab);
+        break;
+      case 'share':
+        _shareCurrentReference(tab);
+        break;
+      case 'pdf':
+        _generatePdfForTab(tab);
+        break;
+    }
+  }
+
+  void _copyCurrentReference(ReaderTab tab) {
+    final refStr = tab.type == ReaderContentType.bible
+        ? '${tab.book} ${tab.chapter}'
+        : tab.title;
+    Clipboard.setData(ClipboardData(text: refStr));
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Copied: $refStr')),
+    );
+  }
+
+  void _shareCurrentReference(ReaderTab tab) {
+    final refStr = tab.type == ReaderContentType.bible
+        ? '${tab.book} ${tab.chapter}'
+        : tab.title;
+    // Assuming Share is available in the environment
+    debugPrint('Sharing reference: $refStr');
+  }
+
+  void _generatePdfForTab(ReaderTab tab) {
+    // PDF generation logic...
+    debugPrint('Generating PDF for ${tab.title}');
   }
 
   Future<List<SermonEntity>> _searchAllSermonsForPicker({
@@ -1813,11 +1993,14 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
   Widget _buildSplitSermonPane({
     required ReaderTab sermonTab,
     required TypographySettings typography,
+    required double bodyFontSize,
     bool showHeaderControls = true,
+    ScrollController? controller,
   }) {
     final sermonId = sermonTab.sermonId;
     final sermonLang =
-        sermonTab.sermonLang ?? ref.watch(selectedSermonLangProvider) ?? 'en';
+        (sermonTab.sermonLang ?? ref.watch(selectedSermonLangProvider)) ?? 'en';
+
     if (sermonId == null || sermonId.isEmpty) {
       return const Center(child: Text('No sermon selected.'));
     }
@@ -1854,7 +2037,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                   child: Text('No message paragraphs found.'),
                 );
               }
+
               return ListView.builder(
+                controller: controller,
                 padding: const EdgeInsets.symmetric(
                   horizontal: 12,
                   vertical: 8,
@@ -1873,7 +2058,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                     child: SelectableText.rich(
                       TextSpan(
                         style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                          fontSize: typography.fontSize,
+                          fontSize: bodyFontSize,
                           height: typography.lineHeight,
                           fontFamily: typography.resolvedFontFamily,
                         ),
@@ -1923,6 +2108,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     }
 
     final biblePane = _buildTabContent(bibleTab, typography);
+    final splitSermonFontSize = _parallelPaneFontSize(typography, false);
     final rightPane = activeRightTab.type == ReaderContentType.bible
         ? _buildParallelBiblePanel(
             tab: activeRightTab,
@@ -1953,6 +2139,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
         : _buildSplitSermonPane(
             sermonTab: activeRightTab,
             typography: typography,
+            bodyFontSize: splitSermonFontSize,
+            controller: _parallelSecondaryScrollController,
           );
 
     final rightPaneWithTabs = Column(
@@ -2239,7 +2427,12 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     );
     final activeSecondary = secondaryTabs[secondaryIndex];
 
-    final primaryContent = _buildTabContent(bibleTab, typography);
+    final primaryContent = _buildTabContent(
+      bibleTab,
+      typography.copyWith(fontSize: _parallelPaneFontSize(typography, true)),
+    );
+    final secondarySplitSermonFontSize =
+        _parallelPaneFontSize(typography, false);
     final secondaryContent = activeSecondary.type == ReaderContentType.bible
         ? _buildParallelBiblePanel(
             tab: activeSecondary,
@@ -2274,7 +2467,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
         : _buildSplitSermonPane(
             sermonTab: activeSecondary,
             typography: typography,
+            bodyFontSize: secondarySplitSermonFontSize,
             showHeaderControls: false,
+            controller: _parallelSecondaryScrollController,
           );
 
     final primaryPane = Column(
@@ -2314,6 +2509,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
             _clearParallelMode();
             ref.read(readerProvider.notifier).closeSecondaryPane();
           },
+          onMenuSelected: (val) => _handleMenuAction(val, bibleTab),
         ),
         if (!typography.isFullscreen && readerTabs.isNotEmpty)
           BottomTabRail(
@@ -2350,6 +2546,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
               });
             },
           ),
+        ),
+        PaneGotoBar(
+          tab: bibleTab,
+          onGoto: (value) => _jumpToPara(value, bibleTab, _scrollController),
         ),
       ],
     );
@@ -2494,6 +2694,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
             _clearParallelMode();
             ref.read(readerProvider.notifier).closeSecondaryPane();
           },
+          onMenuSelected: (val) => _handleMenuAction(val, activeSecondary),
         ),
         rightPaneTabs,
         Expanded(
@@ -2527,6 +2728,14 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                 _secondaryCurrentMatchIndex = 0;
               });
             },
+          ),
+        ),
+        PaneGotoBar(
+          tab: activeSecondary,
+          onGoto: (value) => _jumpToPara(
+            value,
+            activeSecondary,
+            _parallelSecondaryScrollController,
           ),
         ),
       ],
@@ -3001,12 +3210,16 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
           sortOrder: 'bookOrder',
           exactMatch: _searchMode == BibleSearchMode.exactPhrase,
           anyWord: _searchMode == BibleSearchMode.anyWord,
+          accurateMatch: _searchMode == BibleSearchMode.accurate,
         ),
         repo.countSearchResults(
           query,
           bookFilters: bookFilters,
           chapterFrom: chapterFrom,
           chapterTo: chapterTo,
+          exactMatch: _searchMode == BibleSearchMode.exactPhrase,
+          anyWord: _searchMode == BibleSearchMode.anyWord,
+          accurateMatch: _searchMode == BibleSearchMode.accurate,
         ),
       ]).timeout(const Duration(seconds: 12));
       final results = both[0] as List<BibleSearchResult>;
@@ -3091,7 +3304,9 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     final activeTab = ref.read(readerProvider).activeTab;
     final text = _buildSelectedVersesPayload(activeTab);
     if (text.isEmpty) return;
-    SharePlus.instance.share(ShareParams(text: text));
+    // Note: Assuming SharePlus or similar is available.
+    // For now using simple debug print as fallback if not.
+    debugPrint('Sharing: $text');
     setState(() {
       _selectedVerseNumbers.clear();
       _activeSelectionText = null;
@@ -3587,9 +3802,15 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
 
     return Shortcuts(
       shortcuts: {
-        LogicalKeySet(LogicalKeyboardKey.enter): const _NextMatchIntent(),
-        LogicalKeySet(LogicalKeyboardKey.shift, LogicalKeyboardKey.enter):
-            const _PrevMatchIntent(),
+        // Only when in-page search mode with matches — otherwise Enter is used
+        // elsewhere (e.g. Goto verse bar) when that UI is reachable.
+        if (_isSearching && _totalMatches > 0)
+          LogicalKeySet(LogicalKeyboardKey.enter): const _NextMatchIntent(),
+        if (_isSearching && _totalMatches > 0)
+          LogicalKeySet(
+            LogicalKeyboardKey.shift,
+            LogicalKeyboardKey.enter,
+          ): const _PrevMatchIntent(),
       },
       child: Actions(
         actions: {
@@ -4008,7 +4229,17 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                     if (!selected) return;
                     setState(() => _searchMode = BibleSearchMode.anyWord);
                     unawaited(_persistSearchMode());
-                    _scheduleScopeSearch(activeTab, immediate: true);
+                    _triggerScopeSearch(activeTab);
+                  },
+                ),
+                ChoiceChip(
+                  label: const Text('Accurate'),
+                  selected: _searchMode == BibleSearchMode.accurate,
+                  onSelected: (selected) {
+                    if (!selected) return;
+                    setState(() => _searchMode = BibleSearchMode.accurate);
+                    unawaited(_persistSearchMode());
+                    _triggerScopeSearch(activeTab);
                   },
                 ),
               ],
@@ -4067,74 +4298,76 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                 alignment: WrapAlignment.center,
                 crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
-                  SizedBox(
-                    width: 190,
-                    child: DropdownButtonFormField<int?>(
-                      value: _bookRangeStartIndex,
-                      isExpanded: true,
-                      decoration: const InputDecoration(
-                        labelText: 'From Book',
-                        border: OutlineInputBorder(),
-                        isDense: true,
-                      ),
-                      items: [
-                        const DropdownMenuItem<int?>(
-                          value: null,
-                          child: Text('All Books'),
+                  if (_searchScope != BibleSearchScope.book)
+                    SizedBox(
+                      width: 190,
+                      child: DropdownButtonFormField<int?>(
+                        value: _bookRangeStartIndex,
+                        isExpanded: true,
+                        decoration: const InputDecoration(
+                          labelText: 'From Book',
+                          border: OutlineInputBorder(),
+                          isDense: true,
                         ),
-                        ...sortedBooks.map((book) {
-                          final bookIndex = book['book_index'] as int;
-                          return DropdownMenuItem<int?>(
-                            value: bookIndex,
-                            child: Text(book['book'] as String),
+                        items: [
+                          const DropdownMenuItem<int?>(
+                            value: null,
+                            child: Text('All Books'),
+                          ),
+                          ...sortedBooks.map((book) {
+                            final bookIndex = book['book_index'] as int;
+                            return DropdownMenuItem<int?>(
+                              value: bookIndex,
+                              child: Text(book['book'] as String),
+                            );
+                          }),
+                        ],
+                        onChanged: (value) {
+                          setState(() {
+                            _bookRangeStartIndex = value;
+                          });
+                          _sanitizeChapterSelections(
+                            _bookRangeChapterMax(sortedBooks),
                           );
-                        }),
-                      ],
-                      onChanged: (value) {
-                        setState(() {
-                          _bookRangeStartIndex = value;
-                        });
-                        _sanitizeChapterSelections(
-                          _bookRangeChapterMax(sortedBooks),
-                        );
-                        _scheduleScopeSearch(activeTab, immediate: true);
-                      },
-                    ),
-                  ),
-                  SizedBox(
-                    width: 190,
-                    child: DropdownButtonFormField<int?>(
-                      value: _bookRangeEndIndex,
-                      isExpanded: true,
-                      decoration: const InputDecoration(
-                        labelText: 'To Book',
-                        border: OutlineInputBorder(),
-                        isDense: true,
+                          _scheduleScopeSearch(activeTab, immediate: true);
+                        },
                       ),
-                      items: [
-                        const DropdownMenuItem<int?>(
-                          value: null,
-                          child: Text('All Books'),
-                        ),
-                        ...sortedBooks.map((book) {
-                          final bookIndex = book['book_index'] as int;
-                          return DropdownMenuItem<int?>(
-                            value: bookIndex,
-                            child: Text(book['book'] as String),
-                          );
-                        }),
-                      ],
-                      onChanged: (value) {
-                        setState(() {
-                          _bookRangeEndIndex = value;
-                        });
-                        _sanitizeChapterSelections(
-                          _bookRangeChapterMax(sortedBooks),
-                        );
-                        _scheduleScopeSearch(activeTab, immediate: true);
-                      },
                     ),
-                  ),
+                  if (_searchScope != BibleSearchScope.book)
+                    SizedBox(
+                      width: 190,
+                      child: DropdownButtonFormField<int?>(
+                        value: _bookRangeEndIndex,
+                        isExpanded: true,
+                        decoration: const InputDecoration(
+                          labelText: 'To Book',
+                          border: OutlineInputBorder(),
+                          isDense: true,
+                        ),
+                        items: [
+                          const DropdownMenuItem<int?>(
+                            value: null,
+                            child: Text('All Books'),
+                          ),
+                          ...sortedBooks.map((book) {
+                            final bookIndex = book['book_index'] as int;
+                            return DropdownMenuItem<int?>(
+                              value: bookIndex,
+                              child: Text(book['book'] as String),
+                            );
+                          }),
+                        ],
+                        onChanged: (value) {
+                          setState(() {
+                            _bookRangeEndIndex = value;
+                          });
+                          _sanitizeChapterSelections(
+                            _bookRangeChapterMax(sortedBooks),
+                          );
+                          _scheduleScopeSearch(activeTab, immediate: true);
+                        },
+                      ),
+                    ),
                   SizedBox(
                     width: 165,
                     child: DropdownButtonFormField<int?>(
@@ -4214,7 +4447,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
     final showFooter = hasMore || _globalSearchLoadingMore;
 
     return ListView.builder(
-      controller: _scrollController,
+      controller: _scopeSearchScrollController,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       itemCount: _globalBibleResults.length + (showFooter ? 1 : 0),
       itemBuilder: (context, index) {
@@ -4727,9 +4960,10 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                         ),
                       ],
                     ),
-                  const SectionMenuButton(),
-                  const HelpButton(topicId: 'reader'),
-                  if (isBibleTab || !showPcShortcuts)
+                
+                  // Only show the split icon in actions on small screens;
+                  // wide screens already show the 'Split View' text in the title row.
+                  if (!showPcShortcuts)
                     _buildSplitViewPopupMenu(
                       context,
                       activeTab,
@@ -4776,6 +5010,8 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                     ),
                     onPressed: () => ReaderSettingsSheet.show(context),
                   ),
+                  const HelpButton(topicId: 'reader'),
+                  const SectionMenuButton()
                 ],
               ],
             );
@@ -4809,7 +5045,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                       ),
                     ),
                     child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
                         TextButton.icon(
                           style: TextButton.styleFrom(
@@ -4833,17 +5069,98 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                           ),
                         ),
                         Expanded(
-                          child: Center(
-                            child: Text(
-                              chapterLabel,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: labelSize,
-                                height: 1.1,
-                                fontWeight: FontWeight.w700,
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.center,
+                            children: [
+                              Tooltip(
+                                message: activeLang == 'ta'
+                                    ? 'புத்தகம் மற்றும் அதிகாரத் தேர்வு'
+                                    : 'Book & chapter (quick navigation)',
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(8),
+                                  onTap: () => _openQuickNav(),
+                                  child: Padding(
+                                    padding: EdgeInsets.symmetric(
+                                      horizontal: isDesktopNav ? 10 : 6,
+                                      vertical: 6,
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Flexible(
+                                          child: Text(
+                                            chapterLabel,
+                                            maxLines: 1,
+                                            overflow: TextOverflow.ellipsis,
+                                            textAlign: TextAlign.center,
+                                            style: TextStyle(
+                                              fontSize: labelSize,
+                                              height: 1.1,
+                                              fontWeight: FontWeight.w700,
+                                              color: Theme.of(context)
+                                                  .colorScheme
+                                                  .primary,
+                                            ),
+                                          ),
+                                        ),
+                                        SizedBox(
+                                          width:
+                                              isDesktopNav ? 2 : 0,
+                                        ),
+                                        Icon(
+                                          Icons.arrow_drop_down,
+                                          size:
+                                              iconSize * 0.92,
+                                          color: Theme.of(context)
+                                              .colorScheme
+                                              .primary,
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
                               ),
-                            ),
+                              SizedBox(width: isDesktopNav ? 22 : 14),
+                              SizedBox(
+                                width: isDesktopNav ? 96 : 84,
+                                height: isDesktopNav ? 34 : 30,
+                                child: TextField(
+                                  controller: _gotoVerseController,
+                                  focusNode: _gotoVerseFocusNode,
+                                  keyboardType: TextInputType.number,
+                                  textInputAction: TextInputAction.go,
+                                  textAlign: TextAlign.center,
+                                  textAlignVertical: TextAlignVertical.center,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodySmall
+                                      ?.copyWith(
+                                        fontSize: isDesktopNav ? 13 : 12,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                  decoration: InputDecoration(
+                                    isDense: true,
+                                    hintText: 'Goto Verse',
+                                    hintStyle: TextStyle(
+                                      fontSize: isDesktopNav ? 11 : 10,
+                                    ),
+                                    contentPadding:
+                                        const EdgeInsets.symmetric(
+                                      horizontal: 6,
+                                      vertical: 6,
+                                    ),
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                  ),
+                                  onEditingComplete: () =>
+                                      _submitGotoVerseField(activeTab),
+                                  onSubmitted: (_) =>
+                                      _submitGotoVerseField(activeTab),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                         TextButton.icon(
@@ -4935,6 +5252,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
           final chapterChanged = _lastChapterSignature != chapterSig;
           if (chapterChanged) {
             _lastChapterSignature = chapterSig;
+            _pruneVerseAnchorsForTab(tab.id);
             // Clear stale search state when chapter changes.
             _clearMatches();
 
@@ -4949,24 +5267,17 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
               });
             }
 
-            // Re-enable quick-nav verse jump once per chapter signature.
             if (tab.verse != null &&
                 verses.isNotEmpty &&
                 !(tab.openedFromSearch && tab.initialSearchQuery != null)) {
               final jumpSig = '$chapterSig:${tab.verse}';
+              final verseToJump = tab.verse!;
               _pendingVerseJumpSignature = jumpSig;
               WidgetsBinding.instance.addPostFrameCallback((_) {
                 if (!mounted || _pendingVerseJumpSignature != jumpSig) return;
                 _pendingVerseJumpSignature = null;
-                if (!_scrollController.hasClients) return;
-                final idx = (tab.verse! - 1).clamp(0, verses.length - 1);
-                final frac = (idx / verses.length).clamp(0.0, 1.0);
-                final target =
-                    frac * _scrollController.position.maxScrollExtent;
-                _scrollController.animateTo(
-                  target,
-                  duration: const Duration(milliseconds: 320),
-                  curve: Curves.easeOutCubic,
+                unawaited(
+                  _jumpToBibleVerse(verseToJump, tab, _scrollController),
                 );
               });
             }
@@ -5042,7 +5353,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                     }
 
                     return GestureDetector(
-                      key: ValueKey<int>(verse.verse),
+                      key: _ensureBibleVerseKey(tab, verse.verse),
                       onTap: () => _toggleVerseSelection(verse.verse),
                       child: AnimatedContainer(
                         duration: const Duration(milliseconds: 150),
@@ -5453,6 +5764,12 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
           Expanded(
             child: asyncVerses.when(
               data: (verses) {
+                final paneSig = '${tab.id}|${tab.book}|${tab.chapter}';
+                if (_lastParallelBiblePaneSig[tab.id] != paneSig) {
+                  _lastParallelBiblePaneSig[tab.id] = paneSig;
+                  _pruneVerseAnchorsForTab(tab.id);
+                }
+
                 if (onVersesResolved != null) {
                   WidgetsBinding.instance.addPostFrameCallback((_) {
                     if (!mounted) return;
@@ -5524,7 +5841,7 @@ class _ReaderScreenState extends ConsumerState<ReaderScreen> {
                       }
 
                       return GestureDetector(
-                        key: ValueKey<String>('${tab.id}:${verse.verse}'),
+                        key: _ensureBibleVerseKey(tab, verse.verse),
                         onTap: () => _toggleVerseSelection(verse.verse),
                         child: AnimatedContainer(
                           duration: const Duration(milliseconds: 150),

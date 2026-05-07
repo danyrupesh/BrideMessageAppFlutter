@@ -39,7 +39,7 @@ class SongsError extends SongsUiState {
 class SongsNotifier extends Notifier<SongsUiState> {
   static const int _pageSize = 20;
 
-  late final HymnRepository _repo;
+  HymnRepository get _repo => ref.read(hymnRepositoryProvider);
 
   String _query = '';
   bool _showFavoritesOnly = false;
@@ -50,7 +50,6 @@ class SongsNotifier extends Notifier<SongsUiState> {
 
   @override
   SongsUiState build() {
-    _repo = ref.read(hymnRepositoryProvider);
     _loadInitial();
     return const SongsLoading();
   }

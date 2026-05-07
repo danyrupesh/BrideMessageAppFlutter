@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -6,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/database/models/cod_models.dart';
 import '../onboarding/onboarding_screen.dart';
 import 'providers/cod_provider.dart';
+import '../dashboard/module_resume_prefs.dart';
 import '../help/widgets/help_button.dart';
 import '../common/widgets/section_menu_button.dart';
 
@@ -1021,6 +1023,12 @@ class _CodQuestionsScreenState extends ConsumerState<CodQuestionsScreen> {
                       child: InkWell(
                         borderRadius: BorderRadius.circular(12),
                         onTap: () {
+                          unawaited(
+                            ModuleResumePrefs.saveLastCodDetail(
+                              widget.lang,
+                              q.id,
+                            ),
+                          );
                           context.push(
                             '/cod/detail/${q.id}?lang=${widget.lang}',
                           );

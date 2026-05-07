@@ -393,7 +393,7 @@ class _ImportDialog extends ConsumerWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Must include: bible_en_kjv.db, bible_ta_bsi.db, sermons_en.db, sermons_ta.db, cod_english.db, cod_tamil.db',
+                  'Must include: bible_en_kjv.db, bible_ta_bsi.db, sermons_en.db, sermons_ta.db, cod_english.db, cod_tamil.db, quotes_en.db, prayer_quotes_en.db',
                   style: Theme.of(
                     context,
                   ).textTheme.bodySmall?.copyWith(color: cs.onSurfaceVariant),

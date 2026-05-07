@@ -13,11 +13,13 @@ class FtsQueryBuilder {
   /// - [exactMatch]: quote the whole phrase as-is.
   /// - [anyWord]: use `OR` between tokens instead of `AND`.
   /// - [prefixOnly]: only use the last token as a prefix term (for autocomplete).
+  /// - [accurateMatch]: do not use wildcards (prefix matching), find exact tokens.
   static String buildMatchQuery(
     String rawQuery, {
     bool exactMatch = false,
     bool anyWord = false,
     bool prefixOnly = false,
+    bool accurateMatch = false,
   }) {
     if (rawQuery.trim().isEmpty) return '__no_match__';
 
@@ -42,9 +44,14 @@ class FtsQueryBuilder {
     }
 
     final separator = anyWord ? ' OR ' : ' AND ';
+
+    if (accurateMatch) {
+      // Find exact tokens without wildcard suffix.
+      return parts.map((part) => '"$part"').join(separator);
+    }
+
     final matchTerms = parts.map((part) => '$part*').join(separator);
 
     return matchTerms;
   }
 }
-

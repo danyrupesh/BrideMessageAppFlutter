@@ -12,6 +12,7 @@ import 'package:messageapp/features/onboarding/providers/downloader_provider.dar
 import 'package:messageapp/features/onboarding/services/selective_database_importer.dart';
 import 'providers/church_ages_provider.dart';
 import 'package:messageapp/core/database/models/church_ages_models.dart';
+import 'dart:convert';
 
 const String kApiBaseUrl = String.fromEnvironment(
   'API_BASE_URL',
@@ -63,11 +64,13 @@ class _ChurchAgesScreenState extends ConsumerState<ChurchAgesScreen> {
 
       final file = File(result.files.single.path!);
       final importer = SelectiveDatabaseImporter();
-      
+
       final importResult = await importer.importChurchAgesDatabase(
         sourceFile: file,
         languageCode: widget.lang,
-        displayName: widget.lang == 'ta' ? 'Tamil Church Ages' : 'English Church Ages',
+        displayName: widget.lang == 'ta'
+            ? 'Tamil Church Ages'
+            : 'English Church Ages',
         onProgress: (pct, msg) {
           setState(() {
             _importStatus = msg;
@@ -123,10 +126,12 @@ class _ChurchAgesScreenState extends ConsumerState<ChurchAgesScreen> {
     final uiState = ref.watch(churchAgesProvider(widget.lang));
     final theme = Theme.of(context);
     final isWide = MediaQuery.sizeOf(context).width >= 700;
-    
+
     // Check local existence immediately
-    final localExistsAsync = ref.watch(localDatabaseExistsProvider(widget.lang));
-    
+    final localExistsAsync = ref.watch(
+      localDatabaseExistsProvider(widget.lang),
+    );
+
     return Scaffold(
       appBar: AppBar(
         title: Text(
@@ -138,7 +143,9 @@ class _ChurchAgesScreenState extends ConsumerState<ChurchAgesScreen> {
             icon: const Icon(Icons.home),
             onPressed: () {
               _searchController.clear();
-              ref.read(churchAgesProvider(widget.lang).notifier).onClearSearch();
+              ref
+                  .read(churchAgesProvider(widget.lang).notifier)
+                  .onClearSearch();
               context.go('/');
             },
           ),
@@ -149,38 +156,6 @@ class _ChurchAgesScreenState extends ConsumerState<ChurchAgesScreen> {
           ),
           const SectionMenuButton(),
           const HelpButton(topicId: 'church_ages'),
-          PopupMenuButton<String>(
-            icon: const Icon(Icons.more_vert),
-            onSelected: (value) {
-              if (value == 'update') {
-                context.push('/manage-databases');
-              } else if (value == 'settings') {
-                context.push('/settings');
-              }
-            },
-            itemBuilder: (context) => [
-              const PopupMenuItem(
-                value: 'update',
-                child: Row(
-                  children: [
-                    Icon(Icons.system_update_alt, size: 20),
-                    SizedBox(width: 12),
-                    Text('Check for Updates'),
-                  ],
-                ),
-              ),
-              const PopupMenuItem(
-                value: 'settings',
-                child: Row(
-                  children: [
-                    Icon(Icons.settings, size: 20),
-                    SizedBox(width: 12),
-                    Text('Settings'),
-                  ],
-                ),
-              ),
-            ],
-          ),
         ],
       ),
       body: localExistsAsync.when(
@@ -244,16 +219,20 @@ class _ChurchAgesScreenState extends ConsumerState<ChurchAgesScreen> {
             const SizedBox(height: 24),
             Text(
               'Database Not Found',
-              style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+              style: theme.textTheme.headlineSmall?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
             ),
             const SizedBox(height: 12),
             Text(
               'The ${widget.lang == 'ta' ? 'Tamil' : 'English'} Church Ages database is not installed on this device.',
               textAlign: TextAlign.center,
-              style: theme.textTheme.bodyMedium?.copyWith(color: cs.onSurfaceVariant),
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: cs.onSurfaceVariant,
+              ),
             ),
             const SizedBox(height: 32),
-            
+
             if (dlState.isActive) ...[
               SizedBox(
                 width: 300,
@@ -276,7 +255,10 @@ class _ChurchAgesScreenState extends ConsumerState<ChurchAgesScreen> {
                 children: [
                   Text(
                     'Download Complete!',
-                    style: TextStyle(color: cs.primary, fontWeight: FontWeight.bold),
+                    style: TextStyle(
+                      color: cs.primary,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                   const SizedBox(height: 12),
                   ElevatedButton(
@@ -304,25 +286,47 @@ class _ChurchAgesScreenState extends ConsumerState<ChurchAgesScreen> {
                       }
 
                       return FilledButton.icon(
-                        onPressed: dbInfo == null ? null : () {
-                          ref.read(downloaderProvider.notifier).startDownload(dbInfo!.available.downloadUrl);
-                        },
+                        onPressed: dbInfo == null
+                            ? null
+                            : () {
+                                // print('MyLog: Starting download of ${jsonEncode(dbInfo)}');
+                                ref
+                                    .read(downloaderProvider.notifier)
+                                    .startDownload(
+                                      dbInfo!.available.downloadUrl,
+                                    );
+                              },
                         icon: const Icon(Icons.download),
-                        label: Text(dbInfo == null ? 'Download Unavailable' : 'Download from Server (${dbInfo.sizeText})'),
-                        style: FilledButton.styleFrom(minimumSize: const Size(280, 48)),
+                        label: Text(
+                          dbInfo == null
+                              ? 'Download Unavailable'
+                              : 'Download from Server (${dbInfo.sizeText})',
+                        ),
+                        style: FilledButton.styleFrom(
+                          minimumSize: const Size(280, 48),
+                        ),
                       );
                     },
                     loading: () => FilledButton.icon(
                       onPressed: null,
-                      icon: const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+                      icon: const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
                       label: const Text('Checking Server...'),
-                      style: FilledButton.styleFrom(minimumSize: const Size(280, 48)),
+                      style: FilledButton.styleFrom(
+                        minimumSize: const Size(280, 48),
+                      ),
                     ),
                     error: (err, _) => FilledButton.icon(
-                      onPressed: () => ref.refresh(databaseStatusProvider(kApiBaseUrl)),
+                      onPressed: () =>
+                          ref.refresh(databaseStatusProvider(kApiBaseUrl)),
                       icon: const Icon(Icons.refresh),
                       label: const Text('Retry Server Connection'),
-                      style: FilledButton.styleFrom(minimumSize: const Size(280, 48)),
+                      style: FilledButton.styleFrom(
+                        minimumSize: const Size(280, 48),
+                      ),
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -330,7 +334,9 @@ class _ChurchAgesScreenState extends ConsumerState<ChurchAgesScreen> {
                     onPressed: _pickAndImportDatabase,
                     icon: const Icon(Icons.folder_open),
                     label: const Text('Import from Device (.db)'),
-                    style: OutlinedButton.styleFrom(minimumSize: const Size(280, 48)),
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(280, 48),
+                    ),
                   ),
                   const SizedBox(height: 24),
                   TextButton(
@@ -340,7 +346,7 @@ class _ChurchAgesScreenState extends ConsumerState<ChurchAgesScreen> {
                 ],
               ),
             ],
-            
+
             if (dlState.error != null) ...[
               const SizedBox(height: 24),
               Text(
@@ -376,14 +382,18 @@ class _ChurchAgesScreenState extends ConsumerState<ChurchAgesScreen> {
             controller: _searchController,
             focusNode: _searchFocusNode,
             decoration: InputDecoration(
-              hintText: searchContent ? 'Search content...' : 'Search titles...',
+              hintText: searchContent
+                  ? 'Search content...'
+                  : 'Search titles...',
               prefixIcon: const Icon(Icons.search),
               suffixIcon: isSearchActive
                   ? IconButton(
                       icon: const Icon(Icons.clear),
                       onPressed: () {
                         _searchController.clear();
-                        ref.read(churchAgesProvider(widget.lang).notifier).onClearSearch();
+                        ref
+                            .read(churchAgesProvider(widget.lang).notifier)
+                            .onClearSearch();
                       },
                     )
                   : null,
@@ -393,7 +403,9 @@ class _ChurchAgesScreenState extends ConsumerState<ChurchAgesScreen> {
               contentPadding: const EdgeInsets.symmetric(horizontal: 16),
             ),
             onChanged: (value) {
-              ref.read(churchAgesProvider(widget.lang).notifier).onSearchQueryChanged(value);
+              ref
+                  .read(churchAgesProvider(widget.lang).notifier)
+                  .onSearchQueryChanged(value);
             },
           ),
           const SizedBox(height: 12),
@@ -404,7 +416,9 @@ class _ChurchAgesScreenState extends ConsumerState<ChurchAgesScreen> {
                 selected: !searchContent,
                 onSelected: (val) {
                   if (val && searchContent) {
-                    ref.read(churchAgesProvider(widget.lang).notifier).toggleSearchContent();
+                    ref
+                        .read(churchAgesProvider(widget.lang).notifier)
+                        .toggleSearchContent();
                   }
                 },
               ),
@@ -414,7 +428,9 @@ class _ChurchAgesScreenState extends ConsumerState<ChurchAgesScreen> {
                 selected: searchContent,
                 onSelected: (val) {
                   if (val && !searchContent) {
-                    ref.read(churchAgesProvider(widget.lang).notifier).toggleSearchContent();
+                    ref
+                        .read(churchAgesProvider(widget.lang).notifier)
+                        .toggleSearchContent();
                   }
                 },
               ),
@@ -442,7 +458,9 @@ class _ChurchAgesScreenState extends ConsumerState<ChurchAgesScreen> {
             ),
             const SizedBox(height: 24),
             ElevatedButton(
-              onPressed: () => ref.read(churchAgesProvider(widget.lang).notifier).onClearSearch(),
+              onPressed: () => ref
+                  .read(churchAgesProvider(widget.lang).notifier)
+                  .onClearSearch(),
               child: const Text('Retry'),
             ),
           ],
@@ -463,7 +481,9 @@ class _ChurchAgesScreenState extends ConsumerState<ChurchAgesScreen> {
               Icon(
                 Icons.search_off,
                 size: 64,
-                color: theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.4),
+                color: theme.colorScheme.onSurfaceVariant.withValues(
+                  alpha: 0.4,
+                ),
               ),
               const SizedBox(height: 16),
               Text(
@@ -499,7 +519,10 @@ class _ChurchAgesScreenState extends ConsumerState<ChurchAgesScreen> {
           );
 
           return ListTile(
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 8,
+            ),
             title: Text.rich(
               TextSpan(
                 children: PlainQueryHighlightText.buildHighlightSpans(
@@ -590,10 +613,14 @@ class _ChurchAgesScreenState extends ConsumerState<ChurchAgesScreen> {
               fontWeight: FontWeight.w800,
               fontSize: isChapter ? 15 : 14,
               letterSpacing: isChapter ? 0.5 : null,
-              color: isChapter ? theme.colorScheme.onSurface : theme.colorScheme.primary,
+              color: isChapter
+                  ? theme.colorScheme.onSurface
+                  : theme.colorScheme.primary,
             ),
           ),
-          children: topic.children.map((child) => _buildTopicNode(theme, child, depth + 1)).toList(),
+          children: topic.children
+              .map((child) => _buildTopicNode(theme, child, depth + 1))
+              .toList(),
         ),
       );
     }
@@ -613,7 +640,11 @@ class _ChurchAgesScreenState extends ConsumerState<ChurchAgesScreen> {
     );
   }
 
-  List<InlineSpan> _buildRichSnippetSpans(String snippet, TextStyle baseStyle, ThemeData theme) {
+  List<InlineSpan> _buildRichSnippetSpans(
+    String snippet,
+    TextStyle baseStyle,
+    ThemeData theme,
+  ) {
     final spans = <InlineSpan>[];
     final parts = snippet.split(RegExp(r'(<b>|</b>)'));
     bool isBold = false;
@@ -629,16 +660,19 @@ class _ChurchAgesScreenState extends ConsumerState<ChurchAgesScreen> {
 
       if (part.isEmpty) continue;
 
-      spans.add(TextSpan(
-        text: part,
-        style: isBold
-            ? baseStyle.copyWith(
-                fontWeight: FontWeight.bold,
-                backgroundColor: theme.colorScheme.primaryContainer.withValues(alpha: 0.5),
-                color: theme.colorScheme.onPrimaryContainer,
-              )
-            : baseStyle,
-      ));
+      spans.add(
+        TextSpan(
+          text: part,
+          style: isBold
+              ? baseStyle.copyWith(
+                  fontWeight: FontWeight.bold,
+                  backgroundColor: theme.colorScheme.primaryContainer
+                      .withValues(alpha: 0.5),
+                  color: theme.colorScheme.onPrimaryContainer,
+                )
+              : baseStyle,
+        ),
+      );
     }
 
     return spans;

@@ -99,22 +99,17 @@ class SermonFlowNotifier extends Notifier<SermonFlowState> {
   String? _pendingOpenLang;
   bool _persistInFlight = false;
   bool _persistQueued = false;
+  Future<void>? _sermonHydrateChain;
 
   @override
   SermonFlowState build() {
     ref.listen(selectedSermonLangProvider, (previous, next) {
-      if (previous != next) {
-        state = state.copyWith(
-          tabs: [],
-          isInitialized: false,
-          bmMode: false,
-          bmBibleGroup: const BmBibleGroup(tabs: [], activeIndex: 0),
-        );
-        _hydrate();
+      if (previous != null && previous != next) {
+        unawaited(_queueHydrateForLang(next));
       }
     });
 
-    _hydrate();
+    unawaited(_queueHydrateForLang(ref.read(selectedSermonLangProvider)));
     return const SermonFlowState(
       tabs: [],
       activeTabIndex: 0,
@@ -129,10 +124,23 @@ class SermonFlowNotifier extends Notifier<SermonFlowState> {
     return 'sermon_$lang';
   }
 
-  Future<void> _hydrate() async {
+  /// Ensures sermon flow matches the disk session for the current sermon language
+  /// before navigation (e.g. Home → sermon card).
+  Future<void> reloadSermonFlowFromDisk() {
+    return _queueHydrateForLang(ref.read(selectedSermonLangProvider));
+  }
+
+  Future<void> _queueHydrateForLang(String lang) {
+    final chain = _sermonHydrateChain ?? Future<void>.value();
+    final next = chain.then((_) => _hydrateForLang(lang));
+    _sermonHydrateChain = next;
+    return next;
+  }
+
+  Future<void> _hydrateForLang(String lang) async {
     final repo = ref.read(readingStateRepositoryProvider);
     final activeSession = await repo.loadActiveSession(
-      sessionKey: _sessionKey,
+      sessionKey: 'sermon_$lang',
       fallbackFlowType: FlowType.sermon,
     );
 

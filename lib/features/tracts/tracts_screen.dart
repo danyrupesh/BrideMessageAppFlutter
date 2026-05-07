@@ -1,12 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../dashboard/module_resume_prefs.dart';
 import 'models/tract_model.dart';
 import 'providers/tracts_provider.dart';
 import '../common/widgets/fts_highlight_text.dart';
 import '../help/widgets/help_button.dart';
 import '../common/widgets/section_menu_button.dart';
 import '../settings/widgets/theme_picker_sheet.dart';
+import 'package:file_picker/file_picker.dart';
+import 'dart:io';
+import '../onboarding/services/selective_database_importer.dart';
+import '../onboarding/providers/downloader_provider.dart';
+import '../database_management/providers/database_status_provider.dart';
+import '../database_management/providers/local_databases_provider.dart';
 
 class TractsScreen extends ConsumerStatefulWidget {
   final String lang;
@@ -20,6 +27,8 @@ class TractsScreen extends ConsumerStatefulWidget {
 class _TractsScreenState extends ConsumerState<TractsScreen> {
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
+  bool _isImporting = false;
+  String _importStatus = '';
 
   @override
   void initState() {
@@ -153,10 +162,64 @@ class _TractsScreenState extends ConsumerState<TractsScreen> {
     if (state is TractsLoading) {
       return const Center(child: CircularProgressIndicator());
     } else if (state is TractsError) {
+      final isFileNotFound = state.message.contains('Database file not found');
+      
       return Center(
-        child: Text(
-          state.message,
-          style: TextStyle(color: theme.colorScheme.error),
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                isFileNotFound ? Icons.storage_outlined : Icons.error_outline,
+                size: 64,
+                color: isFileNotFound ? theme.colorScheme.primary : theme.colorScheme.error,
+              ),
+              const SizedBox(height: 16),
+              Text(
+                isFileNotFound ? 'Tracts Database Missing' : 'Error Loading Tracts',
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                isFileNotFound
+                    ? 'The ${widget.lang == 'ta' ? 'Tamil' : 'English'} tracts database has not been installed yet.'
+                    : state.message,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 24),
+              if (isFileNotFound) ...[
+                if (_isImporting) ...[
+                  const SizedBox(height: 24),
+                  const CircularProgressIndicator(),
+                  const SizedBox(height: 12),
+                  Text(_importStatus, style: theme.textTheme.bodySmall),
+                ] else ...[
+                  FilledButton.icon(
+                    onPressed: () => context.push('/manage-databases'),
+                    icon: const Icon(Icons.cloud_download),
+                    label: const Text('Download / Manage'),
+                  ),
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    onPressed: _pickAndImportDatabase,
+                    icon: const Icon(Icons.upload_file),
+                    label: const Text('Import from Device'),
+                  ),
+                ],
+              ] else
+                FilledButton(
+                  onPressed: () => ref.refresh(tractsProvider),
+                  child: const Text('Retry'),
+                ),
+            ],
+          ),
         ),
       );
     } else if (state is TractsSuccess) {
@@ -235,8 +298,8 @@ class _TractsScreenState extends ConsumerState<TractsScreen> {
                     overflow: TextOverflow.ellipsis,
                   )
                 : null,
-            onTap: () {
-              // Construct URI and pass search params if any
+            onTap: () async {
+              await ModuleResumePrefs.saveLastTract(widget.lang, tract.id);
               final uri = Uri(
                 path: '/tract-reader',
                 queryParameters: {
@@ -244,7 +307,7 @@ class _TractsScreenState extends ConsumerState<TractsScreen> {
                   if (hasSearch) 'q': state.query,
                 },
               );
-              context.push(uri.toString());
+              if (context.mounted) context.push(uri.toString());
             },
           );
         },
@@ -278,5 +341,88 @@ class _TractsScreenState extends ConsumerState<TractsScreen> {
     final prefix = start > 0 ? '...' : '';
     final suffix = end < source.length ? '...' : '';
     return '$prefix${source.substring(start, end)}$suffix';
+  }
+
+  Future<void> _pickAndImportDatabase() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.any,
+        allowedExtensions: ['db', 'zip'],
+      );
+
+      if (result == null || result.files.single.path == null) return;
+
+      setState(() {
+        _isImporting = true;
+        _importStatus = 'Preparing import...';
+      });
+
+      final filePath = result.files.single.path!;
+      final file = File(filePath);
+      final importer = SelectiveDatabaseImporter();
+
+      if (filePath.toLowerCase().endsWith('.zip')) {
+        setState(() => _importStatus = 'Extracting ZIP bundle...');
+        final importResult = await importer.importAllFromZip(
+          zipPath: filePath,
+          onProgress: (pct, msg) {
+            setState(() => _importStatus = msg);
+          },
+        );
+        if (importResult.success) {
+          _onImportSuccess();
+        } else {
+          _showError('Import Failed', importResult.message);
+        }
+      } else {
+        setState(() => _importStatus = 'Validating database...');
+        final importResult = await importer.importTractsDatabase(
+          sourceFile: file,
+          languageCode: widget.lang,
+          displayName: widget.lang == 'ta' ? 'Tamil Tracts' : 'English Tracts',
+          onProgress: (pct, msg) {
+            setState(() => _importStatus = msg);
+          },
+        );
+        if (importResult.success) {
+          _onImportSuccess();
+        } else {
+          _showError('Import Failed', importResult.message);
+        }
+      }
+    } catch (e) {
+      _showError('Error', e.toString());
+    } finally {
+      if (mounted) {
+        setState(() => _isImporting = false);
+      }
+    }
+  }
+
+  void _onImportSuccess() {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Tracts imported successfully!')),
+      );
+      ref.invalidate(tractsProvider);
+      ref.invalidate(localDatabaseFilesProvider);
+    }
+  }
+
+  void _showError(String title, String message) {
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
   }
 }

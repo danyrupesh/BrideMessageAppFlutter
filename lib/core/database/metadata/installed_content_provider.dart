@@ -18,7 +18,7 @@ class HasInstalledContentNotifier extends AsyncNotifier<bool> {
     if (_skippedThisSession) return true;
     return ref
         .read(installedDbRegistryProvider)
-        .hasAnyContent(allowFileFallback: false);
+        .hasAnyContent(allowFileFallback: true);
   }
 
   /// Called after a successful import to force re-evaluation.
@@ -28,7 +28,7 @@ class HasInstalledContentNotifier extends AsyncNotifier<bool> {
     state = AsyncData(
       await ref
           .read(installedDbRegistryProvider)
-          .hasAnyContent(allowFileFallback: false),
+          .hasAnyContent(allowFileFallback: true),
     );
   }
 

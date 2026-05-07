@@ -9,6 +9,7 @@ import '../../../core/database/metadata/installed_content_provider.dart';
 import '../../../core/database/metadata/installed_database_model.dart';
 import '../../../core/database/models/sermon_search_result.dart';
 import '../../search/providers/search_provider.dart';
+import '../../database_management/providers/local_databases_provider.dart';
 
 // ─── Resolved sermon repository ───────────────────────────────────────────────
 
@@ -21,19 +22,34 @@ class _SermonLangNotifier extends Notifier<String> {
 }
 
 final selectedSermonLangProvider =
-    NotifierProvider<_SermonLangNotifier, String>(_SermonLangNotifier.new);
+    NotifierProvider<_SermonLangNotifier, String>(() => _SermonLangNotifier());
 
-final sermonDatabaseExistsProvider = FutureProvider.family<bool, String>((
-  ref,
-  lang,
-) async {
-  final installed = await ref.watch(
-    defaultInstalledDbProvider((DbType.sermon, lang)).future,
-  );
-  final code = installed?.code ?? lang;
-  final dbPath = await DatabaseManager().getDatabasePath('sermons_$code.db');
-  return File(dbPath).exists();
-});
+class _SermonListFontSizeNotifier extends Notifier<double> {
+  @override
+  double build() => 14.0;
+
+  void setFontSize(double value) {
+    state = value.clamp(12.0, 22.0);
+  }
+}
+
+final sermonListFontSizeProvider =
+    NotifierProvider<_SermonListFontSizeNotifier, double>(
+      () => _SermonListFontSizeNotifier(),
+    );
+
+final sermonDatabaseExistsProvider = FutureProvider.family
+    .autoDispose<bool, String>((ref, lang) async {
+      ref.watch(localDatabaseFilesProvider);
+      final installed = await ref.watch(
+        defaultInstalledDbProvider((DbType.sermon, lang)).future,
+      );
+      final code = installed?.code ?? lang;
+      final dbPath = await DatabaseManager().getDatabasePath(
+        'sermons_$code.db',
+      );
+      return File(dbPath).exists();
+    });
 
 /// Resolves the Sermon repository based on the selected language.
 /// Falls back to language code as db code if no metadata found.
@@ -168,7 +184,7 @@ class SermonListState {
       titlePrefix: identical(titlePrefix, _unset)
           ? this.titlePrefix
           : titlePrefix as String?,
-        categoryFilter: identical(categoryFilter, _unset)
+      categoryFilter: identical(categoryFilter, _unset)
           ? this.categoryFilter
           : categoryFilter as String?,
       offset: offset ?? this.offset,
@@ -313,8 +329,8 @@ class SermonListNotifier extends Notifier<SermonListState> {
         ? titlePrefix.trim()
         : state.titlePrefix;
     final normalizedCategory = categoryFilter != null
-      ? categoryFilter.trim().toLowerCase()
-      : state.categoryFilter;
+        ? categoryFilter.trim().toLowerCase()
+        : state.categoryFilter;
     final effectivePrefix =
         (normalizedPrefix == null || normalizedPrefix.isEmpty)
         ? null
@@ -325,7 +341,7 @@ class SermonListNotifier extends Notifier<SermonListState> {
       selectedYear: year,
       searchQuery: query,
       titlePrefix: effectivePrefix,
-        categoryFilter: (normalizedCategory == null || normalizedCategory.isEmpty)
+      categoryFilter: (normalizedCategory == null || normalizedCategory.isEmpty)
           ? null
           : normalizedCategory,
       offset: 0,
@@ -387,9 +403,10 @@ class SermonListNotifier extends Notifier<SermonListState> {
         year: year,
         query: useTitlePrefix ? normalizedQuery : query,
         titlePrefix: effectivePrefix,
-        categoryFilter: (normalizedCategory == null || normalizedCategory.isEmpty)
-          ? null
-          : normalizedCategory,
+        categoryFilter:
+            (normalizedCategory == null || normalizedCategory.isEmpty)
+            ? null
+            : normalizedCategory,
         sortBy: effectiveSortBy,
         yearFrom: year == null ? yearFrom : null,
         yearTo: year == null ? yearTo : null,

@@ -185,23 +185,32 @@ final sermonRepoForLangProvider =
     });
 
 final bibleBooksForLangProvider =
-    FutureProvider.family<List<Map<String, dynamic>>, String>((ref, language) async {
+    FutureProvider.family<List<Map<String, dynamic>>, String>((
+      ref,
+      language,
+    ) async {
       final repo = await ref.watch(bibleRepoForLangProvider(language).future);
       if (repo == null) return const [];
       return repo.getDistinctBooks();
     });
 
-final sermonYearsForLangProvider =
-    FutureProvider.family<List<int>, String>((ref, language) async {
-      final repo = await ref.watch(sermonRepoForLangProvider(language).future);
-      if (repo == null) return const [];
-      return repo.getAvailableYears();
-    });
+final sermonYearsForLangProvider = FutureProvider.family<List<int>, String>((
+  ref,
+  language,
+) async {
+  final repo = await ref.watch(sermonRepoForLangProvider(language).future);
+  if (repo == null) return const [];
+  return repo.getAvailableYears();
+});
 
 // ─── Search notifier ──────────────────────────────────────────────────────────
 
 class SearchNotifier extends Notifier<SearchState> {
   static const int _pageSize = 50;
+  static final RegExp _queryTokenSanitizer = RegExp(
+    r'[^\p{L}\p{M}\p{N}_]',
+    unicode: true,
+  );
 
   @override
   SearchState build() => SearchState();
@@ -396,7 +405,7 @@ class SearchNotifier extends Notifier<SearchState> {
       if (state.activeTab == SearchTab.all) {
         final bibleRepo = await ref.read(bibleRepoForLangProvider(lang).future);
         if (bibleRepo != null) {
-          final bibleMatches = await bibleRepo.searchVerses(
+          var bibleMatches = await bibleRepo.searchVerses(
             query: query,
             limit: 50,
             offset: 0,
@@ -410,6 +419,12 @@ class SearchNotifier extends Notifier<SearchState> {
             chapterFrom: state.bibleChapterFrom,
             chapterTo: state.bibleChapterTo,
           );
+          if (state.matchMode == MatchMode.accurate) {
+            bibleMatches = _applyAccurateBibleFilter(
+              query: query,
+              matches: bibleMatches,
+            );
+          }
           if (state.query == query) {
             state = state.copyWith(bibleResults: bibleMatches);
           }
@@ -419,7 +434,7 @@ class SearchNotifier extends Notifier<SearchState> {
           sermonRepoForLangProvider(lang).future,
         );
         if (sermonRepo != null) {
-          final sermonMatches = await sermonRepo.searchSermons(
+          var sermonMatches = await sermonRepo.searchSermons(
             query: query,
             limit: 50,
             offset: 0,
@@ -431,6 +446,12 @@ class SearchNotifier extends Notifier<SearchState> {
             yearFrom: state.sermonYearFrom,
             yearTo: state.sermonYearTo,
           );
+          if (state.matchMode == MatchMode.accurate) {
+            sermonMatches = _applyAccurateSermonFilter(
+              query: query,
+              matches: sermonMatches,
+            );
+          }
           if (state.query == query) {
             state = state.copyWith(sermonResults: sermonMatches);
           }
@@ -471,10 +492,18 @@ class SearchNotifier extends Notifier<SearchState> {
                 chapterTo: state.bibleChapterTo,
               ),
           ]);
-          final matches = payload.first as List<BibleSearchResult>;
+          var matches = payload.first as List<BibleSearchResult>;
+          if (state.matchMode == MatchMode.accurate) {
+            matches = _applyAccurateBibleFilter(query: query, matches: matches);
+          }
           final total = append
-              ? state.bibleTotalCount
+              ? (state.matchMode == MatchMode.accurate
+                    ? state.bibleTotalCount + matches.length
+                    : state.bibleTotalCount)
               : ((payload.length > 1 ? payload[1] : 0) as int);
+          final effectiveTotal = state.matchMode == MatchMode.accurate
+              ? (append ? total : matches.length)
+              : total;
           if (state.query == query) {
             state = state.copyWith(
               isLoading: false,
@@ -482,7 +511,7 @@ class SearchNotifier extends Notifier<SearchState> {
               bibleResults: append
                   ? <BibleSearchResult>[...state.bibleResults, ...matches]
                   : matches,
-              bibleTotalCount: total,
+              bibleTotalCount: effectiveTotal,
             );
             if (!append) {
               ref.read(searchHistoryProvider.notifier).addQuery(query);
@@ -523,10 +552,21 @@ class SearchNotifier extends Notifier<SearchState> {
                 yearTo: state.sermonYearTo,
               ),
           ]);
-          final matches = payload.first as List<SermonSearchResult>;
+          var matches = payload.first as List<SermonSearchResult>;
+          if (state.matchMode == MatchMode.accurate) {
+            matches = _applyAccurateSermonFilter(
+              query: query,
+              matches: matches,
+            );
+          }
           final total = append
-              ? state.sermonTotalCount
+              ? (state.matchMode == MatchMode.accurate
+                    ? state.sermonTotalCount + matches.length
+                    : state.sermonTotalCount)
               : ((payload.length > 1 ? payload[1] : 0) as int);
+          final effectiveTotal = state.matchMode == MatchMode.accurate
+              ? (append ? total : matches.length)
+              : total;
           if (state.query == query) {
             state = state.copyWith(
               isLoading: false,
@@ -534,7 +574,7 @@ class SearchNotifier extends Notifier<SearchState> {
               sermonResults: append
                   ? <SermonSearchResult>[...state.sermonResults, ...matches]
                   : matches,
-              sermonTotalCount: total,
+              sermonTotalCount: effectiveTotal,
             );
             if (!append) {
               ref.read(searchHistoryProvider.notifier).addQuery(query);
@@ -672,6 +712,57 @@ class SearchNotifier extends Notifier<SearchState> {
       case SearchType.prefix:
         return CodSearchMatchMode.allWords;
     }
+  }
+
+  List<BibleSearchResult> _applyAccurateBibleFilter({
+    required String query,
+    required List<BibleSearchResult> matches,
+  }) {
+    final matcher = _buildAccurateMatcher(query);
+    return matches.where((m) => matcher.hasMatch(m.text)).toList();
+  }
+
+  List<SermonSearchResult> _applyAccurateSermonFilter({
+    required String query,
+    required List<SermonSearchResult> matches,
+  }) {
+    final matcher = _buildAccurateMatcher(query);
+    return matches
+        .where((m) => matcher.hasMatch(_stripHtml(m.snippet)))
+        .toList();
+  }
+
+  RegExp _buildAccurateMatcher(String rawQuery) {
+    final cleaned = rawQuery.trim();
+    final escaped = RegExp.escape(cleaned);
+    final phrasePattern =
+        "(?<![\\p{L}\\p{M}\\p{N}'’])$escaped(?![\\p{L}\\p{M}\\p{N}'’])";
+    if (state.searchType == SearchType.exact) {
+      return RegExp(phrasePattern, caseSensitive: false, unicode: true);
+    }
+
+    final tokens = cleaned
+        .split(RegExp(r'\s+'))
+        .map((token) => token.replaceAll(_queryTokenSanitizer, ''))
+        .where((token) => token.isNotEmpty)
+        .toList();
+    if (tokens.isEmpty) {
+      return RegExp(r'(?!)');
+    }
+    final tokenPatterns = tokens
+        .map(
+          (token) =>
+              "(?<![\\p{L}\\p{M}\\p{N}'’])${RegExp.escape(token)}(?![\\p{L}\\p{M}\\p{N}'’])",
+        )
+        .toList();
+    final pattern = state.searchType == SearchType.any
+        ? tokenPatterns.join('|')
+        : '${tokenPatterns.map((p) => '(?=.*$p)').join()}.*';
+    return RegExp(pattern, caseSensitive: false, unicode: true, dotAll: true);
+  }
+
+  String _stripHtml(String value) {
+    return value.replaceAll(RegExp(r'<[^>]*>'), ' ');
   }
 
   (int?, int?) _normalizeRange(int? from, int? to) {

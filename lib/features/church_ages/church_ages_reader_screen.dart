@@ -362,6 +362,10 @@ class _ChurchAgesReaderScreenState extends ConsumerState<ChurchAgesReaderScreen>
             ],
           )
         : AppBar(
+            leading: IconButton(
+              icon: const Icon(Icons.arrow_back),
+              onPressed: () => context.go('/church-ages?lang=$lang'),
+            ),
             title: Text(
               asyncData.when(
                 data: (data) => data.parentTopicName != null 
@@ -397,6 +401,11 @@ class _ChurchAgesReaderScreenState extends ConsumerState<ChurchAgesReaderScreen>
                 tooltip: 'Increase font size',
                 icon: const Text('A+', style: TextStyle(fontWeight: FontWeight.w700)),
                 onPressed: () => _adjustFontSize(lang, 1),
+              ),
+              IconButton(
+                tooltip: lang == 'ta' ? 'முகப்பு' : 'Home',
+                icon: const Icon(Icons.home_outlined),
+                onPressed: () => context.go('/'),
               ),
               IconButton(
                 tooltip: 'Search in page',

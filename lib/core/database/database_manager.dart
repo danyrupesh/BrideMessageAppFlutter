@@ -18,6 +18,15 @@ class DatabaseManager {
   final Map<String, Database> _databases = {};
   final Map<String, Future<Database>> _openingDatabases = {};
 
+  /// Clear cached database instances
+  void clearCache() {
+    for (final db in _databases.values) {
+      if (db.isOpen) db.close();
+    }
+    _databases.clear();
+    _openingDatabases.clear();
+  }
+
   /// Get the full file path for a database file (for use with sqlite3 etc.)
   Future<String> getDatabasePath(String fileName) async {
     final dbDir = await getDatabaseDirectoryPath();
@@ -150,6 +159,10 @@ class DatabaseManager {
       'stories_ta.db',
       'church_ages_en.db',
       'church_ages_ta.db',
+      'quotes_en.db',
+      'prayer_quotes_en.db',
+      'special_books_catalog_en.db',
+      'special_books_catalog_ta.db',
     ];
 
     // Delete physical files
@@ -162,19 +175,45 @@ class DatabaseManager {
       }
     }
 
-    // Clear version tracking from SharedPreferences
+    // Clear version tracking from SharedPreferences using comprehensive key scanning
     try {
       final prefs = await SharedPreferences.getInstance();
-      final keysToRemove = [
+      final allKeys = prefs.getKeys();
+      
+      final patterns = [
         'onboarding.db.version.$databaseId',
         'updates.db.version.$databaseId',
-        'onboarding.db.version.bridemessage_db',
-        'onboarding.db.version.bridemessage_db_en-ta',
+        'onboarding.db.version.${databaseId.replaceAll('_', '.')}',
+        'onboarding.db.version.$databaseId.db',
+        'db_version_$databaseId',
+        'installed_$databaseId',
       ];
 
-      for (final key in keysToRemove) {
-        await prefs.remove(key);
+      for (final key in allKeys) {
+        bool shouldRemove = false;
+        if (key.contains(databaseId)) {
+          shouldRemove = true;
+        } else {
+          for (final pattern in patterns) {
+            if (key == pattern) {
+              shouldRemove = true;
+              break;
+            }
+          }
+        }
+        
+        if (shouldRemove) {
+          debugPrint('Registry: Removing SharedPreferences key: $key');
+          await prefs.remove(key);
+        }
       }
+      
+      // Explicitly remove common bundle-related keys if this is a bundle component
+      if (databaseId.contains('church_ages') || databaseId.contains('sermons') || databaseId.contains('bible')) {
+         await prefs.remove('onboarding.db.version.bridemessage_db');
+         await prefs.remove('onboarding.db.version.bridemessage_db_en-ta');
+      }
+
     } catch (e) {
       debugPrint('Could not clear SharedPreferences: $e');
     }
@@ -182,19 +221,23 @@ class DatabaseManager {
     // Clear from metadata registry if applicable
     try {
       final registry = InstalledDatabaseRegistry();
-      if (databaseId.startsWith('bible_')) {
-        final code = databaseId.replaceFirst('bible_', '');
-        await registry.delete(DbType.bible, code);
-      } else if (databaseId.startsWith('sermons_')) {
-        final code = databaseId.replaceFirst('sermons_', '');
-        await registry.delete(DbType.sermon, code);
-      } else if (databaseId.startsWith('church_ages_')) {
-        final code = databaseId.replaceFirst('church_ages_', '');
-        await registry.delete(DbType.churchAges, code);
+      // Try to delete from ALL possible categories just in case of mis-registration
+      for (final type in DbType.values) {
+        // Try with full ID
+        await registry.delete(type, databaseId);
+        
+        // Try with language code suffix if applicable
+        if (databaseId.contains('_')) {
+          final code = databaseId.split('_').last;
+          await registry.delete(type, code);
+        }
       }
     } catch (e) {
       debugPrint('Could not clear registry for $databaseId: $e');
     }
+
+    // Finally, clear cache to ensure no stale connections remain
+    clearCache();
   }
 
   /// List all database files currently on the device

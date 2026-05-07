@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -8,6 +9,11 @@ import '../common/widgets/cards.dart';
 import '../common/widgets/chips.dart';
 import 'providers/songs_provider.dart';
 import 'utils/song_search_utils.dart';
+import '../dashboard/module_resume_prefs.dart';
+import 'package:file_picker/file_picker.dart';
+import 'dart:io';
+import '../onboarding/services/selective_database_importer.dart';
+import '../database_management/providers/local_databases_provider.dart';
 
 class SongsScreen extends ConsumerStatefulWidget {
   const SongsScreen({super.key});
@@ -21,6 +27,8 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
   bool _isSearchExpanded = false;
   final TextEditingController _searchController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
+  bool _isImporting = false;
+  String? _importStatus;
 
   @override
   void dispose() {
@@ -94,7 +102,6 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
                   ),
               ]
             : [
-                const SectionMenuButton(),
                 const HelpButton(topicId: 'songs'),
                 IconButton(
                   icon: const Icon(Icons.manage_search),
@@ -112,6 +119,7 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
                     });
                   },
                 ),
+                const SectionMenuButton(),
               ],
       ),
       body: Column(
@@ -172,11 +180,58 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
     }
 
     if (state is SongsError) {
+      final isMissingDb = state.message.contains('Database file not found');
+      
       return Center(
-        child: Text(
-          state.message,
-          style: theme.textTheme.bodyMedium?.copyWith(
-            color: theme.colorScheme.error,
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(
+                isMissingDb ? Icons.storage_outlined : Icons.error_outline,
+                size: 64,
+                color: theme.colorScheme.error,
+              ),
+              const SizedBox(height: 16),
+              Text(
+                isMissingDb ? 'English Songs Database Missing' : 'Error Loading Songs',
+                style: theme.textTheme.titleLarge,
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                isMissingDb 
+                  ? 'The English songs database (Only Believe) is not installed.'
+                  : state.message,
+                style: theme.textTheme.bodyMedium,
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: 24),
+              if (isMissingDb) ...[
+                if (_isImporting) ...[
+                  const CircularProgressIndicator(),
+                  const SizedBox(height: 16),
+                  Text(_importStatus ?? 'Importing...', style: theme.textTheme.bodySmall),
+                ] else ...[
+                  FilledButton.icon(
+                    onPressed: () => context.push('/database-management'),
+                    icon: const Icon(Icons.download),
+                    label: const Text('Download / Manage Databases'),
+                  ),
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    onPressed: _pickAndImportDatabase,
+                    icon: const Icon(Icons.file_open),
+                    label: const Text('Import from Device (.db or .zip)'),
+                  ),
+                ],
+              ] else
+                FilledButton(
+                  onPressed: () => ref.read(songsProvider.notifier).onClearSearch(), // Triggers reload
+                  child: const Text('Retry'),
+                ),
+            ],
           ),
         ),
       );
@@ -258,6 +313,9 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
                   isFavorite: hymn.isFavorite,
                   highlightQuery: _isSearchExpanded ? _query : null,
                   onTap: () {
+                    unawaited(
+                      ModuleResumePrefs.saveLastEnglishHymn(hymn.hymnNo),
+                    );
                     context.push('/song-detail', extra: hymn.hymnNo);
                   },
                   onToggleFavorite: () => notifier.toggleFavorite(hymn.hymnNo),
@@ -268,5 +326,81 @@ class _SongsScreenState extends ConsumerState<SongsScreen> {
         ),
       ],
     );
+  }
+
+  Future<void> _pickAndImportDatabase() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['db', 'zip'],
+      );
+
+      if (result == null || result.files.single.path == null) return;
+
+      setState(() {
+        _isImporting = true;
+        _importStatus = 'Starting import...';
+      });
+
+      final file = File(result.files.single.path!);
+      final importer = SelectiveDatabaseImporter();
+      final isZip = file.path.toLowerCase().endsWith('.zip');
+
+      ImportResult importResult;
+      if (isZip) {
+        importResult = await importer.importAllFromZip(
+          zipPath: file.path,
+          onProgress: (progress, message) {
+            setState(() => _importStatus = message);
+          },
+        );
+      } else {
+        importResult = await importer.importSongsDatabase(
+          sourceFile: file,
+          languageCode: 'en',
+          displayName: 'English Songs',
+          onProgress: (progress, message) {
+            setState(() => _importStatus = message);
+          },
+        );
+      }
+
+      if (!mounted) return;
+
+      if (importResult.success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(importResult.message)),
+        );
+        ref.invalidate(localDatabaseFilesProvider);
+        ref.read(songsProvider.notifier).onClearSearch();
+      } else {
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Import Failed'),
+            content: Text(importResult.message),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isImporting = false;
+          _importStatus = null;
+        });
+      }
+    }
   }
 }

@@ -61,6 +61,7 @@ class BibleRepository {
       exactMatch: exactMatch,
       anyWord: anyWord,
       prefixOnly: prefixOnly,
+      accurateMatch: accurateMatch,
     );
     final path = await _dbManager.getDatabasePath(dbFileName);
     return searchBibleFts(
@@ -109,8 +110,18 @@ class BibleRepository {
     int? chapterFrom,
     int? chapterTo,
     String scope = 'both',
+    bool exactMatch = false,
+    bool anyWord = false,
+    bool prefixOnly = false,
+    bool accurateMatch = false,
   }) async {
-    final matchPattern = FtsQueryBuilder.buildMatchQuery(query);
+    final matchPattern = FtsQueryBuilder.buildMatchQuery(
+      query,
+      exactMatch: exactMatch,
+      anyWord: anyWord,
+      prefixOnly: prefixOnly,
+      accurateMatch: accurateMatch,
+    );
     final path = await _dbManager.getDatabasePath(dbFileName);
     return countBibleFts(
       dbPath: path,

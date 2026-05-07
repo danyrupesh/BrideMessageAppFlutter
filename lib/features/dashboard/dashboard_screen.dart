@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../church_ages/providers/church_ages_provider.dart';
 import '../settings/widgets/theme_picker_sheet.dart';
+import 'module_resume_prefs.dart';
 import '../help/widgets/help_button.dart';
 import '../reader/providers/reader_provider.dart';
 import '../reader/models/reader_tab.dart';
@@ -9,6 +11,20 @@ import '../sermons/providers/sermon_flow_provider.dart';
 import '../sermons/providers/sermon_provider.dart';
 import '../reading_state/providers/reading_state_provider.dart';
 import '../reading_state/models/reading_flow_models.dart';
+import 'dashboard_language_provider.dart';
+
+/// Pushes a module list route, then the reader, so the back button returns
+/// to the list (not the dashboard) when resuming a saved item.
+Future<void> _pushModuleListThenReader(
+  BuildContext context, {
+  required String listLocation,
+  required String readerLocation,
+}) async {
+  await context.push(listLocation);
+  if (context.mounted) {
+    context.push(readerLocation);
+  }
+}
 
 class DashboardScreen extends ConsumerWidget {
   const DashboardScreen({super.key});
@@ -29,6 +45,7 @@ class DashboardScreen extends ConsumerWidget {
               style: TextStyle(fontWeight: FontWeight.bold),
             ),
             actions: [
+              _buildLanguageToggle(context, ref),
               IconButton(
                 tooltip: 'Recent viewed',
                 icon: const Icon(Icons.history),
@@ -280,7 +297,7 @@ class DashboardScreen extends ConsumerWidget {
             ),
             const SizedBox(height: 12),
             ElevatedButton(
-              onPressed: () {
+              onPressed: () async {
                 if (hasItem) {
                   if (flowType == FlowType.bible) {
                     ref
@@ -291,15 +308,34 @@ class DashboardScreen extends ConsumerWidget {
                     ref
                         .read(sermonFlowProvider.notifier)
                         .restoreSession(item.snapshot);
-                    context.push('/sermon-reader');
+                    await _pushModuleListThenReader(
+                      context,
+                      listLocation: '/sermons?resume=1',
+                      readerLocation: '/sermon-reader',
+                    );
                   }
                   return;
                 }
 
                 if (flowType == FlowType.bible) {
-                  context.push('/reader');
+                  await ref
+                      .read(readerProvider.notifier)
+                      .reloadBibleFlowFromDisk();
+                  if (context.mounted) context.push('/reader');
                 } else {
-                  context.push('/sermons');
+                  await ref
+                      .read(sermonFlowProvider.notifier)
+                      .reloadSermonFlowFromDisk();
+                  if (!context.mounted) return;
+                  if (ref.read(sermonFlowProvider).hasSermon) {
+                    await _pushModuleListThenReader(
+                      context,
+                      listLocation: '/sermons?resume=1',
+                      readerLocation: '/sermon-reader',
+                    );
+                  } else {
+                    context.push('/sermons');
+                  }
                 }
               },
               style: ElevatedButton.styleFrom(
@@ -324,7 +360,9 @@ class DashboardScreen extends ConsumerWidget {
   }
 
   Widget _buildModulesGrid(BuildContext context, WidgetRef ref) {
+    final selectedLang = ref.watch(dashboardLanguageProvider);
     final englishSermonCountAsync = ref.watch(sermonCountByLangProvider('en'));
+
     final tamilSermonCountAsync = ref.watch(sermonCountByLangProvider('ta'));
     final englishSermonSubtitle = englishSermonCountAsync.when(
       data: (count) => '$count Messages',
@@ -342,19 +380,23 @@ class DashboardScreen extends ConsumerWidget {
         title: 'English Bible',
         subtitle: 'KJV',
         color: const Color(0xFF4B6CB7),
-        onTap: () {
+        language: 'en',
+        onTap: () async {
           ref.read(selectedBibleLangProvider.notifier).setLang('en');
-          context.push('/reader');
+          await ref.read(readerProvider.notifier).reloadBibleFlowFromDisk();
+          if (context.mounted) context.push('/reader');
         },
       ),
       _ModuleCardData(
         icon: Icons.book_outlined,
-        title: 'Tamil Bible',
+        title: 'தமிழ் பைபிள்',
         subtitle: 'BSI',
         color: const Color(0xFF4B6CB7),
-        onTap: () {
+        language: 'ta',
+        onTap: () async {
           ref.read(selectedBibleLangProvider.notifier).setLang('ta');
-          context.push('/reader');
+          await ref.read(readerProvider.notifier).reloadBibleFlowFromDisk();
+          if (context.mounted) context.push('/reader');
         },
       ),
       _ModuleCardData(
@@ -362,9 +404,22 @@ class DashboardScreen extends ConsumerWidget {
         title: 'English Sermon',
         subtitle: englishSermonSubtitle,
         color: const Color(0xFF6B7FB7),
-        onTap: () {
+        language: 'en',
+        onTap: () async {
           ref.read(selectedSermonLangProvider.notifier).setLang('en');
-          context.push('/sermons?resume=1');
+          await ref
+              .read(sermonFlowProvider.notifier)
+              .reloadSermonFlowFromDisk();
+          if (!context.mounted) return;
+          if (ref.read(sermonFlowProvider).hasSermon) {
+            await _pushModuleListThenReader(
+              context,
+              listLocation: '/sermons?resume=1',
+              readerLocation: '/sermon-reader',
+            );
+          } else {
+            context.push('/sermons?resume=1');
+          }
         },
       ),
       _ModuleCardData(
@@ -372,11 +427,22 @@ class DashboardScreen extends ConsumerWidget {
         title: 'தமிழ் செய்திகள்',
         subtitle: tamilSermonSubtitle,
         color: const Color(0xFF6B7FB7),
-        onTap: () {
+        language: 'ta',
+        onTap: () async {
           ref.read(selectedSermonLangProvider.notifier).setLang('ta');
-          // Always open the sermon list for Tamil — don't try to resume
-          // an English session.
-          context.push('/sermons');
+          await ref
+              .read(sermonFlowProvider.notifier)
+              .reloadSermonFlowFromDisk();
+          if (!context.mounted) return;
+          if (ref.read(sermonFlowProvider).hasSermon) {
+            await _pushModuleListThenReader(
+              context,
+              listLocation: '/sermons?resume=1',
+              readerLocation: '/sermon-reader',
+            );
+          } else {
+            context.push('/sermons?resume=1');
+          }
         },
       ),
       _ModuleCardData(
@@ -391,67 +457,109 @@ class DashboardScreen extends ConsumerWidget {
         title: 'Only Believe Songs',
         subtitle: '1196 Hymns',
         color: const Color(0xFF4BA7A0),
-        onTap: () => context.push('/songs'),
+        language: 'en',
+        onTap: () async {
+          final n = await ModuleResumePrefs.peekLastEnglishHymn();
+          if (!context.mounted) return;
+          if (n != null) {
+            context.push('/song-detail?hymnNo=$n');
+          } else {
+            context.push('/songs');
+          }
+        },
       ),
       _ModuleCardData(
         icon: Icons.music_note_outlined,
         title: 'தமிழ் பாடல்கள்',
         subtitle: 'Tamil Songs',
         color: const Color(0xFFE67E22),
-        onTap: () => context.push('/songs/tamil'),
+        language: 'ta',
+        onTap: () async {
+          final id = await ModuleResumePrefs.peekLastTamilSongId();
+          if (!context.mounted) return;
+          if (id != null) {
+            context.push('/song-detail/tamil?id=$id');
+          } else {
+            context.push('/songs/tamil');
+          }
+        },
       ),
       _ModuleCardData(
         icon: Icons.article_outlined,
         title: 'Question and Answers',
         subtitle: 'COD English',
-        color: const Color(0xFF8E44AD),
-        onTap: () {
-          context.push('/cod?lang=en');
-        },
-      ),
-      _ModuleCardData(
-        icon: Icons.article_outlined,
-        title: 'கேள்விகளும் பதில்களும்',
-        subtitle: 'COD தமிழ்',
         color: const Color(0xFFD35400),
-        onTap: () {
-          context.push('/cod?lang=ta');
+        language: 'ta',
+        onTap: () async {
+          final id = await ModuleResumePrefs.peekLastCodDetailId('ta');
+          if (!context.mounted) return;
+          if (id != null) {
+            context.push('/cod/detail/$id?lang=ta');
+          } else {
+            context.push('/cod?lang=ta');
+          }
         },
       ),
       _ModuleCardData(
         icon: Icons.layers_outlined,
         title: 'Seven Seals',
         subtitle: '10 Messages',
-        color: const Color(0xFF2E86AB),
-        onTap: () {
+        color: const Color(0xFF6A4C93),
+        language: 'en',
+        onTap: () async {
           ref.read(selectedSermonLangProvider.notifier).setLang('en');
-          final uri = Uri(
+          await ref
+              .read(sermonFlowProvider.notifier)
+              .reloadSermonFlowFromDisk();
+          if (!context.mounted) return;
+          final sevenSealsList = Uri(
             path: '/sermons',
             queryParameters: {
               'mode': 'sevenSeals',
               'title': '7 Seals',
               'lang': 'en',
             },
-          );
-          context.push(uri.toString());
+          ).toString();
+          if (ref.read(sermonFlowProvider).hasSermon) {
+            await _pushModuleListThenReader(
+              context,
+              listLocation: sevenSealsList,
+              readerLocation: '/sermon-reader',
+            );
+          } else {
+            context.push(sevenSealsList);
+          }
         },
       ),
       _ModuleCardData(
         icon: Icons.layers_outlined,
         title: 'ஏழு முத்திரைகள்',
-        subtitle: '10 செய்திகள்',
+        subtitle: '10 Messages',
         color: const Color(0xFF6A4C93),
-        onTap: () {
+        language: 'ta',
+        onTap: () async {
           ref.read(selectedSermonLangProvider.notifier).setLang('ta');
-          final uri = Uri(
+          await ref
+              .read(sermonFlowProvider.notifier)
+              .reloadSermonFlowFromDisk();
+          if (!context.mounted) return;
+          final sevenSealsList = Uri(
             path: '/sermons',
             queryParameters: {
               'mode': 'sevenSeals',
               'title': 'ஏழு முத்திரைகள்',
               'lang': 'ta',
             },
-          );
-          context.push(uri.toString());
+          ).toString();
+          if (ref.read(sermonFlowProvider).hasSermon) {
+            await _pushModuleListThenReader(
+              context,
+              listLocation: sevenSealsList,
+              readerLocation: '/sermon-reader',
+            );
+          } else {
+            context.push(sevenSealsList);
+          }
         },
       ),
       _ModuleCardData(
@@ -459,8 +567,22 @@ class DashboardScreen extends ConsumerWidget {
         title: 'English Tracts',
         subtitle: '26 Tracts',
         color: const Color(0xFFC0392B), // Unique color red-ish tone
-        onTap: () {
-          context.push('/tracts?lang=en');
+        language: 'en',
+        onTap: () async {
+          final id = await ModuleResumePrefs.peekLastTractId('en');
+          if (!context.mounted) return;
+          if (id != null) {
+            await _pushModuleListThenReader(
+              context,
+              listLocation: '/tracts?lang=en',
+              readerLocation: Uri(
+                path: '/tract-reader',
+                queryParameters: {'id': id},
+              ).toString(),
+            );
+          } else {
+            context.push('/tracts?lang=en');
+          }
         },
       ),
       _ModuleCardData(
@@ -468,35 +590,92 @@ class DashboardScreen extends ConsumerWidget {
         title: 'தமிழ் பிரசுரங்கள்',
         subtitle: '34 Tracts',
         color: const Color(0xFFC0392B), // Same color scheme for coherence
-        onTap: () {
-          context.push('/tracts?lang=ta');
+        language: 'ta',
+        onTap: () async {
+          final id = await ModuleResumePrefs.peekLastTractId('ta');
+          if (!context.mounted) return;
+          if (id != null) {
+            await _pushModuleListThenReader(
+              context,
+              listLocation: '/tracts?lang=ta',
+              readerLocation: Uri(
+                path: '/tract-reader',
+                queryParameters: {'id': id},
+              ).toString(),
+            );
+          } else {
+            context.push('/tracts?lang=ta');
+          }
         },
       ),
       _ModuleCardData(
         icon: Icons.auto_stories_outlined,
         title: 'Stories English',
         subtitle: 'WMB / Kids / Timeline / Witnesses',
-        color: const Color(0xFF4B8CF5),
-        onTap: () {
-          context.push('/stories?lang=en');
+        color: const Color(0xFF20A57A),
+        language: 'ta',
+        onTap: () async {
+          final pair = await ModuleResumePrefs.peekLastStory('ta');
+          if (!context.mounted) return;
+          final id = pair[0];
+          final section = pair[1];
+          if (id != null) {
+            final sec = (section != null && section.isNotEmpty)
+                ? section
+                : 'wmbStories';
+            await _pushModuleListThenReader(
+              context,
+              listLocation: '/stories?lang=ta',
+              readerLocation: Uri(
+                path: '/story-reader',
+                queryParameters: {'id': id, 'lang': 'ta', 'section': sec},
+              ).toString(),
+            );
+          } else {
+            context.push('/stories?lang=ta');
+          }
         },
       ),
       _ModuleCardData(
-        icon: Icons.auto_stories_outlined,
-        title: 'Stories Tamil',
-        subtitle: 'ஆரம்ப 4 தலைப்புகள்',
-        color: const Color(0xFF20A57A),
-        onTap: () {
-          context.push('/stories?lang=ta');
-        },
+        icon: Icons.auto_stories,
+        title: 'Special Books',
+        subtitle: 'Books & Chapters',
+        color: const Color(0xFF16A085),
+        language: 'en',
+        onTap: () => context.push('/special-books?lang=en'),
+      ),
+      _ModuleCardData(
+        icon: Icons.auto_stories,
+        title: 'சிறப்பு புத்தகங்கள்',
+        subtitle: 'Special Books',
+        color: const Color(0xFF1ABC9C),
+        language: 'ta',
+        onTap: () => context.push('/special-books?lang=ta'),
       ),
       _ModuleCardData(
         icon: Icons.church_outlined,
         title: 'English Church Ages',
         subtitle: 'The 7 Church Ages',
         color: const Color(0xFF9B59B6),
-        onTap: () {
-          context.push('/church-ages?lang=en');
+        language: 'en',
+        onTap: () async {
+          await ref
+              .read(activeChurchAgesLangProvider.notifier)
+              .setLang('en');
+          final topicId = await ModuleResumePrefs.peekChurchAgesTopicId('en');
+          if (!context.mounted) return;
+          if (topicId != null) {
+            await _pushModuleListThenReader(
+              context,
+              listLocation: '/church-ages?lang=en',
+              readerLocation: Uri(
+                path: '/church-ages-reader',
+                queryParameters: {'id': topicId.toString()},
+              ).toString(),
+            );
+          } else {
+            context.push('/church-ages?lang=en');
+          }
         },
       ),
       _ModuleCardData(
@@ -504,11 +683,48 @@ class DashboardScreen extends ConsumerWidget {
         title: 'தமிழ் சபை காலங்கள்',
         subtitle: 'The 7 Church Ages',
         color: const Color(0xFF8E44AD),
-        onTap: () {
-          context.push('/church-ages?lang=ta');
+        language: 'ta',
+        onTap: () async {
+          await ref
+              .read(activeChurchAgesLangProvider.notifier)
+              .setLang('ta');
+          final id = await ModuleResumePrefs.peekChurchAgesTopicId('ta');
+          if (!context.mounted) return;
+          if (id != null) {
+            await _pushModuleListThenReader(
+              context,
+              listLocation: '/church-ages?lang=ta',
+              readerLocation: Uri(
+                path: '/church-ages-reader',
+                queryParameters: {'id': id.toString()},
+              ).toString(),
+            );
+          } else {
+            context.push('/church-ages?lang=ta');
+          }
         },
       ),
+      _ModuleCardData(
+        icon: Icons.format_quote_rounded,
+        title: 'Prayer Quotes',
+        subtitle: 'Inspirational Prayers',
+        color: const Color(0xFF2980B9),
+        language: 'en', // Assuming English
+        onTap: () => context.push('/prayer-quotes'),
+      ),
+      _ModuleCardData(
+        icon: Icons.format_quote_outlined,
+        title: 'English Quotes',
+        subtitle: 'A–Z · Topics · VGR',
+        color: const Color(0xFF27AE60),
+        language: 'en',
+        onTap: () => context.push('/quotes'),
+      ),
     ];
+
+    final filteredModules = modules
+        .where((m) => m.language == null || m.language == selectedLang)
+        .toList();
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -531,14 +747,15 @@ class DashboardScreen extends ConsumerWidget {
         return GridView.builder(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
-          itemCount: modules.length,
+          itemCount: filteredModules.length,
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: crossAxisCount,
             mainAxisSpacing: 12,
             crossAxisSpacing: 12,
             childAspectRatio: childAspectRatio,
           ),
-          itemBuilder: (context, index) => _ModuleCard(data: modules[index]),
+          itemBuilder: (context, index) =>
+              _ModuleCard(data: filteredModules[index]),
         );
       },
     );
@@ -593,11 +810,15 @@ class DashboardScreen extends ConsumerWidget {
                 ),
                 clipBehavior: Clip.antiAlias,
                 child: InkWell(
-                  onTap: () {
+                  onTap: () async {
                     ref
                         .read(sermonFlowProvider.notifier)
                         .restoreSession(item.snapshot);
-                    context.push('/sermon-reader');
+                    await _pushModuleListThenReader(
+                      context,
+                      listLocation: '/sermons?resume=1',
+                      readerLocation: '/sermon-reader',
+                    );
                   },
                   child: Padding(
                     padding: const EdgeInsets.all(14.0),
@@ -696,7 +917,12 @@ class DashboardScreen extends ConsumerWidget {
               child: Align(
                 alignment: Alignment.topCenter,
                 child: Container(
-                  margin: const EdgeInsets.only(top: 48, left: 16, right: 16, bottom: 24),
+                  margin: const EdgeInsets.only(
+                    top: 48,
+                    left: 16,
+                    right: 16,
+                    bottom: 24,
+                  ),
                   constraints: BoxConstraints(
                     maxWidth: 480,
                     maxHeight: MediaQuery.of(context).size.height * 0.7,
@@ -715,113 +941,174 @@ class DashboardScreen extends ConsumerWidget {
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
                     child: recentReadsAsync.when(
-                  loading: () => const SizedBox(
-                    height: 180,
-                    child: Center(child: CircularProgressIndicator()),
-                  ),
-                  error: (_, _) => const SizedBox(
-                    height: 180,
-                    child: Center(
-                      child: Text(
-                        'Unable to load recent viewed items.',
-                        style: TextStyle(color: Colors.grey),
+                      loading: () => const SizedBox(
+                        height: 180,
+                        child: Center(child: CircularProgressIndicator()),
                       ),
-                    ),
-                  ),
-                  data: (items) {
-                    if (items.isEmpty) {
-                      return const SizedBox(
+                      error: (_, _) => const SizedBox(
                         height: 180,
                         child: Center(
                           child: Text(
-                            'No recent viewed items yet.',
+                            'Unable to load recent viewed items.',
                             style: TextStyle(color: Colors.grey),
                           ),
                         ),
-                      );
-                    }
-
-                    final sorted = [...items]
-                      ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
-
-                    return Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Row(
-                          children: [
-                            const Text(
-                              'Recent Viewed',
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
+                      ),
+                      data: (items) {
+                        if (items.isEmpty) {
+                          return const SizedBox(
+                            height: 180,
+                            child: Center(
+                              child: Text(
+                                'No recent viewed items yet.',
+                                style: TextStyle(color: Colors.grey),
                               ),
                             ),
-                            const Spacer(),
-                            TextButton.icon(
-                              onPressed: () async {
-                                await sheetRef
-                                    .read(readingStateRepositoryProvider)
-                                    .clearRecentReads();
-                                sheetRef.invalidate(recentReadsProvider);
-                              },
-                              icon: const Icon(Icons.delete_outline, size: 18),
-                              label: const Text('Clear'),
+                          );
+                        }
+
+                        final sorted = [...items]
+                          ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+
+                        return Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Row(
+                              children: [
+                                const Text(
+                                  'Recent Viewed',
+                                  style: TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                const Spacer(),
+                                TextButton.icon(
+                                  onPressed: () async {
+                                    await sheetRef
+                                        .read(readingStateRepositoryProvider)
+                                        .clearRecentReads();
+                                    sheetRef.invalidate(recentReadsProvider);
+                                  },
+                                  icon: const Icon(
+                                    Icons.delete_outline,
+                                    size: 18,
+                                  ),
+                                  label: const Text('Clear'),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            Flexible(
+                              child: ListView.separated(
+                                shrinkWrap: true,
+                                itemCount: sorted.length,
+                                separatorBuilder: (_, _) =>
+                                    const Divider(height: 1),
+                                itemBuilder: (context, index) {
+                                  final item = sorted[index];
+                                  final icon = item.flowType == FlowType.bible
+                                      ? Icons.menu_book
+                                      : Icons.headphones;
+                                  return ListTile(
+                                    contentPadding: EdgeInsets.zero,
+                                    leading: Icon(icon),
+                                    title: Text(
+                                      item.title,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                    subtitle: Text(item.subtitle),
+                                    trailing: const Icon(Icons.chevron_right),
+                                    onTap: () async {
+                                      Navigator.of(sheetContext).pop();
+                                      if (item.flowType == FlowType.bible) {
+                                        ref
+                                            .read(readerProvider.notifier)
+                                            .restoreSession(item.snapshot);
+                                        context.push('/reader');
+                                      } else {
+                                        ref
+                                            .read(sermonFlowProvider.notifier)
+                                            .restoreSession(item.snapshot);
+                                        await _pushModuleListThenReader(
+                                          context,
+                                          listLocation: '/sermons?resume=1',
+                                          readerLocation: '/sermon-reader',
+                                        );
+                                      }
+                                    },
+                                  );
+                                },
+                              ),
                             ),
                           ],
-                        ),
-                        const SizedBox(height: 8),
-                        Flexible(
-                          child: ListView.separated(
-                            shrinkWrap: true,
-                            itemCount: sorted.length,
-                            separatorBuilder: (_, _) =>
-                                const Divider(height: 1),
-                            itemBuilder: (context, index) {
-                              final item = sorted[index];
-                              final icon = item.flowType == FlowType.bible
-                                  ? Icons.menu_book
-                                  : Icons.headphones;
-                              return ListTile(
-                                contentPadding: EdgeInsets.zero,
-                                leading: Icon(icon),
-                                title: Text(
-                                  item.title,
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                                subtitle: Text(item.subtitle),
-                                trailing: const Icon(Icons.chevron_right),
-                                onTap: () {
-                                  Navigator.of(sheetContext).pop();
-                                  if (item.flowType == FlowType.bible) {
-                                    ref
-                                        .read(readerProvider.notifier)
-                                        .restoreSession(item.snapshot);
-                                    context.push('/reader');
-                                  } else {
-                                    ref
-                                        .read(sermonFlowProvider.notifier)
-                                        .restoreSession(item.snapshot);
-                                    context.push('/sermon-reader');
-                                  }
-                                },
-                              );
-                            },
-                          ),
-                        ),
-                      ],
-                    );
-                    },
-                  ),
-                ), // Padding
-              ), // Container
-            ), // Align
-          ); // SafeArea
+                        );
+                      },
+                    ),
+                  ), // Padding
+                ), // Container
+              ), // Align
+            ); // SafeArea
+          },
+        ); // Consumer
+      }, // showModalBottomSheet builder
+    );
+  }
+
+  void _showComingSoonSnack(BuildContext context, String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
+  }
+
+  Widget _buildLanguageToggle(BuildContext context, WidgetRef ref) {
+    final selectedLang = ref.watch(dashboardLanguageProvider);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4.0),
+      child: SegmentedButton<String>(
+        segments: const [
+          ButtonSegment(
+            value: 'en',
+            label: Text(
+              'EN',
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+            ),
+          ),
+          ButtonSegment(
+            value: 'ta',
+            label: Text(
+              'TA',
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+            ),
+          ),
+        ],
+        selected: {selectedLang},
+        onSelectionChanged: (Set<String> newSelection) {
+          ref
+              .read(dashboardLanguageProvider.notifier)
+              .setLang(newSelection.first);
         },
-      ); // Consumer
-    }, // showModalBottomSheet builder
-  );
-}
+        showSelectedIcon: false,
+        style: ButtonStyle(
+          backgroundColor: WidgetStateProperty.resolveWith((states) {
+            if (states.contains(WidgetState.selected)) {
+              return Theme.of(context).colorScheme.primary;
+            }
+            return null;
+          }),
+          foregroundColor: WidgetStateProperty.resolveWith((states) {
+            if (states.contains(WidgetState.selected)) {
+              return Theme.of(context).colorScheme.onPrimary;
+            }
+            return null;
+          }),
+          visualDensity: VisualDensity.compact,
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        ),
+      ),
+    );
+  }
 }
 
 class _ModuleCardData {
@@ -830,6 +1117,7 @@ class _ModuleCardData {
   final String subtitle;
   final Color color;
   final VoidCallback onTap;
+  final String? language;
 
   const _ModuleCardData({
     required this.icon,
@@ -837,6 +1125,7 @@ class _ModuleCardData {
     required this.subtitle,
     required this.color,
     required this.onTap,
+    this.language,
   });
 }
 

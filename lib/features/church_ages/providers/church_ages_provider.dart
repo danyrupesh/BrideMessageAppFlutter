@@ -6,9 +6,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'dart:io';
 import 'package:path/path.dart' as p;
-import '../../../core/database/database_manager.dart';
 
-final localDatabaseExistsProvider = FutureProvider.family<bool, String>((ref, lang) async {
+import '../../database_management/providers/local_databases_provider.dart';
+
+final localDatabaseExistsProvider = FutureProvider.family.autoDispose<bool, String>((ref, lang) async {
+  ref.watch(localDatabaseFilesProvider);
   final fileName = lang == 'ta' ? 'church_ages_ta.db' : 'church_ages_en.db';
   final dbDir = await DatabaseManager().getDatabaseDirectoryPath();
   final path = p.join(dbDir.path, fileName);

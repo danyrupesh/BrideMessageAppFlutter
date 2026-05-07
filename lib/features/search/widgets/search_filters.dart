@@ -59,44 +59,26 @@ class SearchFiltersSheet extends ConsumerWidget {
               ],
             ),
 
-            // ── Ranking (non-songs only) ─────────────────────────────────
-            if (!isSongs) ...[
-              const SizedBox(height: 20),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text('Ranking', style: theme.textTheme.labelLarge),
-                  const SizedBox(width: 6),
-                  Tooltip(
-                    message:
-                        'Ranking only changes result order, not which results appear.',
-                    child: Icon(
-                      Icons.info_outline,
-                      size: 15,
-                      color: theme.colorScheme.outline,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 6,
-                children: [
-                  PillToggleChip(
-                    label: 'Standard rank',
-                    selected: state.matchMode == MatchMode.exactMatch,
-                    onTap: () =>
-                        notifier.updateMatchMode(MatchMode.exactMatch),
-                  ),
-                  PillToggleChip(
-                    label: 'Accurate rank',
-                    selected: state.matchMode == MatchMode.accurate,
-                    onTap: () => notifier.updateMatchMode(MatchMode.accurate),
-                  ),
-                ],
-              ),
-            ],
+            // ── Accuracy ────────────────────────────────────────────────────
+            const SizedBox(height: 20),
+            Text('Accuracy', style: theme.textTheme.labelLarge),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 6,
+              children: [
+                PillToggleChip(
+                  label: 'Standard',
+                  selected: state.matchMode == MatchMode.exactMatch,
+                  onTap: () => notifier.updateMatchMode(MatchMode.exactMatch),
+                ),
+                PillToggleChip(
+                  label: 'Accurate',
+                  selected: state.matchMode == MatchMode.accurate,
+                  onTap: () => notifier.updateMatchMode(MatchMode.accurate),
+                ),
+              ],
+            ),
 
             // ── Songs: Lyrics toggle ─────────────────────────────────────
             if (isSongs) ...[

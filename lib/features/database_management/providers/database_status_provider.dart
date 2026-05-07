@@ -17,7 +17,50 @@ const List<String> _genericBundleComponentKeys = <String>[
   'stories_ta.db',
   'church_ages_en.db',
   'church_ages_ta.db',
+  'quotes_en.db',
+  'prayer_quotes_en.db',
+  'special_books_catalog_en.db',
+  'special_books_catalog_ta.db',
 ];
+
+final Map<String, List<String>> _standardDbAliases = {
+  'bible_en': ['bible_en_kjv', 'bible_kjv', 'bible_en'],
+  'bible_ta': ['bible_ta_bsi', 'bible_bsi', 'bible_ta'],
+  'sermons_en': ['sermons_en'],
+  'sermons_ta': ['sermons_ta'],
+  'tracts_en': ['tracts_en'],
+  'tracts_ta': ['tracts_ta'],
+  'stories_en': ['stories_en'],
+  'stories_ta': ['stories_ta'],
+  'cod_en': ['cod_english'],
+  'cod_ta': ['cod_tamil'],
+  'prayer_quotes_en': ['prayer_quotes_en'],
+  'quotes_en': ['quotes_en'],
+  'church_ages_en': ['church_ages_en'],
+  'church_ages_ta': ['church_ages_ta'],
+  'special_books_catalog_en': ['special_books_catalog_en', 'special_books_en'],
+  'special_books_catalog_ta': ['special_books_catalog_ta', 'special_books_ta'],
+};
+
+final Map<String, String> _standardDbDisplayNames = {
+  'bible_en': 'Bible English',
+  'bible_ta': 'Bible Tamil',
+  'sermons_en': 'Sermons English',
+  'sermons_ta': 'Sermons Tamil',
+  'tracts_en': 'Tracts English',
+  'tracts_ta': 'Tracts Tamil',
+  'stories_en': 'Stories English',
+  'stories_ta': 'Stories Tamil',
+  'cod_en': 'COD English',
+  'cod_ta': 'COD Tamil',
+  'prayer_quotes_en': 'Prayer Quotes English',
+  'quotes_en': 'English Quotes',
+  'church_ages_en': 'Church Ages English',
+  'church_ages_ta': 'Church Ages Tamil',
+  'special_books_catalog_en': 'Special Books English',
+  'special_books_catalog_ta': 'Special Books Tamil',
+  'bridemessage_db_en-ta': 'Bride Message DB',
+};
 
 /// Tracks the status of a single database
 class DatabaseStatusInfo {
@@ -93,33 +136,77 @@ String? _firstNonEmptyVersion(SharedPreferences prefs, Iterable<String> keys) {
 }
 
 String? _resolveInstalledVersion(SharedPreferences prefs, DatabaseInfo db) {
-  final direct = _firstNonEmptyVersion(prefs, [
+  final keysToCheck = <String>[
     _versionPrefKey(db.id),
     _updateVersionPrefKey(db.id),
-    _updateVersionPrefKey('bridemessage_db'),
-    _updateVersionPrefKey('bridemessage_db_en-ta'),
-  ]);
-  if (direct != null) {
-    return direct;
+  ];
+
+  // Add keys for all possible aliases of this database
+  final aliases = _standardDbAliases[db.id];
+  if (aliases != null) {
+    for (final alias in aliases) {
+      keysToCheck.add('onboarding.db.version.$alias.db');
+      keysToCheck.add('onboarding.db.version.$alias');
+      keysToCheck.add('updates.db.version.$alias.db');
+      keysToCheck.add('updates.db.version.$alias');
+    }
   }
 
-  if (!db.id.startsWith('bridemessage_db')) {
-    return null;
-  }
-
-  final componentVersions = _genericBundleComponentKeys
-      .map((fileName) => prefs.get('onboarding.db.version.$fileName')?.toString().trim())
+  // Find the highest version directly assigned to this specific database
+  final directVersions = keysToCheck
+      .map((k) => prefs.get(k)?.toString().trim())
       .whereType<String>()
-      .where((value) => value.isNotEmpty)
-      .toSet()
+      .where((v) => v.isNotEmpty)
       .toList();
 
-  if (componentVersions.isEmpty) {
-    return null;
+  String? bestDirectVersion;
+  if (directVersions.isNotEmpty) {
+    directVersions.sort(_compareSemver);
+    bestDirectVersion = directVersions.last;
   }
 
-  componentVersions.sort(_compareSemver);
-  return componentVersions.last;
+  // Find the highest version of any generic bundle
+  final bundleKeys = [
+    _updateVersionPrefKey('bridemessage_db'),
+    _updateVersionPrefKey('bridemessage_db_en-ta'),
+    _versionPrefKey('bridemessage_db'),
+    _versionPrefKey('bridemessage_db_en-ta'),
+  ];
+  
+  final bundleVersions = bundleKeys
+      .map((k) => prefs.get(k)?.toString().trim())
+      .whereType<String>()
+      .where((v) => v.isNotEmpty)
+      .toList();
+      
+  // For the bundle itself, we also derive version from its components if necessary
+  if (db.id.startsWith('bridemessage_db')) {
+    final componentVersions = _genericBundleComponentKeys
+        .map((fileName) => prefs.get('onboarding.db.version.$fileName')?.toString().trim())
+        .whereType<String>()
+        .where((value) => value.isNotEmpty)
+        .toList();
+    bundleVersions.addAll(componentVersions);
+  }
+
+  String? bestBundleVersion;
+  if (bundleVersions.isNotEmpty) {
+    bundleVersions.sort(_compareSemver);
+    bestBundleVersion = bundleVersions.last;
+  }
+
+  // If this IS the generic bundle, return its calculated version
+  if (db.id.startsWith('bridemessage_db')) {
+    return bestBundleVersion ?? bestDirectVersion;
+  }
+
+  // For individual databases, return the highest between its direct version and the bundle version
+  if (bestDirectVersion != null && bestBundleVersion != null) {
+    return _compareSemver(bestDirectVersion, bestBundleVersion) > 0 ? bestDirectVersion : bestBundleVersion;
+  }
+  
+  return bestBundleVersion ?? bestDirectVersion;
+
 }
 
 /// Provider to get all database status information
@@ -151,9 +238,37 @@ final databaseStatusProvider =
       if (installedFileIds.contains(dbId)) return true;
       if (dbId == 'bridemessage_db_en-ta' || dbId == 'bridemessage_db') {
         // Bundles are installed if their components are present
-        return installedFileIds.any((id) => id.endsWith('.db'));
+        return installedFileIds.any((id) => id.endsWith('.db') || _standardDbAliases.values.any((aliases) => aliases.contains(id)));
       }
+      
+      final aliases = _standardDbAliases[dbId];
+      if (aliases != null) {
+        for (final alias in aliases) {
+          if (installedFileIds.contains(alias)) return true;
+        }
+      }
+      
       return false;
+    }
+
+    // Ensure all standard databases are present in the 'available' list, even if not in manifest
+    final availableIds = available.map((d) => d.id).toSet();
+    for (final standardId in _standardDbDisplayNames.keys) {
+      if (!availableIds.contains(standardId)) {
+        available.add(DatabaseInfo(
+          id: standardId,
+          displayName: _standardDbDisplayNames[standardId]!,
+          version: '?',
+          isMandatory: false,
+          installStrategy: 'generic',
+          downloadUrl: '', // Unknown unless in manifest
+          sha256: '',
+          fileSize: 0,
+          publishedAt: '',
+          bundledVersion: 1,
+          isSingleDatabase: standardId != 'bridemessage_db_en-ta',
+        ));
+      }
     }
 
     // Identify installed databases and their versions
@@ -201,9 +316,14 @@ final databaseStatusProvider =
       );
     }
 
+    bool isAliasOfStandard(String fileId) {
+      return _standardDbAliases.values.any((aliases) => aliases.contains(fileId));
+    }
+
     // Add local-only ones (if any were not in server list)
     for (final id in installedFileIds) {
-      if (!statusMap.containsKey(id)) {
+      if (id == 'app_metadata') continue;
+      if (!statusMap.containsKey(id) && !isAliasOfStandard(id)) {
         statusMap[id] = DatabaseStatusInfo(
           available: DatabaseInfo(
             id: id,

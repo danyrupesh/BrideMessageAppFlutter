@@ -1,5 +1,5 @@
 /// Equivalent to Android's DatabaseType enum and InstalledDatabaseEntity.
-enum DbType { bible, sermon, churchAges }
+enum DbType { bible, sermon, churchAges, quote, prayerQuote }
 
 class InstalledDatabase {
   final int? id;
@@ -25,15 +25,25 @@ class InstalledDatabase {
   });
 
   /// Returns the expected DB filename on device.
-  String get dbFileName =>
-      type == DbType.bible ? 'bible_$code.db' : 'sermons_$code.db';
+  String get dbFileName {
+    switch (type) {
+      case DbType.bible:
+        return 'bible_$code.db';
+      case DbType.sermon:
+        return 'sermons_$code.db';
+      case DbType.churchAges:
+        return 'church_ages_$code.db';
+      case DbType.quote:
+        return 'quotes_$code.db';
+      case DbType.prayerQuote:
+        return 'prayer_quotes_$code.db';
+    }
+  }
 
   factory InstalledDatabase.fromMap(Map<String, dynamic> map) {
     return InstalledDatabase(
       id: map['id'] as int?,
-      type: map['type'] == 'BIBLE'
-          ? DbType.bible
-          : (map['type'] == 'SERMON' ? DbType.sermon : DbType.churchAges),
+      type: _parseType(map['type'] as String),
       code: map['code'] as String,
       displayName: map['display_name'] as String,
       language: map['language'] as String,
@@ -47,9 +57,7 @@ class InstalledDatabase {
   Map<String, dynamic> toMap() {
     return {
       if (id != null) 'id': id,
-      'type': type == DbType.bible
-          ? 'BIBLE'
-          : (type == DbType.sermon ? 'SERMON' : 'CHURCH_AGES'),
+      'type': _typeToString(type),
       'code': code,
       'display_name': displayName,
       'language': language,
@@ -72,5 +80,37 @@ class InstalledDatabase {
       recordCount: recordCount ?? this.recordCount,
       isDefault: isDefault ?? this.isDefault,
     );
+  }
+
+  static DbType _parseType(String type) {
+    switch (type) {
+      case 'BIBLE':
+        return DbType.bible;
+      case 'SERMON':
+        return DbType.sermon;
+      case 'CHURCH_AGES':
+        return DbType.churchAges;
+      case 'QUOTE':
+        return DbType.quote;
+      case 'PRAYER_QUOTE':
+        return DbType.prayerQuote;
+      default:
+        return DbType.bible;
+    }
+  }
+
+  static String _typeToString(DbType type) {
+    switch (type) {
+      case DbType.bible:
+        return 'BIBLE';
+      case DbType.sermon:
+        return 'SERMON';
+      case DbType.churchAges:
+        return 'CHURCH_AGES';
+      case DbType.quote:
+        return 'QUOTE';
+      case DbType.prayerQuote:
+        return 'PRAYER_QUOTE';
+    }
   }
 }

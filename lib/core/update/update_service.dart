@@ -618,6 +618,12 @@ class UpdateService {
       return File(p.join(dbDir.path, fileName)).exists();
     }
 
+    if (id == 'quotes_en' || id == 'prayer_quotes_en') {
+      final dbDir = await DatabaseManager().getDatabaseDirectoryPath();
+      final fileName = id == 'quotes_en' ? 'quotes_en.db' : 'prayer_quotes_en.db';
+      return File(p.join(dbDir.path, fileName)).exists();
+    }
+
     // Unknown IDs are treated as installed so custom manifests can still work.
     return true;
   }
@@ -662,6 +668,8 @@ class UpdateService {
       'tracts_ta',
       'stories_en',
       'stories_ta',
+      'quotes_en',
+      'prayer_quotes_en',
     }.contains(id);
   }
 
@@ -730,6 +738,18 @@ class UpdateService {
         result = await importer.importCodDatabase(
           sourceFile: tempDbFile,
           targetDbFileName: spec.expectedDbName,
+          displayName: spec.displayName,
+          onProgress: (_, message) => onStatus?.call(message),
+        );
+      } else if (id == 'quotes_en') {
+        result = await importer.importQuotesDatabase(
+          sourceFile: tempDbFile,
+          displayName: spec.displayName,
+          onProgress: (_, message) => onStatus?.call(message),
+        );
+      } else if (id == 'prayer_quotes_en') {
+        result = await importer.importPrayerQuotesDatabase(
+          sourceFile: tempDbFile,
           displayName: spec.displayName,
           onProgress: (_, message) => onStatus?.call(message),
         );
@@ -809,6 +829,18 @@ class UpdateService {
           displayName: 'Tamil Stories',
           langCode: 'ta',
         );
+      case 'quotes_en':
+        return const _SingleDbSpec(
+          expectedDbName: 'quotes_en.db',
+          displayName: 'English Quotes',
+          langCode: 'en',
+        );
+      case 'prayer_quotes_en':
+        return const _SingleDbSpec(
+          expectedDbName: 'prayer_quotes_en.db',
+          displayName: 'English Prayer Quotes',
+          langCode: 'en',
+        );
       default:
         return null;
     }
@@ -867,8 +899,14 @@ class UpdateService {
 
     // Prefer explicit local API host URL when zip filename is available.
     // This avoids stale/prod URLs in db_version.json during dev testing.
+    // BUG FIX: Only override if the remote host is DIFFERENT and not a local IP.
     if (zipFileName.isNotEmpty && localUri != null) {
-      if (remoteUri == null || remoteUri.host != localUri.host) {
+      final isRemoteLocal = remoteUri?.host == '127.0.0.1' || 
+                           remoteUri?.host == 'localhost' || 
+                           (remoteUri?.host.startsWith('172.') ?? false) ||
+                           (remoteUri?.host.startsWith('192.') ?? false);
+                           
+      if (remoteUri == null || (remoteUri.host != localUri.host && !isRemoteLocal)) {
         return '$localBase/database/${Uri.encodeComponent(zipFileName)}';
       }
     }

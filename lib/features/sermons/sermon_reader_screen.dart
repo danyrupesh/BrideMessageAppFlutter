@@ -31,7 +31,7 @@ import '../onboarding/onboarding_screen.dart';
 import '../../core/database/models/bible_search_result.dart';
 import '../../core/database/models/sermon_models.dart';
 import '../../core/database/models/sermon_search_result.dart';
-import '../search/providers/search_provider.dart' show SearchType;
+import '../search/providers/search_provider.dart' show MatchMode, SearchType;
 import '../common/widgets/fts_highlight_text.dart';
 import '../common/widgets/section_menu_button.dart';
 import '../help/widgets/help_button.dart';
@@ -42,6 +42,13 @@ class _NextMatchIntent extends Intent {
 
 class _PrevMatchIntent extends Intent {
   const _PrevMatchIntent();
+}
+
+class _MatchRange {
+  final int start;
+  final int end;
+
+  const _MatchRange({required this.start, required this.end});
 }
 
 class _AppBarChip extends StatelessWidget {
@@ -272,6 +279,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
   // ── Search scope / All-sermons FTS ────────────────────────────────────────
   bool _searchAllSermons = false;
   SearchType _sermonSearchType = SearchType.all;
+  MatchMode _sermonMatchMode = MatchMode.exactMatch;
   List<SermonSearchResult> _allSermonResults = [];
   bool _allSermonSearchLoading = false;
   bool _allSermonSearchLoadingMore = false;
@@ -322,6 +330,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
   List<BibleSearchResult> _bmCurrentVerses = [];
   List<SermonParagraphEntity> _bmSecondaryParagraphs = [];
   List<GlobalKey> _bmVerseKeys = [];
+  List<GlobalKey> _bmSermonParagraphKeys = [];
   String? _bmVerseSignature;
   bool _bmDefaultBiblePending = false;
   final FocusNode _searchFieldFocusNode = FocusNode();
@@ -514,16 +523,62 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
   }
 
   List<int> _computeMatchIndices(List<String> texts, String query) {
-    if (query.trim().isEmpty || texts.isEmpty) return [];
-    final pattern = RegExp(query, caseSensitive: false);
+    final normalizedQuery = query.trim();
+    if (normalizedQuery.isEmpty || texts.isEmpty) return [];
     final indices = <int>[];
     for (var i = 0; i < texts.length; i++) {
-      final count = pattern.allMatches(texts[i]).length;
+      final count = _countMatchesForSearchMode(texts[i], normalizedQuery);
       for (var j = 0; j < count; j++) {
         indices.add(i);
       }
     }
     return indices;
+  }
+
+  int _countMatchesForSearchMode(String text, String query) {
+    if (query.isEmpty) return 0;
+
+    final escapedQuery = RegExp.escape(query);
+    final wholePhrase = RegExp(
+      escapedQuery,
+      caseSensitive: false,
+      unicode: true,
+    );
+    final terms = query
+        .split(RegExp(r'\s+'))
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
+    if (terms.isEmpty) return 0;
+
+    final lowerText = text.toLowerCase();
+    final lowerTerms = terms.map((e) => e.toLowerCase()).toList();
+
+    if (_sermonSearchType == SearchType.exact) {
+      return wholePhrase.allMatches(text).length;
+    }
+
+    if (_sermonSearchType == SearchType.all) {
+      final matchesAll = lowerTerms.every((term) => lowerText.contains(term));
+      return matchesAll ? 1 : 0;
+    }
+
+    if (_sermonSearchType == SearchType.any) {
+      final matchesAny = lowerTerms.any((term) => lowerText.contains(term));
+      return matchesAny ? 1 : 0;
+    }
+
+    for (final term in lowerTerms) {
+      final prefix = RegExp(
+        '\\b${RegExp.escape(term)}\\w*',
+        caseSensitive: false,
+        unicode: true,
+      );
+      if (prefix.hasMatch(text)) {
+        return 1;
+      }
+    }
+    return 0;
   }
 
   int? _currentOccurrenceForItemWithState({
@@ -931,6 +986,8 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
             offset: append ? _allSermonResults.length : 0,
             exactMatch: _sermonSearchType == SearchType.exact,
             anyWord: _sermonSearchType == SearchType.any,
+            prefixOnly: _sermonSearchType == SearchType.prefix,
+            accurateMatch: _sermonMatchMode == MatchMode.accurate,
           )
           .timeout(const Duration(seconds: 12));
       if (requestId != _allSermonSearchRequestId) return;
@@ -1039,6 +1096,14 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     if (indices.isNotEmpty && scrollToMatch) _scrollToCurrentMatch();
   }
 
+  void _rerunSermonSearchForCurrentMode() {
+    if (_searchAllSermons) {
+      _scheduleAllSermonSearch(immediate: true);
+      return;
+    }
+    _computeMatches(_searchController.text);
+  }
+
   void _clearMatches() {
     _matchVerseIndices = [];
     _totalMatches = 0;
@@ -1118,9 +1183,30 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
   /// Height of [_buildSermonNavRow] (padding + compact buttons); keep in sync with UI.
   static const double _kSermonNavRowHeight = 44;
 
-  double _estimatedOffsetForIndex(int index) {
-    if (!_scrollController.hasClients || _verseKeys.isEmpty) return 0;
-    final max = _scrollController.position.maxScrollExtent;
+  ScrollController _primarySermonScrollController() {
+    return ref.read(sermonFlowProvider).bmMode
+        ? _splitPrimaryScrollController
+        : _scrollController;
+  }
+
+  /// BM split shows [_buildSermonNavRow] as shrink; content starts below [PaneHeader].
+  double _primarySermonChromeBelowToolbarPx() {
+    final bm = ref.read(sermonFlowProvider).bmMode;
+    if (!bm) return _kSermonNavRowHeight;
+    final isWide = MediaQuery.sizeOf(context).width >= 900;
+    return isWide ? 80.0 : 72.0;
+  }
+
+  double _primarySermonScrollAlignTargetY() {
+    final mq = MediaQuery.of(context);
+    return mq.padding.top +
+        kToolbarHeight +
+        _primarySermonChromeBelowToolbarPx();
+  }
+
+  double _estimatedOffsetForIndex(int index, ScrollController controller) {
+    if (!controller.hasClients || _verseKeys.isEmpty) return 0;
+    final max = controller.position.maxScrollExtent;
     final frac = _verseKeys.length <= 1 ? 0.0 : index / (_verseKeys.length - 1);
     final offset = max * frac;
     return offset.clamp(0.0, max).toDouble();
@@ -1128,8 +1214,8 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
 
   /// Places the paragraph [index] just below the app bar + in-reader nav row,
   /// using global coordinates (independent of font size / line height).
-  void _jumpAlignParagraphUnderBars(int index) {
-    if (!_scrollController.hasClients ||
+  void _jumpAlignParagraphUnderBars(int index, ScrollController controller) {
+    if (!controller.hasClients ||
         index < 0 ||
         index >= _verseKeys.length) {
       return;
@@ -1140,25 +1226,24 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     final box = ctx.findRenderObject();
     if (box is! RenderBox || !box.hasSize) return;
 
-    final media = MediaQuery.of(context);
-    final targetScreenY =
-        media.padding.top + kToolbarHeight + _kSermonNavRowHeight;
+    final targetScreenY = _primarySermonScrollAlignTargetY();
     final topOffset = box.localToGlobal(Offset.zero).dy;
     final delta = topOffset - targetScreenY;
     if (delta.abs() < 2) return;
 
-    final nextOffset = (_scrollController.offset + delta).clamp(
+    final nextOffset = (controller.offset + delta).clamp(
       0.0,
-      _scrollController.position.maxScrollExtent,
+      controller.position.maxScrollExtent,
     );
-    _scrollController.jumpTo(nextOffset.toDouble());
+    controller.jumpTo(nextOffset.toDouble());
   }
 
   void _scrollToSermonOccurrenceInParagraph(
     int paragraphIndex,
     int occurrenceIndex,
   ) {
-    if (!_scrollController.hasClients ||
+    final controller = _primarySermonScrollController();
+    if (!controller.hasClients ||
         paragraphIndex < 0 ||
         paragraphIndex >= _verseKeys.length ||
         paragraphIndex >= _currentParagraphs.length ||
@@ -1168,13 +1253,13 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
 
     final query = _searchController.text;
     if (query.isEmpty) {
-      _jumpAlignParagraphUnderBars(paragraphIndex);
+      _jumpAlignParagraphUnderBars(paragraphIndex, controller);
       return;
     }
 
     final paragraphText = _currentParagraphs[paragraphIndex].text;
     if (paragraphText.isEmpty) {
-      _jumpAlignParagraphUnderBars(paragraphIndex);
+      _jumpAlignParagraphUnderBars(paragraphIndex, controller);
       return;
     }
 
@@ -1186,7 +1271,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     final pattern = RegExp(query, caseSensitive: false);
     final matches = pattern.allMatches(paragraphText).toList();
     if (matches.isEmpty) {
-      _jumpAlignParagraphUnderBars(paragraphIndex);
+      _jumpAlignParagraphUnderBars(paragraphIndex, controller);
       return;
     }
 
@@ -1196,21 +1281,20 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
         ? 0.0
         : (charIndex / paragraphText.length).clamp(0.0, 1.0);
 
-    final media = MediaQuery.of(context);
-    final targetScreenY =
-        media.padding.top + kToolbarHeight + _kSermonNavRowHeight + 6;
+    final targetScreenY = _primarySermonScrollAlignTargetY() + 6;
     final paragraphTop = box.localToGlobal(Offset.zero).dy;
     final estimatedOccurrenceY = paragraphTop + (box.size.height * ratio);
     final delta = estimatedOccurrenceY - targetScreenY;
-    final nextOffset = (_scrollController.offset + delta).clamp(
+    final nextOffset = (controller.offset + delta).clamp(
       0.0,
-      _scrollController.position.maxScrollExtent,
+      controller.position.maxScrollExtent,
     );
-    _scrollController.jumpTo(nextOffset.toDouble());
+    controller.jumpTo(nextOffset.toDouble());
   }
 
   bool _scrollToCurrentSermonOccurrenceGlobal({bool instantScroll = false}) {
-    if (!_scrollController.hasClients ||
+    final controller = _primarySermonScrollController();
+    if (!controller.hasClients ||
         _matchVerseIndices.isEmpty ||
         _currentParagraphs.isEmpty ||
         _currentMatchIndex < 0 ||
@@ -1256,12 +1340,12 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     final localStart = matches[safeOccurrence].start;
     final globalCharOffset = charsBeforeTargetParagraph + localStart;
     final ratio = (globalCharOffset / totalChars).clamp(0.0, 1.0);
-    final target = ratio * _scrollController.position.maxScrollExtent;
+    final target = ratio * controller.position.maxScrollExtent;
 
     if (instantScroll) {
-      _scrollController.jumpTo(target);
+      controller.jumpTo(target);
     } else {
-      _scrollController.animateTo(
+      controller.animateTo(
         target,
         duration: const Duration(milliseconds: 220),
         curve: Curves.easeOutCubic,
@@ -1273,6 +1357,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
   void _scrollToCurrentMatch({int retryCount = 0, bool instantScroll = false}) {
     if (_matchVerseIndices.isEmpty) return;
     final vi = _matchVerseIndices[_currentMatchIndex];
+    final primaryScroll = _primarySermonScrollController();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
       final active = ref.read(sermonFlowProvider).activeTab;
@@ -1304,20 +1389,20 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
             final occurrence = _currentOccurrenceForItem(vi) ?? 0;
             _scrollToSermonOccurrenceInParagraph(vi, occurrence);
           } else {
-            _jumpAlignParagraphUnderBars(vi);
+            _jumpAlignParagraphUnderBars(vi, primaryScroll);
           }
           return;
         }
       }
-      if (_scrollController.hasClients) {
-        final estimated = _estimatedOffsetForIndex(vi);
-        final current = _scrollController.offset;
+      if (primaryScroll.hasClients) {
+        final estimated = _estimatedOffsetForIndex(vi, primaryScroll);
+        final current = primaryScroll.offset;
         // Nudge toward target so item can build, then resolve via ensureVisible.
         if ((estimated - current).abs() > 8) {
           if (instantScroll) {
-            _scrollController.jumpTo(estimated);
+            primaryScroll.jumpTo(estimated);
           } else {
-            await _scrollController.animateTo(
+            await primaryScroll.animateTo(
               estimated,
               duration: const Duration(milliseconds: 140),
               curve: Curves.easeOut,
@@ -1677,6 +1762,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     bool instantScroll = false,
   }) {
     if (index < 0 || _verseKeys.isEmpty || index >= _verseKeys.length) return;
+    final controller = _primarySermonScrollController();
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
       final ensureDuration = instantScroll
@@ -1692,17 +1778,17 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
           alignmentPolicy: ScrollPositionAlignmentPolicy.explicit,
         );
         if (!mounted) return;
-        _jumpAlignParagraphUnderBars(index);
+        _jumpAlignParagraphUnderBars(index, controller);
         return;
       }
-      if (_scrollController.hasClients) {
-        final estimated = _estimatedOffsetForIndex(index);
-        final current = _scrollController.offset;
+      if (controller.hasClients) {
+        final estimated = _estimatedOffsetForIndex(index, controller);
+        final current = controller.offset;
         if ((estimated - current).abs() > 8) {
           if (instantScroll) {
-            _scrollController.jumpTo(estimated);
+            controller.jumpTo(estimated);
           } else {
-            await _scrollController.animateTo(
+            await controller.animateTo(
               estimated,
               duration: const Duration(milliseconds: 140),
               curve: Curves.easeOut,
@@ -1722,6 +1808,19 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     });
   }
 
+  /// First integer at the start of paragraph body text (source numbering).
+  int? _leadingParagraphNumberFromContent(String text) {
+    final m = RegExp(r'^\s*(\d+)').firstMatch(text);
+    if (m == null) return null;
+    return int.tryParse(m.group(1)!);
+  }
+
+  /// Prefer DB paragraph_number; otherwise the leading digit prefix embedded in text.
+  int? _paragraphLabelNumber(SermonParagraphEntity paragraph) {
+    return paragraph.paragraphNumber ??
+        _leadingParagraphNumberFromContent(paragraph.text);
+  }
+
   void _applyInitialSearchFocus(ReaderTab tab) {
     if (_initialSearchScrollTabId == tab.id) return;
     final query = tab.initialSearchQuery;
@@ -1733,7 +1832,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     final targetNumber = tab.initialFocusParagraph;
     if (targetNumber != null) {
       focusIndex = _currentParagraphs.indexWhere(
-        (p) => p.paragraphNumber == targetNumber,
+        (p) => _paragraphLabelNumber(p) == targetNumber,
       );
       if (focusIndex < 0) focusIndex = null;
     }
@@ -1776,6 +1875,130 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
       _initialSearchScrollTabId = tab.id;
       _scrollToCurrentMatch(instantScroll: true);
     }
+  }
+
+  void _scrollBmSecondaryToIndex({
+    required List<GlobalKey> keys,
+    required int index,
+    required int totalItems,
+    int retryCount = 0,
+    bool instantScroll = false,
+  }) {
+    final controller = _splitSecondaryScrollController;
+    if (index < 0 || keys.isEmpty || index >= keys.length || totalItems <= 0) {
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      final ensureDuration = instantScroll
+          ? Duration.zero
+          : const Duration(milliseconds: 300);
+      final ctx = keys[index].currentContext;
+      if (ctx != null) {
+        await Scrollable.ensureVisible(
+          ctx,
+          duration: ensureDuration,
+          curve: Curves.easeInOut,
+          alignment: 0.12,
+          alignmentPolicy: ScrollPositionAlignmentPolicy.explicit,
+        );
+        return;
+      }
+      if (controller.hasClients) {
+        final frac =
+            totalItems <= 1 ? 0.0 : (index / (totalItems - 1)).clamp(0.0, 1.0);
+        final estimated = frac * controller.position.maxScrollExtent;
+        final current = controller.offset;
+        if ((estimated - current).abs() > 8) {
+          if (instantScroll) {
+            controller.jumpTo(estimated);
+          } else {
+            await controller.animateTo(
+              estimated,
+              duration: const Duration(milliseconds: 140),
+              curve: Curves.easeOut,
+            );
+          }
+        }
+      }
+      if (retryCount >= 8) return;
+      Future<void>.delayed(const Duration(milliseconds: 16), () {
+        if (!mounted) return;
+        _scrollBmSecondaryToIndex(
+          keys: keys,
+          index: index,
+          totalItems: totalItems,
+          retryCount: retryCount + 1,
+          instantScroll: instantScroll,
+        );
+      });
+    });
+  }
+
+  void _bmGotoPrimaryParagraph(int target) {
+    if (target <= 0) return;
+    if (_currentParagraphs.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Paragraphs are not loaded yet')),
+      );
+      return;
+    }
+    final paragraphIndex = _currentParagraphs.indexWhere(
+      (p) => _paragraphLabelNumber(p) == target,
+    );
+    if (paragraphIndex < 0) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Paragraph $target not found')));
+      return;
+    }
+    _scrollToParagraphIndex(paragraphIndex);
+  }
+
+  void _bmGotoSecondaryVerse(int verseNum) {
+    final verses = _bmCurrentVerses;
+    if (verses.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Chapter text is still loading')),
+      );
+      return;
+    }
+    final index = verses.indexWhere((v) => v.verse == verseNum);
+    if (index < 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Verse $verseNum not found')),
+      );
+      return;
+    }
+    _scrollBmSecondaryToIndex(
+      keys: _bmVerseKeys,
+      index: index,
+      totalItems: verses.length,
+    );
+  }
+
+  void _bmGotoSecondaryParagraph(int paraNum) {
+    final paragraphs = _bmSecondaryParagraphs;
+    if (paragraphs.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Sermon text is still loading')),
+      );
+      return;
+    }
+    final index = paragraphs.indexWhere(
+      (p) => _paragraphLabelNumber(p) == paraNum,
+    );
+    if (index < 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Paragraph $paraNum not found')),
+      );
+      return;
+    }
+    _scrollBmSecondaryToIndex(
+      keys: _bmSermonParagraphKeys,
+      index: index,
+      totalItems: paragraphs.length,
+    );
   }
 
   bool _hasParagraphContentChanged(List<SermonParagraphEntity> next) {
@@ -2294,10 +2517,12 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     if (!enabled || query.isEmpty) {
       return [TextSpan(text: text, style: baseStyle)];
     }
-    final matches = RegExp(
-      query,
-      caseSensitive: false,
-    ).allMatches(text).toList();
+    final normalizedQuery = query.trim();
+    if (normalizedQuery.isEmpty) {
+      return [TextSpan(text: text, style: baseStyle)];
+    }
+
+    final matches = _buildSearchModeMatches(text, normalizedQuery);
     if (matches.isEmpty) return [TextSpan(text: text, style: baseStyle)];
 
     final spans = <TextSpan>[];
@@ -2323,6 +2548,72 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
       spans.add(TextSpan(text: text.substring(start), style: baseStyle));
     }
     return spans;
+  }
+
+  List<_MatchRange> _buildSearchModeMatches(String text, String query) {
+    final escapedQuery = RegExp.escape(query);
+    final phraseRegex = RegExp(
+      escapedQuery,
+      caseSensitive: false,
+      unicode: true,
+    );
+    final terms = query
+        .split(RegExp(r'\s+'))
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
+
+    if (_sermonSearchType == SearchType.exact || terms.isEmpty) {
+      return phraseRegex
+          .allMatches(text)
+          .map((m) => _MatchRange(start: m.start, end: m.end))
+          .toList();
+    }
+
+    final rawMatches = <_MatchRange>[];
+    for (final term in terms) {
+      final regex = _sermonSearchType == SearchType.prefix
+          ? RegExp(
+              '\\b${RegExp.escape(term)}\\w*',
+              caseSensitive: false,
+              unicode: true,
+            )
+          : RegExp(
+              RegExp.escape(term),
+              caseSensitive: false,
+              unicode: true,
+            );
+      rawMatches.addAll(
+        regex
+            .allMatches(text)
+            .map((m) => _MatchRange(start: m.start, end: m.end)),
+      );
+    }
+
+    if (rawMatches.isEmpty) return const <_MatchRange>[];
+
+    rawMatches.sort((a, b) {
+      final byStart = a.start.compareTo(b.start);
+      if (byStart != 0) return byStart;
+      return a.end.compareTo(b.end);
+    });
+
+    // Merge overlapping token matches so highlighting stays clean.
+    final merged = <_MatchRange>[];
+    var current = rawMatches.first;
+    for (var i = 1; i < rawMatches.length; i++) {
+      final next = rawMatches[i];
+      if (next.start <= current.end) {
+        final start = current.start;
+        final end = next.end > current.end ? next.end : current.end;
+        current = _MatchRange(start: start, end: end);
+      } else {
+        merged.add(current);
+        current = next;
+      }
+    }
+    merged.add(current);
+    return merged;
   }
 
   Widget _buildMatchMarkers(
@@ -2409,10 +2700,14 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     return Theme(
       data: baseTheme.copyWith(textSelectionTheme: selectionTheme),
       child: Shortcuts(
-        shortcuts: {
-          LogicalKeySet(LogicalKeyboardKey.enter): const _NextMatchIntent(),
-          LogicalKeySet(LogicalKeyboardKey.shift, LogicalKeyboardKey.enter):
-              const _PrevMatchIntent(),
+        shortcuts: <ShortcutActivator, Intent>{
+          // Only bind Enter while inline sermon search has matches; otherwise
+          // Enter never reaches TextFields (e.g. Go to paragraph).
+          if (_isSearching && !_searchAllSermons && _totalMatches > 0) ...{
+            LogicalKeySet(LogicalKeyboardKey.enter): const _NextMatchIntent(),
+            LogicalKeySet(LogicalKeyboardKey.shift, LogicalKeyboardKey.enter):
+                const _PrevMatchIntent(),
+          },
         },
         child: Actions(
           actions: {
@@ -2508,7 +2803,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
         children: [
           if (!openedFromSearch) ...[
             _buildSearchChipsRow(),
-            if (_searchAllSermons) _buildSearchTypeChipsRow(),
+            _buildSearchTypeChipsRow(),
           ],
           Expanded(
             child: _searchAllSermons
@@ -2521,8 +2816,13 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
 
     final content = _buildTabContent(activeTab, typography, flowState);
     Widget contentWithBar = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Expanded(child: content),
+        if (!_isSearching &&
+            !flowState.bmMode &&
+            activeTab.type == ReaderContentType.sermon)
+          PaneGotoBar(tab: activeTab, onGoto: _bmGotoPrimaryParagraph),
         SelectionActionBar(
           isVisible: (_activeSelectionText?.trim().isNotEmpty ?? false),
           selectedText: _activeSelectionText,
@@ -2827,11 +3127,11 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
       child: Row(
         children: [
           ChoiceChip(
-            label: const Text('Smart'),
+            label: const Text('Smart (all words)'),
             selected: _sermonSearchType == SearchType.all,
             onSelected: (_) {
               setState(() => _sermonSearchType = SearchType.all);
-              _scheduleAllSermonSearch(immediate: true);
+              _rerunSermonSearchForCurrentMode();
             },
           ),
           const SizedBox(width: 8),
@@ -2840,7 +3140,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
             selected: _sermonSearchType == SearchType.exact,
             onSelected: (_) {
               setState(() => _sermonSearchType = SearchType.exact);
-              _scheduleAllSermonSearch(immediate: true);
+              _rerunSermonSearchForCurrentMode();
             },
           ),
           const SizedBox(width: 8),
@@ -2849,7 +3149,29 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
             selected: _sermonSearchType == SearchType.any,
             onSelected: (_) {
               setState(() => _sermonSearchType = SearchType.any);
-              _scheduleAllSermonSearch(immediate: true);
+              _rerunSermonSearchForCurrentMode();
+            },
+          ),
+          const SizedBox(width: 8),
+          ChoiceChip(
+            label: const Text('Prefix (auto)'),
+            selected: _sermonSearchType == SearchType.prefix,
+            onSelected: (_) {
+              setState(() => _sermonSearchType = SearchType.prefix);
+              _rerunSermonSearchForCurrentMode();
+            },
+          ),
+          const SizedBox(width: 16),
+          ChoiceChip(
+            label: const Text('Accurate'),
+            selected: _sermonMatchMode == MatchMode.accurate,
+            onSelected: (selected) {
+              setState(
+                () => _sermonMatchMode = selected
+                    ? MatchMode.accurate
+                    : MatchMode.exactMatch,
+              );
+              _rerunSermonSearchForCurrentMode();
             },
           ),
         ],
@@ -3011,7 +3333,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
         children: [
           Text(
             activeTab.title,
-            maxLines: 2,
+            maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: theme.textTheme.titleMedium?.copyWith(
               fontWeight: FontWeight.bold,
@@ -3060,11 +3382,11 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
       titleSpacing: 0,
       leading: IconButton(
         icon: const Icon(Icons.arrow_back),
-        onPressed: () => context.pop(),
+        onPressed: () => context.go('/sermons?resume=1'),
       ),
       title: LayoutBuilder(
         builder: (context, constraints) {
-          final showPcChips = constraints.maxWidth >= 900 && isSermonTab;
+          final showPcChips = constraints.maxWidth >= 1200 && isSermonTab;
           if (!showPcChips) {
             return SizedBox(width: constraints.maxWidth, child: titleWidget);
           }
@@ -3171,7 +3493,18 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
               ),
               onPressed: () => _adjustReaderFontSize(1),
             ),
-          const SectionMenuButton(),
+          // Split View icon in actions for screens narrower than 1200 px
+          // (wide screens already show the 'Split View' text in the title row)
+          if ((isSermonTab || isOnBibleTab) &&
+              MediaQuery.sizeOf(context).width < 1200)
+            LayoutBuilder(
+              builder: (context, constraints) => _buildSplitViewPopupMenu(
+                context,
+                constraints,
+                flowState.bmMode,
+                theme,
+              ),
+            ),
           const HelpButton(topicId: 'reader'),
           if (!openedFromSearch) ...[
             IconButton(
@@ -3187,6 +3520,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
             icon: const Icon(Icons.settings),
             onPressed: () => ReaderSettingsSheet.show(context),
           ),
+          const SectionMenuButton(),
         ],
       ],
       bottom: isOnBibleTab
@@ -4094,6 +4428,39 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     return title;
   }
 
+  void _handleSermonParagraphSelection(
+    TextSelection selection,
+    String paragraphPlain,
+    SermonParagraphEntity paragraph,
+  ) {
+    final text = selection.textInside(paragraphPlain);
+    _sermonSelectionDebounce?.cancel();
+
+    if (text.trim().isEmpty) {
+      if (_activeSelectionText != null) {
+        _sermonSelectionDebounce = Timer(const Duration(milliseconds: 200), () {
+          if (!mounted) return;
+          setState(() {
+            _activeSelectionText = null;
+            _selectionFirstParagraph = null;
+            _selectionLastParagraph = null;
+          });
+        });
+      }
+      return;
+    }
+
+    _sermonSelectionDebounce = Timer(const Duration(milliseconds: 200), () {
+      if (!mounted) return;
+      setState(() {
+        _activeSelectionText = text.trim();
+        final n = _paragraphLabelNumber(paragraph);
+        _selectionFirstParagraph = n;
+        _selectionLastParagraph = n;
+      });
+    });
+  }
+
   Widget _buildSermonBody(
     List<SermonParagraphEntity> paragraphs,
     TypographySettings typography,
@@ -4104,7 +4471,9 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
     required List<int> matchIndices,
     required int currentMatchIndex,
     double? fontSizeOverride,
+    List<GlobalKey>? paragraphKeys,
   }) {
+    final keys = paragraphKeys ?? _verseKeys;
     final sermonFontSize = (fontSizeOverride ?? typography.fontSize)
         .clamp(12.0, 56.0)
         .toDouble();
@@ -4124,9 +4493,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
       fontWeight: FontWeight.bold,
     );
 
-    final children = <InlineSpan>[];
-    final paragraphRanges = <Map<String, int?>>[];
-    var offset = 0;
+    final paragraphWidgets = <Widget>[];
 
     for (var i = 0; i < paragraphs.length; i++) {
       final paragraph = paragraphs[i];
@@ -4135,23 +4502,25 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
         currentMatchIndex: currentMatchIndex,
         itemIndex: i,
       );
-      final displayParagraphNumber = paragraph.paragraphNumber ?? (i + 1);
-      final paragraphPrefix = '$displayParagraphNumber ';
+      final paragraphPrefix = paragraph.paragraphNumber != null
+          ? '${paragraph.paragraphNumber} '
+          : '';
 
-      // Paragraph number
-      children.add(
-        TextSpan(
-          text: paragraphPrefix,
-          style: baseStyle.copyWith(
-            fontWeight: FontWeight.w700,
-            fontSize: sermonFontSize * 0.82,
-            color: cs.onSurfaceVariant,
+      final childrenSpans = <InlineSpan>[];
+      if (paragraphPrefix.isNotEmpty) {
+        childrenSpans.add(
+          TextSpan(
+            text: paragraphPrefix,
+            style: baseStyle.copyWith(
+              fontWeight: FontWeight.w700,
+              fontSize: sermonFontSize * 0.82,
+              color: cs.onSurfaceVariant,
+            ),
           ),
-        ),
-      );
+        );
+      }
 
-      // Paragraph text
-      children.addAll(
+      childrenSpans.addAll(
         _buildHighlightedSpans(
           paragraph.text,
           baseStyle,
@@ -4163,87 +4532,36 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
         ),
       );
 
-      if (i < paragraphs.length - 1) {
-        // Use a single line break between paragraphs to avoid large gaps.
-        children.add(TextSpan(text: '\n', style: baseStyle));
-        offset += 1;
-      }
-
-      final prefixLength = paragraphPrefix.length;
-      final paraLength = paragraph.text.length;
-      paragraphRanges.add({
-        'start': offset - prefixLength - paraLength,
-        'end': offset,
-        'number': displayParagraphNumber,
-      });
+      paragraphWidgets.add(
+        Padding(
+          key: i < keys.length
+              ? keys[i]
+              : ValueKey('sermon_para_${paragraph.id}_$i'),
+          padding: EdgeInsets.only(bottom: i < paragraphs.length - 1 ? 8 : 0),
+          child: SelectableText.rich(
+            TextSpan(children: childrenSpans, style: baseStyle),
+            contextMenuBuilder: (context, selectableRegionState) =>
+                const SizedBox.shrink(),
+            onSelectionChanged: (selection, cause) {
+              _handleSermonParagraphSelection(
+                selection,
+                paragraph.text,
+                paragraph,
+              );
+            },
+          ),
+        ),
+      );
     }
-
-    final combinedSpan = TextSpan(children: children, style: baseStyle);
-    final combinedPlainText = combinedSpan.toPlainText();
 
     return Stack(
       children: [
-        SelectionArea(
-          // Hide the platform menu; we show our own overlay automatically.
-          contextMenuBuilder: (context, state) => const SizedBox.shrink(),
-          child: SingleChildScrollView(
-            controller: scrollController,
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Builder(
-              builder: (innerContext) {
-                return SelectableText.rich(
-                  combinedSpan,
-                  onSelectionChanged: (selection, cause) {
-                    final text = selection.textInside(combinedPlainText);
-
-                    _sermonSelectionDebounce?.cancel();
-
-                    if (text.trim().isEmpty) {
-                      if (_activeSelectionText != null) {
-                        _sermonSelectionDebounce = Timer(
-                          const Duration(milliseconds: 200),
-                          () {
-                            if (!mounted) return;
-                            setState(() => _activeSelectionText = null);
-                          },
-                        );
-                      }
-                      return;
-                    }
-
-                    _sermonSelectionDebounce = Timer(
-                      const Duration(milliseconds: 200),
-                      () {
-                        if (!mounted) return;
-                        setState(() {
-                          _activeSelectionText = text.trim();
-                          final start = selection.start;
-                          final end = selection.end;
-                          int? first;
-                          int? last;
-                          for (final range in paragraphRanges) {
-                            final rStart = range['start'] as int;
-                            final rEnd = range['end'] as int;
-                            final number = range['number'];
-                            if (number == null) continue;
-                            final intersects = start < rEnd && end > rStart;
-                            if (!intersects) continue;
-                            first = (first == null || number < first)
-                                ? number
-                                : first;
-                            last = (last == null || number > last)
-                                ? number
-                                : last;
-                          }
-                          _selectionFirstParagraph = first;
-                          _selectionLastParagraph = last;
-                        });
-                      },
-                    );
-                  },
-                );
-              },
-            ),
+        SingleChildScrollView(
+          controller: scrollController,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: paragraphWidgets,
           ),
         ),
 
@@ -4351,6 +4669,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
             },
           ),
         ),
+        PaneGotoBar(tab: activeSermonTab, onGoto: _bmGotoPrimaryParagraph),
       ],
     );
 
@@ -4577,6 +4896,12 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
               });
             },
           ),
+        ),
+        PaneGotoBar(
+          tab: resolvedSecondaryTab,
+          onGoto: resolvedSecondaryTab.type == ReaderContentType.bible
+              ? _bmGotoSecondaryVerse
+              : _bmGotoSecondaryParagraph,
         ),
       ],
     );
@@ -5212,6 +5537,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
               _bmCurrentVerses = verses;
               _bmVerseKeys = List.generate(verses.length, (_) => GlobalKey());
               _bmSecondaryParagraphs = [];
+              _bmSermonParagraphKeys = [];
             });
             if (_secondaryMiniSearchActive &&
                 _secondaryMiniSearchController.text.trim().isNotEmpty) {
@@ -5363,6 +5689,10 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
               _bmSecondaryParagraphs = paragraphs;
               _bmCurrentVerses = [];
               _bmVerseKeys = [];
+              _bmSermonParagraphKeys = List.generate(
+                paragraphs.length,
+                (_) => GlobalKey(),
+              );
             });
             if (_secondaryMiniSearchActive &&
                 _secondaryMiniSearchController.text.trim().isNotEmpty) {
@@ -5383,6 +5713,7 @@ class _SermonReaderScreenState extends ConsumerState<SermonReaderScreen> {
           matchIndices: matchIndices,
           currentMatchIndex: currentMatchIndex,
           fontSizeOverride: fontSizeOverride,
+          paragraphKeys: _bmSermonParagraphKeys,
         );
       },
     );

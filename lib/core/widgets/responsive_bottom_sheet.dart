@@ -52,8 +52,14 @@ Future<T?> showResponsiveBottomSheet<T>({
           content = SafeArea(child: content);
         }
 
+        final mq = MediaQuery.of(dialogContext);
         return Dialog(
-          insetPadding: dialogInset,
+          insetPadding: EdgeInsets.fromLTRB(
+            dialogInset.left,
+            dialogInset.top,
+            dialogInset.right,
+            dialogInset.bottom + mq.viewInsets.bottom,
+          ),
           backgroundColor:
               backgroundColor ?? Theme.of(dialogContext).dialogBackgroundColor,
           shape: shape ??

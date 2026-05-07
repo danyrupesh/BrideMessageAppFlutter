@@ -1,6 +1,6 @@
 {
-    "name": "bride_message_app",
-    "short_name": "bride_message_app",
+    "name": "Bride Message App",
+    "short_name": "Bride Message App",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#FFFFFF",

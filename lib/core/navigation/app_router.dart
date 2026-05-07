@@ -13,7 +13,6 @@ import '../../features/settings/settings_screen.dart';
 import '../../features/database_management/screens/manage_databases_screen.dart';
 import '../../features/songs/songs_gate_screen.dart';
 import '../../features/songs/song_detail_screen.dart';
-import '../../features/songs/tamil_songs_screen.dart';
 import '../../features/songs/tamil_songs_gate_screen.dart';
 import '../../features/songs/tamil_song_detail_screen.dart';
 import '../../features/cod/cod_questions_screen.dart';
@@ -30,6 +29,12 @@ import '../../features/stories/story_reader_screen.dart';
 import '../database/models/story_models.dart';
 import '../../features/church_ages/church_ages_screen.dart';
 import '../../features/church_ages/church_ages_reader_screen.dart';
+import '../../features/quotes/quotes_screen.dart';
+import '../../features/prayer_quotes/prayer_quotes_screen.dart';
+import '../../features/special_books/screens/special_books_gate_screen.dart';
+import '../../features/special_books/screens/special_book_detail_screen.dart'
+    as sb_detail;
+import '../../features/special_books/screens/special_book_reader_screen.dart';
 
 final GlobalKey<NavigatorState> appRootNavigatorKey =
     GlobalKey<NavigatorState>();
@@ -315,6 +320,47 @@ final appRouterProvider = Provider<GoRouter>((ref) {
           final id = state.uri.queryParameters['id'];
           final q = state.uri.queryParameters['q'];
           return ChurchAgesReaderScreen(id: id, searchQuery: q);
+        },
+      ),
+      GoRoute(
+        path: '/quotes',
+        builder: (context, state) => const QuotesScreen(),
+      ),
+      GoRoute(
+        path: '/prayer-quotes',
+        builder: (context, state) => const PrayerQuotesScreen(),
+      ),
+      GoRoute(
+        path: '/special-books',
+        builder: (context, state) {
+          final lang = state.uri.queryParameters['lang'] ?? 'en';
+          return SpecialBooksGateScreen(lang: lang);
+        },
+      ),
+      GoRoute(
+        path: '/special-books/detail/:bookId',
+        builder: (context, state) {
+          final bookId = state.pathParameters['bookId'] ?? '';
+          final lang = state.uri.queryParameters['lang'] ?? 'en';
+          return sb_detail.SpecialBookDetailScreen(
+            bookId: bookId,
+            lang: lang,
+          );
+        },
+      ),
+      GoRoute(
+        path: '/special-books/reader/:bookId/:chapterId',
+        builder: (context, state) {
+          final bookId = state.pathParameters['bookId'] ?? '';
+          final chapterId = state.pathParameters['chapterId'] ?? '';
+          final lang = state.uri.queryParameters['lang'] ?? 'en';
+          final initialQuery = state.uri.queryParameters['q'] ?? '';
+          return SpecialBookReaderScreen(
+            bookId: bookId,
+            chapterId: chapterId,
+            lang: lang,
+            initialSearchQuery: initialQuery,
+          );
         },
       ),
     ],

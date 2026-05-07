@@ -135,6 +135,27 @@ class ReaderNotifier extends Notifier<ReaderState> {
   static const _splitRatioKey = 'reader_split_ratio';
   static const _splitTabsKey = 'reader_split_tabs';
   static const _splitActiveIndexKey = 'reader_split_active_index';
+
+  static const _perLangBmSplitMigratedKey = 'reader_bm_split_prefs_per_lang_v1';
+
+  Future<void>? _bibleHydrateChain;
+
+  static String _readerSplitEnabledKeyLang(String bibleLang) =>
+      'reader_${bibleLang}_split_enabled';
+  static String _readerSplitRatioKeyLang(String bibleLang) =>
+      'reader_${bibleLang}_split_ratio';
+  static String _readerSplitTabsKeyLang(String bibleLang) =>
+      'reader_${bibleLang}_split_tabs';
+  static String _readerSplitActiveIndexKeyLang(String bibleLang) =>
+      'reader_${bibleLang}_split_active_index';
+  static String _readerBmModeKeyLang(String bibleLang) =>
+      'reader_${bibleLang}_bm_mode';
+  static String _readerBmSplitRatioKeyLang(String bibleLang) =>
+      'reader_${bibleLang}_bm_split_ratio';
+  static String _readerBmTabsKeyLang(String bibleLang) =>
+      'reader_${bibleLang}_bm_tabs';
+  static String _readerBmActiveIndexKeyLang(String bibleLang) =>
+      'reader_${bibleLang}_bm_active_index';
   static const _splitDefault = 0.6;
   static const _splitMin = 0.35;
   static const _splitMax = 0.75;
@@ -153,13 +174,12 @@ class ReaderNotifier extends Notifier<ReaderState> {
   @override
   ReaderState build() {
     ref.listen(selectedBibleLangProvider, (previous, next) {
-      if (previous != next) {
-        state = state.copyWith(tabs: [], isInitialized: false);
-        _hydrate();
+      if (previous != null && previous != next) {
+        unawaited(_queueHydrateForBibleLang(next));
       }
     });
 
-    _hydrate();
+    unawaited(_queueHydrateForBibleLang(ref.read(selectedBibleLangProvider)));
     return ReaderState(
       tabs: [],
       activeTabIndex: 0,
@@ -183,20 +203,117 @@ class ReaderNotifier extends Notifier<ReaderState> {
     return 'bible_$lang';
   }
 
-  Future<void> _hydrate() async {
+  /// Ensures the bible reader state matches the on-disk session for the current
+  /// [selectedBibleLangProvider] before navigation (e.g. Home → Bible card).
+  Future<void> reloadBibleFlowFromDisk() {
+    return _queueHydrateForBibleLang(ref.read(selectedBibleLangProvider));
+  }
+
+  Future<void> _queueHydrateForBibleLang(String bibleLang) {
+    final chain = _bibleHydrateChain ?? Future<void>.value();
+    final next = chain.then((_) => _hydrateForBibleLang(bibleLang));
+    _bibleHydrateChain = next;
+    return next;
+  }
+
+  Future<void> _migrateLegacyBmSplitPrefsOnce(SharedPreferences prefs) async {
+    if (prefs.getBool(_perLangBmSplitMigratedKey) == true) return;
+
+    final legacySplitTabs = prefs.getString(_splitTabsKey);
+    final legacySplitEnabled = prefs.getBool(_splitEnabledKey);
+    final legacySplitRatio = prefs.getDouble(_splitRatioKey);
+    final legacySplitIndex = prefs.getInt(_splitActiveIndexKey);
+
+    for (final lang in const ['en', 'ta']) {
+      if ((prefs.getString(_readerSplitTabsKeyLang(lang)) ?? '').isEmpty &&
+          legacySplitTabs != null &&
+          legacySplitTabs.isNotEmpty &&
+          legacySplitTabs != '[]') {
+        await prefs.setString(_readerSplitTabsKeyLang(lang), legacySplitTabs);
+        if (legacySplitEnabled != null) {
+          await prefs.setBool(_readerSplitEnabledKeyLang(lang), legacySplitEnabled);
+        }
+        if (legacySplitRatio != null) {
+          await prefs.setDouble(_readerSplitRatioKeyLang(lang), legacySplitRatio);
+        }
+        if (legacySplitIndex != null) {
+          await prefs.setInt(_readerSplitActiveIndexKeyLang(lang), legacySplitIndex);
+        }
+      }
+    }
+
+    final legacyBmTabs = prefs.getString(_bmTabsKey);
+    final legacyBmEnabled = prefs.getBool(_bmModeKey);
+    final legacyBmRatio = prefs.getDouble(_bmSplitRatioKey);
+    final legacyBmIdx = prefs.getInt(_bmActiveIndexKey);
+
+    if (legacyBmTabs != null &&
+        legacyBmTabs.isNotEmpty &&
+        legacyBmTabs != '[]') {
+      for (final lang in const ['en', 'ta']) {
+        if ((prefs.getString(_readerBmTabsKeyLang(lang)) ?? '').isEmpty) {
+          await prefs.setString(_readerBmTabsKeyLang(lang), legacyBmTabs);
+          if (legacyBmEnabled != null) {
+            await prefs.setBool(_readerBmModeKeyLang(lang), legacyBmEnabled);
+          }
+          if (legacyBmRatio != null) {
+            await prefs.setDouble(_readerBmSplitRatioKeyLang(lang), legacyBmRatio);
+          }
+          if (legacyBmIdx != null) {
+            await prefs.setInt(_readerBmActiveIndexKeyLang(lang), legacyBmIdx);
+          }
+        }
+      }
+    }
+
+    await prefs.setBool(_perLangBmSplitMigratedKey, true);
+  }
+
+  Future<void> _hydrateForBibleLang(String bibleLang) async {
     final prefs = await SharedPreferences.getInstance();
+    await _migrateLegacyBmSplitPrefsOnce(prefs);
     final repo = ref.read(readingStateRepositoryProvider);
     const restoreTabs = true;
+    final sessionKey = 'bible_$bibleLang';
     final legacySavedTabsRaw = prefs.getString(_tabsKey);
     final legacySavedIndex = prefs.getInt(_activeTabIndexKey) ?? 0;
-    final savedSplitEnabled = prefs.getBool(_splitEnabledKey) ?? false;
-    final savedSplitRatio = prefs.getDouble(_splitRatioKey) ?? _splitDefault;
-    final savedSplitTabsRaw = prefs.getString(_splitTabsKey);
-    final savedSplitActiveIndex = prefs.getInt(_splitActiveIndexKey) ?? 0;
-    final savedBmMode = prefs.getBool(_bmModeKey) ?? false;
-    final savedBmRatio = prefs.getDouble(_bmSplitRatioKey) ?? _bmSplitDefault;
-    final savedBmTabsRaw = prefs.getString(_bmTabsKey);
-    final savedBmActiveIndex = prefs.getInt(_bmActiveIndexKey) ?? 0;
+
+    bool readSplitEnabled() =>
+        prefs.getBool(_readerSplitEnabledKeyLang(bibleLang)) ??
+        prefs.getBool(_splitEnabledKey) ??
+        false;
+    double readSplitRatio() =>
+        prefs.getDouble(_readerSplitRatioKeyLang(bibleLang)) ??
+        prefs.getDouble(_splitRatioKey) ??
+        _splitDefault;
+
+    final savedSplitEnabled = readSplitEnabled();
+    final savedSplitRatio = readSplitRatio();
+    final savedSplitTabsRaw = prefs.getString(_readerSplitTabsKeyLang(bibleLang)) ??
+        prefs.getString(_splitTabsKey);
+    final savedSplitActiveIndex =
+        prefs.getInt(_readerSplitActiveIndexKeyLang(bibleLang)) ??
+            prefs.getInt(_splitActiveIndexKey) ??
+            0;
+
+    bool readBmMode() =>
+        prefs.getBool(_readerBmModeKeyLang(bibleLang)) ??
+        prefs.getBool(_bmModeKey) ??
+        false;
+
+    double readBmRatio() =>
+        prefs.getDouble(_readerBmSplitRatioKeyLang(bibleLang)) ??
+        prefs.getDouble(_bmSplitRatioKey) ??
+        _bmSplitDefault;
+
+    final savedBmMode = readBmMode();
+    final savedBmRatio = readBmRatio();
+    final savedBmTabsRaw =
+        prefs.getString(_readerBmTabsKeyLang(bibleLang)) ?? prefs.getString(_bmTabsKey);
+    final savedBmActiveIndex =
+        prefs.getInt(_readerBmActiveIndexKeyLang(bibleLang)) ??
+            prefs.getInt(_bmActiveIndexKey) ??
+            0;
     final savedPrimaryFontOffset = prefs.getDouble(_primaryFontOffsetKey) ?? 0;
     final savedSecondaryFontOffset =
         prefs.getDouble(_secondaryFontOffsetKey) ?? 0;
@@ -254,7 +371,7 @@ class ReaderNotifier extends Notifier<ReaderState> {
 
     final activeSession = restoreTabs
         ? await repo.loadActiveSession(
-            sessionKey: _sessionKey,
+            sessionKey: sessionKey,
             fallbackFlowType: FlowType.bible,
           )
         : null;
@@ -287,7 +404,7 @@ class ReaderNotifier extends Notifier<ReaderState> {
           activeTabIndex: restoredIndex,
         );
         await repo.saveActiveSession(
-          sessionKey: _sessionKey,
+          sessionKey: sessionKey,
           payload: migratedPayload,
         );
       }
@@ -296,8 +413,7 @@ class ReaderNotifier extends Notifier<ReaderState> {
     }
 
     if (restoredTabs.isEmpty) {
-      final lang = ref.read(selectedBibleLangProvider);
-      final isTamil = lang == 'ta';
+      final isTamil = bibleLang == 'ta';
       restoredTabs = [
         ReaderTab(
           type: ReaderContentType.bible,
@@ -343,24 +459,29 @@ class ReaderNotifier extends Notifier<ReaderState> {
 
   Future<void> _persistBmState() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_bmModeKey, state.bmMode);
-    await prefs.setDouble(_bmSplitRatioKey, state.bmSplitRatio);
-    await prefs.setInt(_bmActiveIndexKey, state.bmMessageActiveIndex);
+    final bibleLang = ref.read(selectedBibleLangProvider);
+    await prefs.setBool(_readerBmModeKeyLang(bibleLang), state.bmMode);
+    await prefs.setDouble(_readerBmSplitRatioKeyLang(bibleLang), state.bmSplitRatio);
+    await prefs.setInt(_readerBmActiveIndexKeyLang(bibleLang), state.bmMessageActiveIndex);
     final encodedTabs = jsonEncode(
       state.bmMessageTabs.map((t) => t.toJson()).toList(),
     );
-    await prefs.setString(_bmTabsKey, encodedTabs);
+    await prefs.setString(_readerBmTabsKeyLang(bibleLang), encodedTabs);
   }
 
   Future<void> _persistSplitState() async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_splitEnabledKey, state.splitViewEnabled);
-    await prefs.setDouble(_splitRatioKey, state.splitViewRatio);
-    await prefs.setInt(_splitActiveIndexKey, state.splitRightActiveIndex);
+    final bibleLang = ref.read(selectedBibleLangProvider);
+    await prefs.setBool(_readerSplitEnabledKeyLang(bibleLang), state.splitViewEnabled);
+    await prefs.setDouble(_readerSplitRatioKeyLang(bibleLang), state.splitViewRatio);
+    await prefs.setInt(
+      _readerSplitActiveIndexKeyLang(bibleLang),
+      state.splitRightActiveIndex,
+    );
     final encodedTabs = jsonEncode(
       state.splitRightTabs.map(readerTabToJson).toList(),
     );
-    await prefs.setString(_splitTabsKey, encodedTabs);
+    await prefs.setString(_readerSplitTabsKeyLang(bibleLang), encodedTabs);
   }
 
   Future<void> persistBmState() => _persistBmState();
@@ -851,10 +972,6 @@ final chapterVersesProvider =
       }
       final lang =
           (tab.bibleLang ?? ref.read(selectedBibleLangProvider)) ?? 'en';
-      final repoAsync = ref.watch(bibleRepositoryByLangProvider(lang));
-      return repoAsync.when(
-        data: (repo) => repo.getVersesByChapter(tab.book!, tab.chapter!),
-        loading: () => Future.value([]),
-        error: (e, st) => Future.value([]),
-      );
+      final repo = await ref.watch(bibleRepositoryByLangProvider(lang).future);
+      return repo.getVersesByChapter(tab.book!, tab.chapter!);
     });

@@ -40,7 +40,7 @@ class _ReaderSettingsSheetState extends ConsumerState<ReaderSettingsSheet> {
         left: 24,
         right: 24,
         top: 24,
-        bottom: bottomInset + 16,
+        bottom: bottomInset + 24,
       ),
       child: SingleChildScrollView(
         child: Column(

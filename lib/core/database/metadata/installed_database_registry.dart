@@ -31,7 +31,7 @@ class InstalledDatabaseRegistry {
     final path = p.join(dbDir.path, 'app_metadata.db');
     _db = await openDatabase(
       path,
-      version: 2,
+      version: 3,
       onCreate: (db, version) async {
         await db.execute('''
           CREATE TABLE installed_databases (
@@ -46,6 +46,16 @@ class InstalledDatabaseRegistry {
             is_default INTEGER NOT NULL DEFAULT 0
           )
         ''');
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS special_book_downloads (
+            book_id          TEXT NOT NULL,
+            lang             TEXT NOT NULL,
+            content_version  INTEGER,
+            downloaded_at    TEXT,
+            local_db_path    TEXT NOT NULL,
+            PRIMARY KEY (book_id, lang)
+          )
+        ''');
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -58,6 +68,18 @@ class InstalledDatabaseRegistry {
               'ALTER TABLE installed_databases ADD COLUMN record_count INTEGER',
             );
           }
+        }
+        if (oldVersion < 3) {
+          await db.execute('''
+            CREATE TABLE IF NOT EXISTS special_book_downloads (
+              book_id          TEXT NOT NULL,
+              lang             TEXT NOT NULL,
+              content_version  INTEGER,
+              downloaded_at    TEXT,
+              local_db_path    TEXT NOT NULL,
+              PRIMARY KEY (book_id, lang)
+            )
+          ''');
         }
       },
     );
@@ -171,7 +193,13 @@ class InstalledDatabaseRegistry {
       final bibleCount = await countByType(DbType.bible);
       final sermonCount = await countByType(DbType.sermon);
       final churchAgesCount = await countByType(DbType.churchAges);
-      if (bibleCount > 0 || sermonCount > 0 || churchAgesCount > 0) return true;
+      final quoteCount = await countByType(DbType.quote);
+      final prayerQuoteCount = await countByType(DbType.prayerQuote);
+      if (bibleCount > 0 ||
+          sermonCount > 0 ||
+          churchAgesCount > 0 ||
+          quoteCount > 0 ||
+          prayerQuoteCount > 0) return true;
     } catch (e) {
       debugPrint('InstalledDatabaseRegistry.hasAnyContent error: $e');
     }
@@ -206,6 +234,10 @@ class InstalledDatabaseRegistry {
         return 'SERMON';
       case DbType.churchAges:
         return 'CHURCH_AGES';
+      case DbType.quote:
+        return 'QUOTE';
+      case DbType.prayerQuote:
+        return 'PRAYER_QUOTE';
     }
   }
 }

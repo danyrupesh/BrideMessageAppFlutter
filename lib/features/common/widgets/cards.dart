@@ -79,135 +79,148 @@ class BibleResultCard extends StatelessWidget {
 /// Standard card used for sermon search results and sermon list entries.
 class SermonResultCard extends StatelessWidget {
   final String id;
+  final String? leadingIdOverride;
   final String title;
-  final String? date;
+  final String date;
   final String? duration;
   final String? location;
   final String? metaRightBadge;
   final String? subtitle;
-  final String? highlightQuery;
-  /// When set (e.g. COD `q38`), shown instead of [id] in the leading column.
-  final String? leadingIdOverride;
-  final VoidCallback? onTap;
-  final VoidCallback? onDoubleTap;
-  final VoidCallback? onLongPress;
   final Widget? snippet;
+  final String? highlightQuery;
+  final double fontSize;
+  final VoidCallback? onTap;
+  final VoidCallback? onCopy;
+  final VoidCallback? onShare;
 
   const SermonResultCard({
     super.key,
     required this.id,
+    this.leadingIdOverride,
     required this.title,
-    this.date,
+    required this.date,
     this.duration,
     this.location,
     this.metaRightBadge,
     this.subtitle,
-    this.highlightQuery,
-    this.leadingIdOverride,
-    this.onTap,
-    this.onDoubleTap,
-    this.onLongPress,
     this.snippet,
+    this.highlightQuery,
+    this.fontSize = 14.0,
+    this.onTap,
+    this.onCopy,
+    this.onShare,
   });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final titleWidget = _buildHighlightedTitle(
-      theme,
-      title,
-      highlightQuery,
+    final titleStyle = theme.textTheme.titleMedium?.copyWith(
+      fontWeight: FontWeight.w600,
+      fontSize: fontSize + 2,
+    );
+    final metaStyle = theme.textTheme.bodySmall?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+      fontSize: fontSize - 1,
+    );
+    final subtitleStyle = theme.textTheme.bodySmall?.copyWith(
+      color: theme.colorScheme.primary,
+      fontWeight: FontWeight.w600,
+      fontSize: fontSize - 0.5,
+    );
+    final snippetStyle = theme.textTheme.bodyMedium?.copyWith(
+      fontSize: fontSize,
+      height: 1.35,
     );
 
     return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: InkWell(
-        borderRadius: BorderRadius.circular(16),
         onTap: onTap,
-        onDoubleTap: onDoubleTap,
-        onLongPress: onLongPress,
+        borderRadius: BorderRadius.circular(12),
         child: Padding(
-          padding: const EdgeInsets.all(12),
+          padding: const EdgeInsets.all(16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    leadingIdOverride ?? id,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                      color: theme.colorScheme.primary,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
                   Expanded(
-                    child: titleWidget,
-                  ),
-                  if (metaRightBadge != null)
-                    Container(
-                      padding:
-                          const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: theme.colorScheme.primaryContainer,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        metaRightBadge!,
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          fontWeight: FontWeight.w600,
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildHighlightedTitle(
+                          context,
+                          title,
+                          highlightQuery,
+                          titleStyle,
                         ),
-                      ),
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            Text(date, style: metaStyle),
+                            if (duration != null) ...[
+                              const Text(' • '),
+                              Text(duration!, style: metaStyle),
+                            ],
+                          ],
+                        ),
+                        if (location != null && location!.isNotEmpty)
+                          Text(location!, style: metaStyle),
+                      ],
                     ),
+                  ),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      if (metaRightBadge != null)
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: theme.colorScheme.secondaryContainer,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            metaRightBadge!,
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: theme.colorScheme.onSecondaryContainer,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (onCopy != null)
+                            IconButton(
+                              icon: const Icon(Icons.copy, size: 18),
+                              onPressed: onCopy,
+                            ),
+                          if (onShare != null)
+                            IconButton(
+                              icon: const Icon(Icons.share_outlined, size: 18),
+                              onPressed: onShare,
+                            ),
+                        ],
+                      ),
+                    ],
+                  ),
                 ],
               ),
               if (subtitle != null) ...[
                 const SizedBox(height: 4),
-                Text(
-                  subtitle!,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
+                Text(subtitle!, style: subtitleStyle),
               ],
-              const SizedBox(height: 6),
-              Row(
-                children: [
-                  if (date != null && date!.isNotEmpty) ...[
-                    const Icon(Icons.event, size: 14),
-                    const SizedBox(width: 4),
-                    Text(
-                      date!,
-                      style: theme.textTheme.bodySmall,
-                    ),
-                    const SizedBox(width: 12),
-                  ],
-                  if (duration != null && duration!.isNotEmpty) ...[
-                    const Icon(Icons.schedule, size: 14),
-                    const SizedBox(width: 4),
-                    Text(
-                      duration!,
-                      style: theme.textTheme.bodySmall,
-                    ),
-                    const SizedBox(width: 12),
-                  ],
-                  if (location != null && location!.isNotEmpty) ...[
-                    const Icon(Icons.location_on_outlined, size: 14),
-                    const SizedBox(width: 4),
-                    Expanded(
-                      child: Text(
-                        location!,
-                        style: theme.textTheme.bodySmall,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
               if (snippet != null) ...[
-                const SizedBox(height: 8),
-                snippet!,
+                const SizedBox(height: 12),
+                DefaultTextStyle.merge(
+                  style: snippetStyle ?? const TextStyle(fontSize: 14),
+                  child: snippet!,
+                ),
               ],
             ],
           ),
@@ -217,64 +230,77 @@ class SermonResultCard extends StatelessWidget {
   }
 
   Widget _buildHighlightedTitle(
-    ThemeData theme,
-    String title,
+    BuildContext context,
+    String text,
     String? query,
+    TextStyle? titleStyle,
   ) {
+    final theme = Theme.of(context);
+    final baseStyle =
+        titleStyle ??
+        theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600);
+    return _HighlightText(
+      text: text,
+      query: query,
+      baseStyle: baseStyle,
+      highlightColor: theme.colorScheme.primaryContainer,
+      onHighlightColor: theme.colorScheme.onPrimaryContainer,
+    );
+  }
+}
+
+class _HighlightText extends StatelessWidget {
+  final String text;
+  final String? query;
+  final TextStyle? baseStyle;
+  final Color highlightColor;
+  final Color onHighlightColor;
+
+  const _HighlightText({
+    required this.text,
+    this.query,
+    this.baseStyle,
+    required this.highlightColor,
+    required this.onHighlightColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
     final cleaned = query?.trim() ?? '';
     if (cleaned.isEmpty) {
-      return Text(
-        title,
-        style: theme.textTheme.titleMedium?.copyWith(
-          fontWeight: FontWeight.w600,
-        ),
-        overflow: TextOverflow.ellipsis,
-      );
+      return Text(text, style: baseStyle);
     }
 
     final regex = RegExp(RegExp.escape(cleaned), caseSensitive: false);
-    final matches = regex.allMatches(title).toList();
+    final matches = regex.allMatches(text).toList();
     if (matches.isEmpty) {
-      return Text(
-        title,
-        style: theme.textTheme.titleMedium?.copyWith(
-          fontWeight: FontWeight.w600,
-        ),
-        overflow: TextOverflow.ellipsis,
-      );
+      return Text(text, style: baseStyle);
     }
 
     final spans = <TextSpan>[];
     var start = 0;
     for (final m in matches) {
       if (m.start > start) {
-        spans.add(TextSpan(text: title.substring(start, m.start)));
+        spans.add(TextSpan(text: text.substring(start, m.start)));
       }
       spans.add(
         TextSpan(
-          text: title.substring(m.start, m.end),
+          text: text.substring(m.start, m.end),
           style: TextStyle(
-            backgroundColor: theme.colorScheme.tertiaryContainer,
-            color: theme.colorScheme.onTertiaryContainer,
-            fontWeight: FontWeight.w700,
+            backgroundColor: highlightColor,
+            color: onHighlightColor,
+            fontWeight: FontWeight.bold,
           ),
         ),
       );
       start = m.end;
     }
-    if (start < title.length) {
-      spans.add(TextSpan(text: title.substring(start)));
+    if (start < text.length) {
+      spans.add(TextSpan(text: text.substring(start)));
     }
 
     return RichText(
-      text: TextSpan(
-        style: theme.textTheme.titleMedium?.copyWith(
-          fontWeight: FontWeight.w600,
-        ),
-        children: spans,
-      ),
-      maxLines: 2,
-      overflow: TextOverflow.ellipsis,
+      text: TextSpan(style: baseStyle, children: spans),
     );
   }
 }
@@ -350,8 +376,7 @@ class SongListCard extends StatelessWidget {
             if (keyBadge != null) ...[
               const SizedBox(width: 8),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
                   color: theme.colorScheme.secondaryContainer,
                   borderRadius: BorderRadius.circular(8),
@@ -368,8 +393,9 @@ class SongListCard extends StatelessWidget {
             IconButton(
               icon: Icon(
                 isFavorite ? Icons.favorite : Icons.favorite_border,
-                color:
-                    isFavorite ? theme.colorScheme.primary : Colors.grey[500],
+                color: isFavorite
+                    ? theme.colorScheme.primary
+                    : Colors.grey[500],
               ),
               onPressed: onToggleFavorite,
             ),
@@ -387,21 +413,13 @@ class SongListCard extends StatelessWidget {
   ) {
     final cleaned = query?.trim() ?? '';
     if (cleaned.isEmpty) {
-      return Text(
-        text,
-        style: baseStyle,
-        overflow: TextOverflow.ellipsis,
-      );
+      return Text(text, style: baseStyle, overflow: TextOverflow.ellipsis);
     }
 
     final regex = RegExp(RegExp.escape(cleaned), caseSensitive: false);
     final matches = regex.allMatches(text).toList();
     if (matches.isEmpty) {
-      return Text(
-        text,
-        style: baseStyle,
-        overflow: TextOverflow.ellipsis,
-      );
+      return Text(text, style: baseStyle, overflow: TextOverflow.ellipsis);
     }
 
     final spans = <TextSpan>[];
@@ -427,13 +445,9 @@ class SongListCard extends StatelessWidget {
     }
 
     return RichText(
-      text: TextSpan(
-        style: baseStyle,
-        children: spans,
-      ),
+      text: TextSpan(style: baseStyle, children: spans),
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
     );
   }
 }
-

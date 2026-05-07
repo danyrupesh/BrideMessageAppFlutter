@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:file_picker/file_picker.dart';
+import 'dart:io';
 
 import '../../core/database/database_manager.dart';
 import '../../core/database/models/story_models.dart';
@@ -8,8 +10,12 @@ import '../common/widgets/fts_highlight_text.dart';
 import '../help/widgets/help_button.dart';
 import '../common/widgets/section_menu_button.dart';
 import '../settings/widgets/theme_picker_sheet.dart';
+import '../dashboard/module_resume_prefs.dart';
 import 'models/story_model.dart';
 import 'providers/stories_provider.dart';
+import '../onboarding/services/selective_database_importer.dart';
+import '../database_management/providers/database_status_provider.dart';
+import '../database_management/providers/local_databases_provider.dart';
 
 class StoriesScreen extends ConsumerStatefulWidget {
   const StoriesScreen({super.key, required this.lang});
@@ -25,6 +31,8 @@ class _StoriesScreenState extends ConsumerState<StoriesScreen> {
   String _query = '';
   bool _searchContent = false;
   StorySectionType _section = StorySectionType.wmbStories;
+  bool _isImporting = false;
+  String _importStatus = '';
 
   @override
   void dispose() {
@@ -248,7 +256,12 @@ class _StoriesScreenState extends ConsumerState<StoriesScreen> {
                                     overflow: TextOverflow.ellipsis,
                                   )
                                 : null,
-                            onTap: () {
+                            onTap: () async {
+                              await ModuleResumePrefs.saveLastStory(
+                                lang: widget.lang,
+                                id: item.id,
+                                section: _section.name,
+                              );
                               final hasSearch = _query.isNotEmpty;
                               final uri = Uri(
                                 path: '/story-reader',
@@ -259,7 +272,7 @@ class _StoriesScreenState extends ConsumerState<StoriesScreen> {
                                   if (hasSearch) 'q': _query,
                                 },
                               );
-                              context.push(uri.toString());
+                              if (context.mounted) context.push(uri.toString());
                             },
                           );
                         },
@@ -295,30 +308,63 @@ class _StoriesScreenState extends ConsumerState<StoriesScreen> {
                 ),
               ),
               error: (error, _) {
-                return Padding(
-                  padding: const EdgeInsets.all(24.0),
-                  child: Center(
+                final errorStr = error.toString();
+                final isFileNotFound = errorStr.contains('Database file not found');
+                
+                return Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(32),
                     child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
+                      mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(
-                          Icons.warning_amber_rounded,
-                          size: 48,
-                          color: cs.error,
+                          isFileNotFound ? Icons.storage_outlined : Icons.error_outline,
+                          size: 64,
+                          color: isFileNotFound ? cs.primary : cs.error,
                         ),
                         const SizedBox(height: 16),
                         Text(
-                          'Database Error',
+                          isFileNotFound ? 'Stories Database Missing' : 'Database Error',
                           style: theme.textTheme.titleLarge?.copyWith(
-                            color: cs.error,
+                            fontWeight: FontWeight.bold,
                           ),
+                          textAlign: TextAlign.center,
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          error.toString(),
+                          isFileNotFound
+                              ? 'The ${widget.lang == 'ta' ? 'Tamil' : 'English'} stories database has not been installed yet.'
+                              : errorStr,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
                           textAlign: TextAlign.center,
-                          style: theme.textTheme.bodyMedium,
                         ),
+                        const SizedBox(height: 24),
+                        if (isFileNotFound) ...[
+                          if (_isImporting) ...[
+                            const SizedBox(height: 24),
+                            const CircularProgressIndicator(),
+                            const SizedBox(height: 12),
+                            Text(_importStatus, style: theme.textTheme.bodySmall),
+                          ] else ...[
+                            FilledButton.icon(
+                              onPressed: () => context.push('/manage-databases'),
+                              icon: const Icon(Icons.cloud_download),
+                              label: const Text('Download / Manage'),
+                            ),
+                            const SizedBox(height: 12),
+                            OutlinedButton.icon(
+                              onPressed: _pickAndImportDatabase,
+                              icon: const Icon(Icons.upload_file),
+                              label: const Text('Import from Device'),
+                            ),
+                          ],
+                        ] else
+                          FilledButton(
+                            onPressed: () => ref.invalidate(storiesProvider),
+                            child: const Text('Retry'),
+                          ),
                       ],
                     ),
                   ),
@@ -360,5 +406,88 @@ class _StoriesScreenState extends ConsumerState<StoriesScreen> {
     final prefix = start > 0 ? '...' : '';
     final suffix = end < source.length ? '...' : '';
     return '$prefix${source.substring(start, end)}$suffix';
+  }
+
+  Future<void> _pickAndImportDatabase() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.any,
+        allowedExtensions: ['db', 'zip'],
+      );
+
+      if (result == null || result.files.single.path == null) return;
+
+      setState(() {
+        _isImporting = true;
+        _importStatus = 'Preparing import...';
+      });
+
+      final filePath = result.files.single.path!;
+      final file = File(filePath);
+      final importer = SelectiveDatabaseImporter();
+
+      if (filePath.toLowerCase().endsWith('.zip')) {
+        setState(() => _importStatus = 'Extracting ZIP bundle...');
+        final importResult = await importer.importAllFromZip(
+          zipPath: filePath,
+          onProgress: (pct, msg) {
+            setState(() => _importStatus = msg);
+          },
+        );
+        if (importResult.success) {
+          _onImportSuccess();
+        } else {
+          _showError('Import Failed', importResult.message);
+        }
+      } else {
+        setState(() => _importStatus = 'Validating database...');
+        final importResult = await importer.importStoriesDatabase(
+          sourceFile: file,
+          languageCode: widget.lang,
+          displayName: widget.lang == 'ta' ? 'Tamil Stories' : 'English Stories',
+          onProgress: (pct, msg) {
+            setState(() => _importStatus = msg);
+          },
+        );
+        if (importResult.success) {
+          _onImportSuccess();
+        } else {
+          _showError('Import Failed', importResult.message);
+        }
+      }
+    } catch (e) {
+      _showError('Error', e.toString());
+    } finally {
+      if (mounted) {
+        setState(() => _isImporting = false);
+      }
+    }
+  }
+
+  void _onImportSuccess() {
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Stories imported successfully!')),
+      );
+      ref.invalidate(storiesProvider);
+      ref.invalidate(localDatabaseFilesProvider);
+    }
+  }
+
+  void _showError(String title, String message) {
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
   }
 }

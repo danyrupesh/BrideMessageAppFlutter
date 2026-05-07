@@ -156,7 +156,7 @@ class CodResultsTab extends ConsumerWidget {
           id: r.sermonId,
           leadingIdOverride: r.displayLeadingId,
           title: r.title,
-          date: r.date,
+          date: r.date ?? '',
           duration: null,
           location: r.location,
           metaRightBadge: r.year?.toString(),

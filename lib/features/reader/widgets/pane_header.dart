@@ -18,6 +18,8 @@ class PaneHeader extends StatelessWidget {
   final VoidCallback? onClose;
   final ValueChanged<String>? onSourceSelected;
   final bool showSourcePicker;
+  final ValueChanged<int>? onGotoPara;
+  final ValueChanged<String>? onMenuSelected;
 
   const PaneHeader({
     super.key,
@@ -34,8 +36,10 @@ class PaneHeader extends StatelessWidget {
     this.onToggleSearch,
     this.onClose,
     this.onSourceSelected,
+    this.onMenuSelected,
     this.showSourcePicker = true,
     this.onDisableSplitView,
+    this.onGotoPara,
   });
 
   @override
@@ -218,22 +222,57 @@ class PaneHeader extends StatelessWidget {
             ),
             onPressed: onIncreaseFont,
           ),
-          IconButton(
-            tooltip: isSearchActive ? 'Close mini search' : 'Open mini search',
-            visualDensity: VisualDensity.compact,
-            onPressed: onToggleSearch,
-            icon: Icon(
-              isSearchActive ? Icons.search_off : Icons.search,
-              size: isWide ? 24 : 20,
-            ),
-          ),
-          if (showClose)
+
             IconButton(
-              tooltip: 'Close pane',
+              tooltip: 'Search inside content',
               visualDensity: VisualDensity.compact,
-              onPressed: onClose,
-              icon: Icon(Icons.close, size: isWide ? 24 : 20),
+              icon: Icon(Icons.search, size: isWide ? 22 : 18),
+              onPressed: onToggleSearch,
             ),
+            PopupMenuButton<String>(
+              tooltip: 'More options',
+              icon: Icon(Icons.more_vert, size: isWide ? 22 : 18),
+              onSelected: onMenuSelected,
+              itemBuilder: (context) => [
+                const PopupMenuItem(
+                  value: 'copy',
+                  child: Row(
+                    children: [
+                      Icon(Icons.copy, size: 18),
+                      SizedBox(width: 12),
+                      Text('Copy Reference'),
+                    ],
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: 'share',
+                  child: Row(
+                    children: [
+                      Icon(Icons.share, size: 18),
+                      SizedBox(width: 12),
+                      Text('Share'),
+                    ],
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: 'pdf',
+                  child: Row(
+                    children: [
+                      Icon(Icons.picture_as_pdf, size: 18),
+                      SizedBox(width: 12),
+                      Text('Generate PDF'),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            if (onClose != null)
+              IconButton(
+                tooltip: 'Close pane',
+                visualDensity: VisualDensity.compact,
+                onPressed: onClose,
+                icon: Icon(Icons.close, size: isWide ? 24 : 20),
+              ),
         ],
       ),
     );
@@ -259,4 +298,76 @@ class PaneHeader extends StatelessWidget {
         : 'English Sermon';
   }
 
+}
+
+class PaneGotoBar extends StatelessWidget {
+  final ReaderTab tab;
+  final ValueChanged<int> onGoto;
+
+  const PaneGotoBar({super.key, required this.tab, required this.onGoto});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isWide = MediaQuery.sizeOf(context).width >= 900;
+    final label = tab.type == ReaderContentType.bible ? 'Goto Verse:' : 'Goto Para:';
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(8, 5, 8, 7),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        border: Border(
+          top: BorderSide(color: theme.colorScheme.outlineVariant.withAlpha(120)),
+        ),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(
+            label,
+            style: theme.textTheme.labelSmall?.copyWith(
+              fontSize: isWide ? 12 : 11,
+              color: theme.colorScheme.onSurfaceVariant,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          const SizedBox(width: 8),
+          SizedBox(
+            width: isWide ? 84 : 74,
+            height: isWide ? 34 : 30,
+            child: TextField(
+              keyboardType: TextInputType.number,
+              textInputAction: TextInputAction.go,
+              textAlign: TextAlign.center,
+              textAlignVertical: TextAlignVertical.center,
+              style: theme.textTheme.bodySmall?.copyWith(
+                fontSize: isWide ? 14 : 12,
+                fontWeight: FontWeight.w700,
+              ),
+              decoration: InputDecoration(
+                isDense: true,
+                hintText: '#',
+                hintStyle: TextStyle(fontSize: isWide ? 12 : 11),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 6,
+                  vertical: 6,
+                ),
+                fillColor: theme.colorScheme.surfaceContainerHighest.withAlpha(100),
+                filled: true,
+              ),
+              onSubmitted: (value) {
+                final parsed = int.tryParse(value.trim());
+                if (parsed != null && parsed > 0) {
+                  onGoto(parsed);
+                }
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }

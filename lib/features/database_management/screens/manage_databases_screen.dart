@@ -1,10 +1,15 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:path/path.dart' as p;
 import 'package:dio/dio.dart';
 import '../../../core/database/database_manager.dart';
 import '../../onboarding/providers/downloader_provider.dart';
 import '../../onboarding/services/database_discovery_service.dart';
 import '../../onboarding/services/selective_database_importer.dart';
+import '../../onboarding/onboarding_screen.dart';
 import '../providers/database_status_provider.dart';
 import '../providers/local_databases_provider.dart';
 import '../../church_ages/providers/church_ages_provider.dart';
@@ -24,6 +29,22 @@ class ManageDatabasesScreen extends ConsumerStatefulWidget {
 }
 
 class _ManageDatabasesScreenState extends ConsumerState<ManageDatabasesScreen> {
+  Future<bool> _looksLikeSqliteDb(String path) async {
+    try {
+      final file = File(path);
+      if (!await file.exists()) return false;
+      final bytes = await file.openRead(0, 16).fold<List<int>>(
+        <int>[],
+        (acc, data) => acc..addAll(data),
+      );
+      if (bytes.length < 16) return false;
+      final header = String.fromCharCodes(bytes);
+      return header.startsWith('SQLite format 3');
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Tracks which database is currently being downloaded/imported
   String? _downloadingDatabaseId;
 
@@ -161,6 +182,23 @@ class _ManageDatabasesScreenState extends ConsumerState<ManageDatabasesScreen> {
                     ],
                   ),
                 ),
+              if (databases.any((d) => d.isInstalled))
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: _clearAllDatabases,
+                      icon: const Icon(Icons.delete_sweep_outlined),
+                      label: const Text('Wipe All Installed Databases'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: cs.error,
+                        side: BorderSide(color: cs.error.withAlpha(100)),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                    ),
+                  ),
+                ),
               Expanded(
                 child: ListView.builder(
                   padding: const EdgeInsets.symmetric(vertical: 8),
@@ -191,8 +229,77 @@ class _ManageDatabasesScreenState extends ConsumerState<ManageDatabasesScreen> {
   }
 
   void _startDownload(String databaseId, String downloadUrl) {
+    if ((databaseId == 'special_books_catalog_ta' ||
+            databaseId == 'special_books_catalog_en') &&
+        downloadUrl.trim().isEmpty) {
+      _importSpecialBooksCatalogFromDevice(databaseId);
+      return;
+    }
+
+    if (downloadUrl.trim().isEmpty) {
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => const OnboardingScreen(showImportDirectly: true),
+        ),
+      );
+      return;
+    }
     setState(() => _downloadingDatabaseId = databaseId);
     ref.read(downloaderProvider.notifier).startDownload(downloadUrl);
+  }
+
+  Future<void> _importSpecialBooksCatalogFromDevice(String databaseId) async {
+    final languageCode = databaseId.endsWith('_ta') ? 'ta' : 'en';
+    final displayName = languageCode == 'ta'
+        ? 'Special Books Catalog (Tamil)'
+        : 'Special Books Catalog (English)';
+
+    final picked = await FilePicker.platform.pickFiles(
+      allowMultiple: false,
+      type: FileType.custom,
+      allowedExtensions: const ['db'],
+      dialogTitle: 'Select $databaseId.db',
+    );
+    if (picked == null || picked.files.isEmpty) return;
+
+    final selectedPath = picked.files.single.path;
+    if (selectedPath == null || selectedPath.trim().isEmpty) return;
+    if (!p.basename(selectedPath).toLowerCase().endsWith('.db')) return;
+    final isDb = await _looksLikeSqliteDb(selectedPath);
+    if (!isDb) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Selected file is not a valid SQLite .db file.')),
+      );
+      return;
+    }
+
+    if (!mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.showSnackBar(
+      SnackBar(content: Text('Importing $displayName...')),
+    );
+
+    final importer = SelectiveDatabaseImporter();
+    final result = await importer.importSpecialBooksCatalog(
+      sourceFile: File(selectedPath),
+      languageCode: languageCode,
+      displayName: displayName,
+      onProgress: (progress, message) {},
+    );
+
+    if (!mounted) return;
+    if (result.success) {
+      messenger.showSnackBar(
+        SnackBar(content: Text(result.message)),
+      );
+      ref.invalidate(localDatabaseFilesProvider);
+      ref.invalidate(databaseStatusProvider(kApiBaseUrl));
+    } else {
+      messenger.showSnackBar(
+        SnackBar(content: Text(result.message)),
+      );
+    }
   }
 
   Future<void> _deleteSingleDatabase(String databaseId, String displayName) async {
@@ -225,12 +332,16 @@ class _ManageDatabasesScreenState extends ConsumerState<ManageDatabasesScreen> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(content: Text('$displayName deleted')),
           );
-          // Refresh all relevant providers
+          
+          // Force immediate refresh of all relevant providers
           ref.invalidate(localDatabaseFilesProvider);
           ref.invalidate(databaseStatusProvider(kApiBaseUrl));
           ref.invalidate(localDatabaseExistsProvider);
           ref.invalidate(churchAgesProvider);
           ref.invalidate(churchAgesReaderProvider);
+          
+          // Also explicitly notify the status provider to rebuild
+          await ref.read(databaseStatusProvider(kApiBaseUrl).future);
         }
       } catch (e) {
         if (mounted) {
@@ -246,9 +357,9 @@ class _ManageDatabasesScreenState extends ConsumerState<ManageDatabasesScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Clear All Databases?'),
+        title: const Text('Wipe Optional Databases?'),
         content: const Text(
-          'This will remove all installed databases from your device. You can reinstall them later from the server.',
+          'This will remove all optional installed modules (Sermons, Church Ages, Tracts, etc.) from your device. \n\nCore databases (Bible and App Metadata) will be preserved.',
         ),
         actions: [
           TextButton(
@@ -257,7 +368,7 @@ class _ManageDatabasesScreenState extends ConsumerState<ManageDatabasesScreen> {
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Clear All', style: TextStyle(color: Colors.red)),
+            child: const Text('Wipe Optional', style: TextStyle(color: Colors.red)),
           ),
         ],
       ),
@@ -266,25 +377,43 @@ class _ManageDatabasesScreenState extends ConsumerState<ManageDatabasesScreen> {
     if (confirmed == true && mounted) {
       try {
         final dbManager = DatabaseManager();
-        final databaseIds = [
+        
+        // Define core databases that should NOT be wiped automatically
+        const coreDatabaseIds = {
           'bridemessage_db_en-ta',
           'bridemessage_db_en',
           'bridemessage_db_ta',
           'bible_en',
           'bible_ta',
+          'bible_kjv',
+          'bible_ta_bsi',
+          'app_metadata',
+        };
+
+        final allDatabaseIds = [
           'sermons_en',
           'sermons_ta',
           'tracts_en',
           'tracts_ta',
+          'stories_en',
+          'stories_ta',
           'cod_en',
           'cod_ta',
           'church_ages_en',
           'church_ages_ta',
+          'quotes_en',
+          'prayer_quotes_en',
+          'special_books_catalog_en',
+          'special_books_catalog_ta',
         ];
 
-        for (final id in databaseIds) {
+        int deletedCount = 0;
+        for (final id in allDatabaseIds) {
+          if (coreDatabaseIds.contains(id)) continue;
+          
           try {
             await dbManager.deleteDatabase(id);
+            deletedCount++;
           } catch (e) {
             debugPrint('Error deleting $id: $e');
           }
@@ -292,7 +421,7 @@ class _ManageDatabasesScreenState extends ConsumerState<ManageDatabasesScreen> {
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('All databases cleared')),
+            SnackBar(content: Text('Cleared $deletedCount optional database modules')),
           );
           // Refresh all relevant providers
           ref.invalidate(localDatabaseFilesProvider);
@@ -300,6 +429,8 @@ class _ManageDatabasesScreenState extends ConsumerState<ManageDatabasesScreen> {
           ref.invalidate(localDatabaseExistsProvider);
           ref.invalidate(churchAgesProvider);
           ref.invalidate(churchAgesReaderProvider);
+          
+          await ref.read(databaseStatusProvider(kApiBaseUrl).future);
         }
       } catch (e) {
         if (mounted) {
@@ -505,7 +636,7 @@ class _DatabaseCard extends ConsumerWidget {
                           child: Text(
                             database.isInstalled
                                 ? (database.hasUpdate ? 'Update' : 'Already updated')
-                                : 'Install',
+                                : (db.downloadUrl.isEmpty ? 'Import / Download' : 'Install'),
                           ),
                         ),
                       ),

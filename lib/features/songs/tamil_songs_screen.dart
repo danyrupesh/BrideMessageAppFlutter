@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../dashboard/module_resume_prefs.dart';
 import 'providers/tamil_songs_provider.dart';
 import 'models/tamil_song_models.dart';
 import '../common/widgets/chips.dart';
@@ -8,6 +10,12 @@ import '../common/widgets/fts_highlight_text.dart';
 import '../help/widgets/help_button.dart';
 import '../common/widgets/section_menu_button.dart';
 import '../settings/widgets/theme_picker_sheet.dart';
+import 'package:file_picker/file_picker.dart';
+import 'dart:io';
+import '../onboarding/services/selective_database_importer.dart';
+import '../onboarding/providers/downloader_provider.dart';
+import '../database_management/providers/database_status_provider.dart';
+import '../database_management/providers/local_databases_provider.dart';
 
 class TamilSongsScreen extends ConsumerStatefulWidget {
   const TamilSongsScreen({super.key});
@@ -19,6 +27,8 @@ class TamilSongsScreen extends ConsumerStatefulWidget {
 class _TamilSongsScreenState extends ConsumerState<TamilSongsScreen> {
   final TextEditingController _searchController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
+  bool _isImporting = false;
+  String? _importStatus;
 
   @override
   void initState() {
@@ -71,7 +81,8 @@ class _TamilSongsScreenState extends ConsumerState<TamilSongsScreen> {
       ),
       body: Column(
         children: [
-          _buildTopPanel(state, theme),
+          if (state.error == null || state.songs.isNotEmpty)
+            _buildTopPanel(state, theme),
           Expanded(
             child: _buildSongList(state, theme),
           ),
@@ -288,6 +299,65 @@ class _TamilSongsScreenState extends ConsumerState<TamilSongsScreen> {
     if (state.isLoading && state.songs.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
+
+    if (state.error != null && state.songs.isEmpty) {
+      final isMissingDb = state.error!.contains('Database file not found');
+      
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              isMissingDb ? Icons.storage_outlined : Icons.error_outline,
+              size: 64,
+              color: theme.colorScheme.error,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              isMissingDb ? 'தமிழ் பாடல்கள் தரவுத்தளம் இல்லை' : 'Error Loading Songs',
+              style: theme.textTheme.titleLarge,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              isMissingDb 
+                ? 'The Tamil songs database is not installed on your device.'
+                : state.error!,
+              style: theme.textTheme.bodyMedium,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 24),
+            if (isMissingDb) ...[
+              if (_isImporting) ...[
+                const CircularProgressIndicator(),
+                const SizedBox(height: 16),
+                Text(_importStatus ?? 'Importing...', style: theme.textTheme.bodySmall),
+              ] else ...[
+                FilledButton.icon(
+                  onPressed: () => context.push('/database-management'),
+                  icon: const Icon(Icons.download),
+                  label: const Text('Download / Manage Databases'),
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  onPressed: _pickAndImportDatabase,
+                  icon: const Icon(Icons.file_open),
+                  label: const Text('Import from Device (.db or .zip)'),
+                ),
+              ],
+            ] else
+              FilledButton(
+                onPressed: () => ref.read(tamilSongsProvider.notifier).loadSongs(),
+                child: const Text('Retry'),
+              ),
+          ],
+        ),
+      ),
+    );
+    }
+
     if (state.songs.isEmpty) {
       return const Center(child: Text('No songs found.'));
     }
@@ -346,6 +416,7 @@ class _TamilSongsScreenState extends ConsumerState<TamilSongsScreen> {
             ],
           ),
           onTap: () {
+            unawaited(ModuleResumePrefs.saveLastTamilSongId(song.id));
             final uri = Uri(
               path: '/song-detail/tamil',
               queryParameters: {
@@ -358,5 +429,82 @@ class _TamilSongsScreenState extends ConsumerState<TamilSongsScreen> {
         );
       },
     );
+  }
+
+  Future<void> _pickAndImportDatabase() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['db', 'zip'],
+      );
+
+      if (result == null || result.files.single.path == null) return;
+
+      setState(() {
+        _isImporting = true;
+        _importStatus = 'Starting import...';
+      });
+
+      final file = File(result.files.single.path!);
+      final importer = SelectiveDatabaseImporter();
+      final isZip = file.path.toLowerCase().endsWith('.zip');
+
+      ImportResult importResult;
+      if (isZip) {
+        importResult = await importer.importAllFromZip(
+          zipPath: file.path,
+          onProgress: (progress, message) {
+            setState(() => _importStatus = message);
+          },
+        );
+      } else {
+        importResult = await importer.importSongsDatabase(
+          sourceFile: file,
+          languageCode: 'ta',
+          displayName: 'Tamil Songs',
+          onProgress: (progress, message) {
+            setState(() => _importStatus = message);
+          },
+        );
+      }
+
+      if (!mounted) return;
+
+      if (importResult.success) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(importResult.message)),
+        );
+        // Refresh both the status provider and the specific module provider
+        ref.invalidate(localDatabaseFilesProvider);
+        ref.read(tamilSongsProvider.notifier).loadSongs();
+      } else {
+        showDialog(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            title: const Text('Import Failed'),
+            content: Text(importResult.message),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isImporting = false;
+          _importStatus = null;
+        });
+      }
+    }
   }
 }
